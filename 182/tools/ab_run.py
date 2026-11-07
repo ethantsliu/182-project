@@ -540,10 +540,10 @@ def cmd_parse(a) -> str:
         if name not in groups:
             groups[name] = []
             order.append(name)
-        for i, p in enumerate(logparse.expand([pat])):
-            log = logparse.parse_file(p)
+        runs = [(p, r) for p in logparse.expand([pat]) for r in logparse.parse_file_runs(p)]
+        for i, (p, log) in enumerate(runs):
             status = "nan" if log.is_nan else ("ok" if log.completed else ("incomplete" if log.val_loss is not None else "no-val"))
-            groups[name].append(dict(idx=os.path.basename(p), rep=i, status=status, val_loss=log.val_loss,
+            groups[name].append(dict(idx=os.path.basename(p) + (f"[{log.run_index}]" if log.runs_in_file > 1 else ""), rep=i, status=status, val_loss=log.val_loss,
                                      train_time_s=log.train_time_s, val_curve=log.val_curve))
     text = summarize({n: groups[n] for n in order}, a.baseline or order[0], a.target, a.at_step)
     print(text)

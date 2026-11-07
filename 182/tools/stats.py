@@ -82,8 +82,10 @@ def t_sf(t: float, df: float) -> float:
     """P(T > t) for Student's t with df degrees of freedom (df may be fractional, as in Welch)."""
     if math.isinf(df):
         return norm_sf(t)
-    x = df / (df + t * t)
-    tail = 0.5 * betainc(df / 2.0, 0.5, x)
+    # tail = I_x(df/2, 1/2) / 2 with x = df/(df+t^2); for small |t|, x ~ 1 and the complement
+    # 1 - I_{1-x}(1/2, df/2) with 1-x = t^2/(df+t^2) computed directly keeps full precision.
+    x, xc = df / (df + t * t), t * t / (df + t * t)
+    tail = 0.5 * (betainc(df / 2.0, 0.5, x) if x < 0.5 else 1.0 - betainc(0.5, df / 2.0, xc))
     return tail if t > 0 else 1.0 - tail
 
 
@@ -249,11 +251,10 @@ def required_n_z3(expected_mean: float, sigma: float = T3_SIGMA, target: float =
 # ----------------------------------------------------------------------------- CLI
 
 def _collect(patterns, extra, metric: str, at_step: int | None, allow_incomplete: bool):
-    from logparse import expand, parse_file
+    from logparse import expand, parse_file_runs
 
     vals, notes = [], []
-    for p in expand(patterns or []):
-        r = parse_file(p)
+    for p, r in ((p, r) for p in expand(patterns or []) for r in parse_file_runs(p)):
         if r.val_loss is None:
             notes.append(f"no val line: {p}")
             continue
