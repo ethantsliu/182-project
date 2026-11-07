@@ -40,7 +40,8 @@ from track_1_short.config import (
 )
 from track_1_short.data import ScheduledBatches, cu_seqlens_rows, distributed_data_generator
 from track_1_short.distributed import setup_distributed
-from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT
+from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT, MLP_HIDDEN_DIM
+from track_1_short.model.monarch import MONARCH_MLP
 from track_1_short.model.prefix_prediction import build_prefix_table_bucket
 from track_1_short.ngram_table import (
     MAX_CYCLE_STEPS,
@@ -164,6 +165,11 @@ def main():
         f"seed={'random' if args.train_seed is None else args.train_seed} "
         f"steps={training_schedule.total_steps} stage boundaries={training_schedule.boundaries}"
     )
+    if MONARCH_MLP:
+        ms = model.monarch_shape
+        print0(f"MONARCH_MLP=1: blocks={ms.blocks} expand={ms.expand} hidden={ms.hidden} block=[{ms.q}, {ms.p}] "
+               f"params/slot={ms.params_per_slot()} (dense {2 * MLP_HIDDEN_DIM * 768}); bf16 MLP, per-block ANVIL",
+               console=True)
     model.cast_matrix_weights_bf16()
     for param in model.parameters():
         dist.broadcast(param.detach(), 0)

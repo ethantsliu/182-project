@@ -8,6 +8,15 @@ from torch import Tensor, nn
 
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
+from track_1_short.model.monarch import (
+    MONARCH_BLOCKS,
+    MONARCH_EXPAND,
+    MONARCH_MLP,
+    MonarchShape,
+    init_monarch_bank_,
+    monarch_matrix_lr_muls,
+    monarch_mlp,
+)
 from track_1_short.ngram_table import NGRAM_SIGN_POOL_ROWS
 from track_1_short.perf.kernels.cross_entropy import (
     FusedSoftcappedCrossEntropy,
@@ -282,6 +291,9 @@ class GPT(nn.Module):
     def init_mlp(self, model_dim):
         # MLP bank: stores c_fc and c_proj for all NUM_MLP_SLOTS slots.
         self.mlp_hdim = MLP_HIDDEN_DIM
+        if MONARCH_MLP:
+            self.init_monarch_mlp(model_dim)
+            return
         self.mlp_bank = nn.Parameter(torch.empty(NUM_MLP_SLOTS, 2, self.mlp_hdim, model_dim))  # (12, 2, 2816, 768)
         self.mlp_bank.reshape = (2 * NUM_MLP_SLOTS, self.mlp_hdim, model_dim)  # Shape for sharding: (24, 2816, 768)
         # The optimizer leaves these matrices untouched: c_fc and c_proj of each NO_MLP_LAYERS slot.
@@ -294,6 +306,19 @@ class GPT(nn.Module):
             self.mlp_bank[:, 0, :, :].uniform_(-bound, bound)  # c_fc
             self.mlp_bank[:, 1, :, :].zero_()  # c_proj - zero init suggested by @Grad62304977
 
+        self.init_mlp_fp8(model_dim)
+
+    def init_monarch_mlp(self, model_dim):
+        """MONARCH_MLP=1 (model/monarch.py): mlp_bank holds each slot's Monarch blocks instead,
+        [NUM_MLP_SLOTS, blocks_per_slot, q, p], and every block is its own ANVIL matrix. The MLP runs
+        in bf16 (it bypasses the fp8 MLP kernel); the fp8 MLP buffers are still allocated, unused, so
+        the fp8 refresh graphs keep their shape."""
+        shape = self.monarch_shape = MonarchShape(model_dim, MONARCH_BLOCKS, MONARCH_EXPAND)
+        self.mlp_bank = nn.Parameter(torch.empty(NUM_MLP_SLOTS, shape.blocks_per_slot, shape.q, shape.p))
+        self.mlp_bank.reshape = (NUM_MLP_SLOTS * shape.blocks_per_slot, shape.q, shape.p)
+        # Read by AnvilAndAdam in place of the dense bank's c_proj-parity rule; NO_MLP_LAYERS get 0.
+        self.mlp_bank.matrix_lr_mul = monarch_matrix_lr_muls(shape, NUM_MLP_SLOTS, frozen_slots=NO_MLP_LAYERS)
+        init_monarch_bank_(self.mlp_bank.data, shape)
         self.init_mlp_fp8(model_dim)
 
     def init_mlp_fp8(self, model_dim):
@@ -495,9 +520,12 @@ class GPT(nn.Module):
             x[..., :self.ngram_dim] = x[..., :self.ngram_dim] + x0_bigram * bigram_gates[i]
         return x
 
-    def _mlp(self, x_normed, c_fc, c_proj, fp8_args):
+    def _mlp(self, x_normed, mlp_weights, slot, fp8_args):
         """relu(x @ c_fc.T)^2 @ c_proj; in FP8 (training) when `fp8_args` holds this slot's _mlp_fp8_args,
-        else bf16 (validation)."""
+        else bf16 (validation). With MONARCH_MLP, always the bf16 Monarch MLP (model/monarch.py)."""
+        if MONARCH_MLP:
+            return monarch_mlp(x_normed, mlp_weights[slot], self.monarch_shape)
+        c_fc, c_proj = mlp_weights[0][slot], mlp_weights[1][slot]
         if fp8_args is None:
             return ReLUSqrdMLP(x_normed, c_fc, c_proj)
         return ReLUSqrdMLP(x_normed, c_fc, c_proj, *fp8_args)
@@ -563,8 +591,9 @@ class GPT(nn.Module):
 
         # FP8 is training-only; validation runs the bf16 path.
         use_fp8 = self.training
+        use_fp8_mlp = use_fp8 and not MONARCH_MLP
         attn_f8_weights = self._attn_fp8_weights() if use_fp8 else None
-        mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8 else None
+        mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8_mlp else None
 
         # ---- Unbind parameters (avoid select_backward kernels) ----
         sa_lambdas = self.scalars[: 2 * self.num_layers].view(-1, 2)
@@ -582,9 +611,11 @@ class GPT(nn.Module):
         x0_gates = [None] * self.num_layers
         bigram_gates = [None] * self.num_layers
         attn_weights = self._attn_weights()
-        mlp_all = self.mlp_bank.flatten(0, 1).unbind(0)  # 24 tensors of [mlp_hdim, dim]
-        mlp_fcs = mlp_all[0::2]    # even indices: c_fc
-        mlp_projs = mlp_all[1::2]  # odd indices: c_proj
+        if MONARCH_MLP:
+            mlp_weights = self.mlp_bank.unbind(0)  # 12 slots of [blocks_per_slot, q, p]
+        else:
+            mlp_all = self.mlp_bank.flatten(0, 1).unbind(0)  # 24 tensors of [mlp_hdim, dim]
+            mlp_weights = (mlp_all[0::2], mlp_all[1::2])  # even indices: c_fc, odd: c_proj
 
         # ---- Embeddings and input preparation ----
         x = self.embed(input_seq) # embed is synced from lm_head during tied phase by optimizer
@@ -636,8 +667,6 @@ class GPT(nn.Module):
         # so it is normed, and in fp8 quantized, once and shared. The post-loop mix reads it too.
         late_attn_in = None
         for i in range(self.num_layers):
-            c_fc = mlp_fcs[i]
-            c_proj = mlp_projs[i]
             mu = None
 
             if i == POST_GATE_LAYER:
@@ -731,14 +760,14 @@ class GPT(nn.Module):
             mlp_in = norm(x)
             # fp8 only: the post-lambda is folded into the down-projection scale, so the MLP output
             # already carries it. Not on the MUDD layer, whose post-lambda mu[13] is per-token.
-            fold_p = post_lambdas_mlp[i] if use_fp8 and mu is None else None
-            if use_fp8:
+            fold_p = post_lambdas_mlp[i] if use_fp8_mlp and mu is None else None
+            if use_fp8_mlp:
                 # One quantize of the input, shared with the parallel MLP.
                 x_f8 = quantize_dual_layout_fused(mlp_in.detach().view(-1, mlp_in.size(-1)), self._mlp_x_scale, fmt=torch.float8_e4m3fn)
                 fp8_args = self._mlp_fp8_args(i, mlp_up_f8[i], x_f8, fold_p)
             else:
                 fp8_args = None
-            mlp_out = self._mlp(mlp_in, c_fc, c_proj, fp8_args)
+            mlp_out = self._mlp(mlp_in, mlp_weights, i, fp8_args)
             if mu is not None:
                 x = mu[12] * x + mu[13] * mlp_out
             elif fold_p is not None:
@@ -748,8 +777,8 @@ class GPT(nn.Module):
             if i == PARALLEL_MLP_LAYER:
                 # Same input and the same post-lambda as the layer's own MLP.
                 k = PARALLEL_MLP_SLOT
-                parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p) if use_fp8 else None
-                parallel_out = self._mlp(mlp_in, mlp_fcs[k], mlp_projs[k], parallel_args)
+                parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p) if use_fp8_mlp else None
+                parallel_out = self._mlp(mlp_in, mlp_weights, k, parallel_args)
                 x = x + (parallel_out if fold_p is not None else scale(post_lambdas_mlp[i], parallel_out))
 
             if i in CACHE_LAYERS:
@@ -897,6 +926,10 @@ class GPT(nn.Module):
                 quantize_lm_head_dual(self.lm_head.weight, self._lm_head_f8_row, self._lm_head_f8_col, self._lm_head_inv_w_s)
 
     def _quantize_mlp_weights_and_scales(self):
+        if MONARCH_MLP:
+            # No fp8 MLP to refresh; the call is still counted (fp8_refresh_graphs bumps it per replay).
+            self.mlp_quantize_calls += 1
+            return
         e4m3_max = torch.finfo(torch.float8_e4m3fn).max
         e5m2_max = torch.finfo(torch.float8_e5m2).max
         up_weights, down_weights = self.mlp_bank[:, 0], self.mlp_bank[:, 1]

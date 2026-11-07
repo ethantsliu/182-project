@@ -332,7 +332,12 @@ class AnvilAndAdam:
             # marks as frozen (`param.frozen_matrices`, e.g. a removed layer's MLP) get LR 0, which
             # also zeroes their decay term: they do not move at all.
             per_matrix_lr_mul = None
-            if label == "mlp_bank":
+            matrix_lr_mul = getattr(param, "matrix_lr_mul", None)  # set by MONARCH_MLP (model/monarch.py)
+            if matrix_lr_mul is not None:
+                assert len(matrix_lr_mul) == reshape[0]
+                start_idx = self.rank * chunk_size
+                per_matrix_lr_mul = list(matrix_lr_mul[start_idx:start_idx + chunk_size])
+            elif label == "mlp_bank":
                 start_idx = self.rank * chunk_size
                 frozen = getattr(param, "frozen_matrices", frozenset())
                 per_matrix_lr_mul = []
