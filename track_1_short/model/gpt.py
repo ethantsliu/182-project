@@ -1030,7 +1030,8 @@ class GPT(nn.Module):
 
         `x_f8` is the (row, transposed) e4m3 input, quantized for MLP slot `xt_slot` (the parallel MLP shares
         its layer's). Under HADAMARD_FP8 the transposed input, the W1 column cache and the W2 row cache are
-        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q. With `fold_p` (the post-lambda folded into the
+        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q.
+        With `fold_p` (the post-lambda folded into the
         down-projection scale), the down projection's forward and dgrad dequant scales are the folded
         ones, and fold_p rides last for its gradient.
         """
