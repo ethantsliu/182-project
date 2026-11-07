@@ -479,7 +479,7 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         # 1. Quantize the incoming gradient (one pass, both layouts), then dW2 = post^T @ g. Under
         # HADAMARD_FP8 both layouts are rotated: g_f8 along 768 (the dpre GEMM), g_f8_t along tokens (dW2).
         if ctx.hadamard_q is not None:
-            g_f8, g_f8_t = torch.ops.nanogpt.hadamard_dual_quant(g_flat, ctx.hadamard_q, ctx.g_scale, True)
+            g_f8, g_f8_t = hadamard_dual_quant(g_flat, ctx.hadamard_q, ctx.g_scale, True)
         else:
             g_f8, g_f8_t = quantize_dual_layout_fused(g_flat, ctx.g_scale, fmt=torch.float8_e5m2)
         dW2 = torch.ops.nanogpt.wg2_f8(ctx.post_t, g_f8_t, ctx.post_scale, ctx.g_scale)

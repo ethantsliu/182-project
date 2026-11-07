@@ -101,7 +101,7 @@ def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, bat
     # refresh the fp8 weights.
     deferred_gathers.flush()
     if before_forward is not None:  # FP8_DUMP_DIR only (perf/fp8_dump.py): reads the refreshed weights
-        before_forward(batch, ngram_slots)
+        before_forward(step, batch, ngram_slots)
     # Before the forward, after the lm_head fp8 refresh just above: the candidates' lm_head rows. None on
     # full-softmax steps.
     sampled_loss = sampled_softmax.gather(step, lm_head_f8_col)
@@ -316,6 +316,21 @@ def main():
     # completes the tables first (model/attention.py Yarn; record #360). Warmup rebuilt them whole.
     uncompiled_model.limit_yarn_rebuild(max_step_tokens)
 
+    def fp8_dump_hook(step, batch, ngram_slots):
+        # 182/hadamard-fp8 (FP8_DUMP_DIR only): an eager side pass that saves sample fp8-GEMM operands
+        # (rank 0). The clock is paused for it (t0 moves forward by its duration); it changes no state.
+        nonlocal t0
+        torch.cuda.synchronize()
+        pause = time.perf_counter()
+        if env.master_process:
+            n = run_fp8_dump(uncompiled_model, batch, ngram_slots, training_manager.get_forward_args(None),
+                             path=os.path.join(FP8_DUMP_DIR, f"step{step:06d}.pt"), rows=FP8_DUMP_ROWS,
+                             extra=dict(step=step, fp8_off=sorted(FP8_OFF), hadamard=HADAMARD_FP8))
+            print0(f"fp8 dump: step {step}, {n} records -> {FP8_DUMP_DIR}", console=True)
+        torch.cuda.synchronize()
+        dist.barrier()
+        t0 += time.perf_counter() - pause
+
     training_time_ms = 0
     # start the clock
     torch.cuda.synchronize()
@@ -398,25 +413,9 @@ def main():
             break
 
         # --------------- TRAINING SECTION -----------------
-        before_forward = None
-        if FP8_DUMP_DIR and step in FP8_DUMP_STEPS:
-            def before_forward(batch, ngram_slots, step=step):
-                # 182/hadamard-fp8: an eager side pass that saves sample fp8-GEMM operands (rank 0). The clock
-                # is paused for it (t0 moves forward by its duration); it changes no training state.
-                nonlocal t0
-                torch.cuda.synchronize()
-                pause = time.perf_counter()
-                if env.master_process:
-                    n = run_fp8_dump(uncompiled_model, batch, ngram_slots, training_manager.get_forward_args(None),
-                                     path=os.path.join(FP8_DUMP_DIR, f"step{step:06d}.pt"), rows=FP8_DUMP_ROWS,
-                                     extra=dict(step=step, fp8_off=sorted(FP8_OFF), hadamard=HADAMARD_FP8))
-                    print0(f"fp8 dump: step {step}, {n} records -> {FP8_DUMP_DIR}", console=True)
-                torch.cuda.synchronize()
-                dist.barrier()
-                t0 += time.perf_counter() - pause
         train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
                    step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps,
-                   before_forward=before_forward)
+                   before_forward=fp8_dump_hook if FP8_DUMP_DIR and step in FP8_DUMP_STEPS else None)
         tail_averages.tick(step)
 
         # logging, thinned to every PRINT_EVERY steps and the last two

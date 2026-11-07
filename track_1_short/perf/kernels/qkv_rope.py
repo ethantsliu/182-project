@@ -298,6 +298,7 @@ class PackedFP8QKVFunction(torch.autograd.Function):
         (qk_weight, v_weight, x_f8_t, weight_f8_t, scaled_weight_scale, qkv_scale,
          x_scale, grad_scale, qk, factor1, factor2) = ctx.saved_tensors
         num_heads, v_dim = ctx.num_heads, ctx.v_dim
+        qk_dim = qk.shape[2]
         grad_v = grad_v.reshape(-1, num_heads, v_dim)
         grad_f8, grad_f8_t = _qkv_backward_grad(grad_q, grad_k, grad_v, qk, factor1, factor2, grad_scale,
                                                 num_heads, v_dim, ctx.rotary_dim, ctx.paired, ctx.key_offset, fp8_out=True)
