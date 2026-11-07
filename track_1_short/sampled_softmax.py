@@ -74,6 +74,7 @@ class SampledLoss:
     target_pos: Tensor  # (T_max,) int64: position in C of each token's target (first T rows are live)
     prefix_pos: Tensor  # (T_max,) int64: position in C of each token's prefix target, -1 if absent
     vocab_pos: Tensor   # (V,) int32: position in C of each class, -1 if not a candidate
+    candidates: Tensor  # (P,) int64: C itself, ascending class ids (read only by the FP8_OFF=lm bf16 loss)
 
 
 class CandidateBuilder:
@@ -172,7 +173,8 @@ class SampledSoftmax:
         self.loss_inputs = {
             p: SampledLoss(rows=torch.zeros(p, model_dim, dtype=e4m3, device=device),
                            rows_t=torch.zeros(model_dim, p, dtype=e4m3, device=device),
-                           target_pos=target_pos, prefix_pos=prefix_pos, vocab_pos=vocab_pos)
+                           target_pos=target_pos, prefix_pos=prefix_pos, vocab_pos=vocab_pos,
+                           candidates=self.candidates[:p])
             for p in p_values
         }
         self.reset()

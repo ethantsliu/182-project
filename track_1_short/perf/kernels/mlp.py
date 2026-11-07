@@ -23,6 +23,10 @@ import triton.language as tl
 from triton.runtime.errors import OutOfResources
 from triton.tools.tensor_descriptor import TensorDescriptor
 
+from track_1_short.config import HADAMARD_FP8, HADAMARD_SEED
+from track_1_short.perf.hadamard_ref import signed_hadamard
+from track_1_short.perf.kernels.hadamard import HADAMARD_BLOCK, hadamard_dual_quant
+from track_1_short.perf.fp8_dump import FP8_DUMP
 from track_1_short.perf.kernels.transpose import transpose_copy
 
 # Weight scales lag a step (see quantize_mlp_weights_dual), so they keep 12% headroom.
@@ -37,12 +41,23 @@ WEIGHT_SCALE_HEADROOM = 1.12
 #   STORE_PRE, STORE_POST_BF  bf16 pre / post (the bf16 forward: validation)
 #   EMIT_F8, EMIT_T           e4m3 post, row-major and transposed (fp8 down projection and dW2)
 
+# HADAMARD_FP8 (perf/kernels/hadamard.py): the rotated epilogues multiply a bf16 [128, 128] tile by
+# Q = diag(signs) @ H_128 (exact +-1) in fp32 accumulation, then by 1 / sqrt(128). Q is loaded at its use
+# (L2-resident, 32 KB) rather than above the tile loop, to keep it out of the accumulator's live range.
+HADAMARD_SCALE = tl.constexpr(0.08838834764831845)  # 1 / sqrt(128)
+
+@triton.jit
+def _hadamard_q(q_ptr, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    return tl.load(q_ptr + offs[:, None] * BLOCK + offs[None, :])
+
 @triton.jit
 def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                               dequant_scale_ptr,
                               M, N, K,
                               aux_f8_desc, post_scale_ptr, post_amax_ptr, aux_t_desc,
                               c_f8_desc, c_t_desc, dpre_scale_ptr, dpre_amax_ptr, aux_w_desc,
+                              hadamard_q_ptr,
                               BLOCK_SIZE_M: tl.constexpr,
                               BLOCK_SIZE_N: tl.constexpr,
                               BLOCK_SIZE_K: tl.constexpr,
@@ -51,6 +66,7 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                               USE_FP8: tl.constexpr,
                               EMIT_F8: tl.constexpr, EMIT_T: tl.constexpr, STORE_PRE: tl.constexpr,
                               STORE_POST_BF: tl.constexpr,
+                              HADAMARD: tl.constexpr,
                               ):
     dtype = tl.bfloat16
     start_pid = tl.program_id(axis=0)
@@ -107,7 +123,13 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                 q0 = tl.minimum(c0_post.to(tl.float32) * inv_post_scale, 448.0).to(tl.float8e4nv)
                 aux_f8_desc.store([offs_am, offs_bn], q0)
                 if EMIT_T:
-                    aux_t_desc.store([offs_bn, offs_am], tl.trans(q0))
+                    if HADAMARD:
+                        # post_t feeds dW2 (k = tokens): rotate the tile along its BLOCK_SIZE_M tokens.
+                        r0 = tl.dot(tl.trans(c0_post), _hadamard_q(hadamard_q_ptr, BLOCK_SIZE_M)) * HADAMARD_SCALE
+                        rot_max = tl.max(tl.max(tl.abs(r0), axis=1), axis=0)
+                        aux_t_desc.store([offs_bn, offs_am], tl.maximum(tl.minimum(r0 * inv_post_scale, 448.0), -448.0).to(tl.float8e4nv))
+                    else:
+                        aux_t_desc.store([offs_bn, offs_am], tl.trans(q0))
             c1 = acc1.to(dtype)
             if STORE_PRE:
                 c_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], c1)
@@ -119,9 +141,17 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                 q1 = tl.minimum(c1_post.to(tl.float32) * inv_post_scale, 448.0).to(tl.float8e4nv)
                 aux_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], q1)
                 if EMIT_T:
-                    aux_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
+                    if HADAMARD:
+                        r1 = tl.dot(tl.trans(c1_post), _hadamard_q(hadamard_q_ptr, BLOCK_SIZE_M)) * HADAMARD_SCALE
+                        rot_max = tl.maximum(rot_max, tl.max(tl.max(tl.abs(r1), axis=1), axis=0))
+                        aux_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.maximum(tl.minimum(r1 * inv_post_scale, 448.0), -448.0).to(tl.float8e4nv))
+                    else:
+                        aux_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
                 # atomic_max, not a loop-carried scalar: tl.range(flatten=True) does not guarantee those.
                 tile_max = tl.max(tl.max(tl.maximum(c0_post.to(tl.float32), c1_post.to(tl.float32)), axis=1), axis=0)
+                if HADAMARD and EMIT_T:
+                    # One post scale serves the plain row layout and the rotated transposed one.
+                    tile_max = tl.maximum(tile_max, rot_max)
                 tl.atomic_max(post_amax_ptr, tile_max)
         else:
             # aux is the e4m3 post: one [BM, BN] TMA box, re-split exactly like the accumulator.
@@ -131,15 +161,30 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
             a0_raw, a1_raw = tl.split(aux_tile)
             c0 = (2.0 * acc0 * tl.sqrt(a0_raw.to(tl.float32) * post_scale)).to(dtype)
             c1 = (2.0 * acc1 * tl.sqrt(a1_raw.to(tl.float32) * post_scale)).to(dtype)
-            c0f = c0.to(tl.float32)
-            c1f = c1.to(tl.float32)
-            q0 = tl.maximum(tl.minimum(c0f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
-            q1 = tl.maximum(tl.minimum(c1f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
-            c_f8_desc.store([offs_am, offs_bn], q0)
-            c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], q1)
-            c_t_desc.store([offs_bn, offs_am], tl.trans(q0))
-            c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
-            tile_max = tl.max(tl.max(tl.maximum(tl.abs(c0f), tl.abs(c1f)), axis=1), axis=0)
+            if HADAMARD:
+                # dpre row feeds dx (k = hidden): rotate each half along its BLOCK_SIZE_N // 2 features.
+                # dpre_t feeds dW1 (k = tokens): rotate along the BLOCK_SIZE_M tokens, already transposed.
+                hq = _hadamard_q(hadamard_q_ptr, BLOCK_SIZE_M)
+                r0 = tl.dot(c0, hq) * HADAMARD_SCALE
+                r1 = tl.dot(c1, hq) * HADAMARD_SCALE
+                t0 = tl.dot(tl.trans(c0), hq) * HADAMARD_SCALE
+                t1 = tl.dot(tl.trans(c1), hq) * HADAMARD_SCALE
+                c_f8_desc.store([offs_am, offs_bn], tl.maximum(tl.minimum(r0 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
+                c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], tl.maximum(tl.minimum(r1 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
+                c_t_desc.store([offs_bn, offs_am], tl.maximum(tl.minimum(t0 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
+                c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.maximum(tl.minimum(t1 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
+                # One dpre scale serves both rotated layouts.
+                tile_max = tl.max(tl.max(tl.maximum(tl.maximum(tl.abs(r0), tl.abs(r1)), tl.maximum(tl.abs(t0), tl.abs(t1))), axis=1), axis=0)
+            else:
+                c0f = c0.to(tl.float32)
+                c1f = c1.to(tl.float32)
+                q0 = tl.maximum(tl.minimum(c0f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
+                q1 = tl.maximum(tl.minimum(c1f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
+                c_f8_desc.store([offs_am, offs_bn], q0)
+                c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], q1)
+                c_t_desc.store([offs_bn, offs_am], tl.trans(q0))
+                c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
+                tile_max = tl.max(tl.max(tl.maximum(tl.abs(c0f), tl.abs(c1f)), axis=1), axis=0)
             tl.atomic_max(dpre_amax_ptr, tile_max)
 
 
@@ -232,7 +277,7 @@ _lrs_stage_cache = {}
 def linear_relu_square(a, b, aux=None, a_f8=None, b_f8=None, dequant_scale_ptr=None,
                        emit_f8=False, post_scale=None, post_amax=None,
                        emit_t=False, store_pre=True, store_post_bf=True,
-                       dpre_scale=None, dpre_amax=None):
+                       dpre_scale=None, dpre_amax=None, hadamard_q=None):
     """Forward (aux is None) returns (pre, post, post_f8, post_t), None where not requested. Backward
     (aux = the e4m3 post; fp8 operands only) returns (dpre_f8, dpre_t), the e5m2 dpre in both layouts."""
     M, K = a.shape
@@ -249,6 +294,12 @@ def linear_relu_square(a, b, aux=None, a_f8=None, b_f8=None, dequant_scale_ptr=N
     # The transposed post only exists for the fp8 dW2, when the bf16 post is dead.
     assert emit_f8 or not emit_t
     assert not (emit_t and store_post_bf)
+    hadamard = hadamard_q is not None
+    if hadamard:
+        # The rotation block is one M tile (tokens) and one half N tile (features).
+        assert use_fp8 and BLOCK_SIZE_M == BLOCK_SIZE_N // 2 == hadamard_q.shape[0] == hadamard_q.shape[1]
+        assert M % BLOCK_SIZE_M == 0 and N % (BLOCK_SIZE_N // 2) == 0, "partial Hadamard blocks"
+        assert not FORWARD or emit_t, "the forward only rotates the transposed post"
     if not FORWARD:
         assert use_fp8 and aux.dtype == torch.float8_e4m3fn
         assert post_scale is not None and dpre_scale is not None and dpre_amax is not None
@@ -282,11 +333,11 @@ def linear_relu_square(a, b, aux=None, a_f8=None, b_f8=None, dequant_scale_ptr=N
     assert use_fp8 == (dequant_scale_ptr is not None)
     assert post_scale is not None or not (FORWARD and emit_f8)
     unused_ptr = torch.empty(1, dtype=torch.float32, device=a.device)
-    dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax = [
+    dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax, hadamard_q_ptr = [
         unused_ptr if p is None else p
-        for p in (dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax)]
+        for p in (dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax, hadamard_q)]
 
-    key = (FORWARD, use_fp8, emit_f8, emit_t, store_pre, store_post_bf,
+    key = (FORWARD, use_fp8, emit_f8, emit_t, store_pre, store_post_bf, hadamard,
            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps)
     num_stages = _lrs_stage_cache.get(key, 4 if (FORWARD and not (emit_f8 or emit_t)) else 3)
     grid = (min(NUM_SMS, triton.cdiv(M, BLOCK_SIZE_M) * triton.cdiv(N, BLOCK_SIZE_N)), )
@@ -295,12 +346,13 @@ def linear_relu_square(a, b, aux=None, a_f8=None, b_f8=None, dequant_scale_ptr=N
         linear_relu_square_kernel[grid](
             a_desc, b_desc, c_desc, aux_desc, dequant_scale_ptr, M, N, K,
             aux_f8_desc, post_scale, post_amax, aux_t_desc,
-            c_f8_desc, c_t_desc, dpre_scale, dpre_amax, aux_w_desc,
+            c_f8_desc, c_t_desc, dpre_scale, dpre_amax, aux_w_desc, hadamard_q_ptr,
             BLOCK_SIZE_M=BLOCK_SIZE_M, BLOCK_SIZE_N=BLOCK_SIZE_N,
             BLOCK_SIZE_K=BLOCK_SIZE_K, NUM_SMS=NUM_SMS,
             FORWARD=FORWARD, USE_FP8=use_fp8,
             EMIT_F8=aux_f8 is not None, EMIT_T=aux_t is not None,
             STORE_PRE=FORWARD and store_pre, STORE_POST_BF=FORWARD and store_post_bf,
+            HADAMARD=hadamard,
             num_stages=stages, num_warps=num_warps,
         )
 
@@ -331,14 +383,16 @@ def prime_stage_cache():
     g_f8, aux_e4 = zeros(torch.float8_e5m2, M, K), zeros(torch.float8_e4m3fn, M, N)
     one = torch.ones(1, dtype=torch.float32, device=dev)
     amax = torch.zeros(num_sms, dtype=torch.float32, device=dev)
-    # Each row mirrors one caller: the bf16 forward (validation, no backward) and the fp8 forward and
-    # backward (training). These are every variant a run reaches.
+    # Each row mirrors one caller: the bf16 forward (validation, and the FP8_OFF=mlp training forward)
+    # and the fp8 forward and backward (training), with or without the HADAMARD_FP8 rotation. These are
+    # every variant a run reaches.
+    hq = signed_hadamard(HADAMARD_BLOCK, HADAMARD_SEED, device=dev) if HADAMARD_FP8 else None
     for kwargs in ({},                                                    # bf16 forward
                    {"a_f8": a_e4, "b_f8": b_e4, "dequant_scale_ptr": one, "emit_f8": True,
                     "emit_t": True, "post_scale": one, "post_amax": amax,
-                    "store_pre": False, "store_post_bf": False},          # fp8 forward
+                    "store_pre": False, "store_post_bf": False, "hadamard_q": hq},          # fp8 forward
                    {"aux": aux_e4, "a_f8": g_f8, "b_f8": b_e4, "dequant_scale_ptr": one,
-                    "post_scale": one, "dpre_scale": one, "dpre_amax": amax}):  # fp8 backward
+                    "post_scale": one, "dpre_scale": one, "dpre_amax": amax, "hadamard_q": hq}):  # fp8 backward
         linear_relu_square(a, b, **kwargs)
     torch.cuda.synchronize(dev)
 
@@ -375,13 +429,17 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
       x_f8 / x_f8_t       the input in e4m3 and its transpose
       dequant_scale       x_scale * w1_scale;  dq_bwd = w2_scale * g_scale
       post_scale/amax, dpre_scale/amax  the delayed activation scales and their amax slots
+      hadamard_q          HADAMARD_FP8 only (else None): the bf16 Q of perf/kernels/hadamard.py. The four
+                          gradient GEMMs then read rotated operands; the caller passes the rotated weight
+                          caches (w2_f8_row, w1_f8_col), their scales and the rotated x_t with its scale.
       p_fold              the residual post-lambda folded into the down-projection scale (w2_scale
                           and dq_bwd), or None. It rides along only so its gradient can be returned.
     """
     @staticmethod
     def forward(ctx, x, W1, W2, W1_f8=None, dequant_scale=None, x_f8=None, W2_f8=None, w2_scale=None,
                 post_scale=None, post_amax=None, w2_f8_row=None, dq_bwd=None, x_f8_t=None, x_scale=None,
-                w1_f8_col=None, w1_scale=None, g_scale=None, dpre_scale=None, dpre_amax=None, p_fold=None):
+                w1_f8_col=None, w1_scale=None, g_scale=None, dpre_scale=None, dpre_amax=None, hadamard_q=None,
+                p_fold=None):
         x_flat = x.view((-1, x.shape[-1]))
         if W1_f8 is None:  # validation: nothing saved, the backward below is fp8-only
             _, post, _, _ = linear_relu_square(x_flat, W1)
@@ -391,7 +449,7 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         _, _, post_f8, post_t = linear_relu_square(
             x_flat, W1, a_f8=x_f8.view((-1, x_f8.shape[-1])), b_f8=W1_f8, emit_f8=True, emit_t=True,
             dequant_scale_ptr=dequant_scale, post_scale=post_scale, post_amax=post_amax,
-            store_pre=False, store_post_bf=False)
+            store_pre=False, store_post_bf=False, hadamard_q=hadamard_q)
         x3 = torch.ops.nanogpt.dp_f8(post_f8, W2_f8, post_scale, w2_scale)
         # Intermediates go through save_for_backward: stashing them on ctx inside the compiled
         # subgraph pins them past their last use (+3.3 MB). The optional p_fold is trace-time constant.
@@ -402,6 +460,9 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         ctx.w2_f8_row, ctx.dq_bwd, ctx.x_f8_t, ctx.x_scale = w2_f8_row, dq_bwd, x_f8_t, x_scale
         ctx.w1_f8_col, ctx.w1_scale, ctx.g_scale = w1_f8_col, w1_scale, g_scale
         ctx.dpre_scale, ctx.dpre_amax = dpre_scale, dpre_amax
+        ctx.hadamard_q = hadamard_q
+        if FP8_DUMP.active():
+            ctx.dump_tag = FP8_DUMP.tag
         return x3.view(x.shape)
 
     @staticmethod
@@ -412,8 +473,15 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         p_fold = st[3] if ctx.fold_p else None
         g_flat = grad_output.view((-1, grad_output.shape[-1]))
 
-        # 1. Quantize the incoming gradient (one pass, both layouts), then dW2 = post^T @ g.
-        g_f8, g_f8_t = quantize_dual_layout_fused(g_flat, ctx.g_scale, fmt=torch.float8_e5m2)
+        if FP8_DUMP.active() and getattr(ctx, "dump_tag", None) is not None:
+            FP8_DUMP.save_mlp(ctx.dump_tag, x, st[1], W2, g_flat, p_fold, x_scale=ctx.x_scale, g_scale=ctx.g_scale,
+                              post_scale=ctx.post_scale, dpre_scale=ctx.dpre_scale)
+        # 1. Quantize the incoming gradient (one pass, both layouts), then dW2 = post^T @ g. Under
+        # HADAMARD_FP8 both layouts are rotated: g_f8 along 768 (the dpre GEMM), g_f8_t along tokens (dW2).
+        if ctx.hadamard_q is not None:
+            g_f8, g_f8_t = hadamard_dual_quant(g_flat, ctx.hadamard_q, ctx.g_scale, True)
+        else:
+            g_f8, g_f8_t = quantize_dual_layout_fused(g_flat, ctx.g_scale, fmt=torch.float8_e5m2)
         dW2 = torch.ops.nanogpt.wg2_f8(ctx.post_t, g_f8_t, ctx.post_scale, ctx.g_scale)
 
         # 2. Post-lambda folded into the down-projection scale: the forward computed out = post @ (p * W2),
@@ -428,9 +496,42 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         dpre_f8, dpre_t = linear_relu_square(
             g_flat, W2, aux=ctx.post_f8, a_f8=g_f8, b_f8=ctx.w2_f8_row,
             dequant_scale_ptr=ctx.dq_bwd, post_scale=ctx.post_scale,
-            dpre_scale=ctx.dpre_scale, dpre_amax=ctx.dpre_amax)
+            dpre_scale=ctx.dpre_scale, dpre_amax=ctx.dpre_amax, hadamard_q=ctx.hadamard_q)
         dW1 = torch.ops.nanogpt.wg1_f8(dpre_t, ctx.x_f8_t, ctx.dpre_scale, ctx.x_scale)
         dx = torch.ops.nanogpt.dx_f8(dpre_f8, ctx.w1_f8_col, ctx.dpre_scale, ctx.w1_scale)
 
-        # One slot per forward input: (x, W1, W2), 16 fp8 args, p_fold.
-        return (dx.view(x.shape), dW1, dW2) + (None,) * 16 + (grad_p,)
+        # One slot per forward input: (x, W1, W2), 16 fp8 args, hadamard_q, p_fold.
+        return (dx.view(x.shape), dW1, dW2) + (None,) * 17 + (grad_p,)
+
+
+class BF16LinearReLUSquareFunction(torch.autograd.Function):
+    """FP8_OFF=mlp: relu(x @ W1.T)^2 @ W2 for training with every GEMM in bf16 (fp32 accumulate).
+
+    The upper-bound arm of the bf16-vs-fp8 test (182/hadamard-fp8): the same forward kernel validation
+    runs, and the backward the fp8 path computes, with bf16 operands instead of fp8 ones:
+      dW2 = post.T @ g,  dpre = 2 (g @ W2.T) relu(pre),  dW1 = dpre.T @ x,  dx = dpre @ W1.
+    The post-lambda is not folded (the caller applies it, as validation does). Speed is not a goal.
+    """
+    @staticmethod
+    def forward(ctx, x, W1, W2):
+        x_flat = x.view((-1, x.shape[-1]))
+        pre, post, _, _ = linear_relu_square(x_flat, W1)
+        ctx.save_for_backward(x, W1, W2, pre)
+        if FP8_DUMP.active():
+            ctx.dump_tag = FP8_DUMP.tag
+        return (post @ W2).view(x.shape)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        st = ctx.saved_tensors
+        x, W1, W2, pre = st[0], st[1], st[2], st[3]
+        x_flat = x.view((-1, x.shape[-1]))
+        g = grad_output.reshape((-1, grad_output.shape[-1]))
+        if FP8_DUMP.active() and getattr(ctx, "dump_tag", None) is not None:
+            FP8_DUMP.save_mlp(ctx.dump_tag, x, W1, W2, g, None)
+        relu_pre = torch.relu(pre)
+        dW2 = (relu_pre * relu_pre).T @ g
+        dpre = (2.0 * (g @ W2.T).float() * relu_pre.float()).to(pre.dtype)
+        dW1 = dpre.T @ x_flat
+        dx = dpre @ W1
+        return dx.view(x.shape), dW1, dW2

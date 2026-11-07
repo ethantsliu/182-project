@@ -6,16 +6,29 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from track_1_short.config import FP8_DUMP_SLOTS, FP8_OFF, HADAMARD_FP8, HADAMARD_SEED
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
 from track_1_short.ngram_table import NGRAM_SIGN_POOL_ROWS
+from track_1_short.perf import bf16_loss
+from track_1_short.perf.bf16_loss import bf16_training_loss
+from track_1_short.perf.fp8_dump import FP8_DUMP
+from track_1_short.perf.hadamard_ref import FP8_MAX, rotate, signed_hadamard
+from track_1_short.perf.kernels import cross_entropy
 from track_1_short.perf.kernels.cross_entropy import (
     FusedSoftcappedCrossEntropy,
     lm_head_inverse_scale,
     quantize_lm_head_dual,
 )
 from track_1_short.perf.kernels.fp8_attention_quant import PackedQKVFP8Cache
+from track_1_short.perf.kernels.hadamard import (
+    HADAMARD_BLOCK,
+    hadamard_t_quant,
+    quantize_weights_rotated,
+    quantize_weights_rotated_ntiles,
+)
 from track_1_short.perf.kernels.mlp import (
+    BF16LinearReLUSquareFunction,
     FusedLinearReLUSquareFunction,
     quantize_dual_layout_fused,
     quantize_mlp_weights_dual,
@@ -127,6 +140,12 @@ FP8_EXACT_SCALE_CALLS = 16
 # Fused triton kernel: relu(x @ W1.T)^2 @ W2.T
 # https://arxiv.org/abs/2109.08668v2; ~1-2% better than GELU; suggested by @SKYLINEZ007 and @Grad62304977
 ReLUSqrdMLP = FusedLinearReLUSquareFunction.apply
+# FP8_OFF=mlp training (182/hadamard-fp8): the same MLP with bf16 GEMMs.
+ReLUSqrdMLPBF16 = BF16LinearReLUSquareFunction.apply
+# HADAMARD_FP8: the rotated x_t (read by dW1 only) has its own delayed scale; see perf/kernels/hadamard.py.
+FP8_XT_HEADROOM = 1.10
+assert (bf16_loss.SOFTCAP_A, bf16_loss.SOFTCAP_B, bf16_loss.SOFTCAP_C) == (
+    cross_entropy.SOFTCAP_A, cross_entropy.SOFTCAP_B, cross_entropy.SOFTCAP_C)
 
 @dataclass(slots=True)
 class ForwardScheduleConfig:
@@ -332,6 +351,21 @@ class GPT(nn.Module):
             "_mlp_down_scales_folded": torch.ones(n, dtype=f32, device=dev),
             "_mlp_dq_bwd_folded": torch.ones(n, dtype=f32, device=dev),
         }
+        if HADAMARD_FP8:
+            # perf/kernels/hadamard.py. The rotated W1 (dx) and W2 (dpre GEMM) live in the _mlp_up_f8_col and
+            # _mlp_down_f8_row caches above; these are their own scales and per-tile rotated amaxes, and the
+            # rotated x_t's delayed scale. The _hadamard_q constant is written once, here.
+            assert h % HADAMARD_BLOCK == 0 and d % HADAMARD_BLOCK == 0
+            rot_tiles = quantize_weights_rotated_ntiles(h, d)
+            buffers.update({
+                "_mlp_up_rot_scales": torch.ones(n, dtype=f32, device=dev),
+                "_mlp_down_rot_scales": torch.ones(n, dtype=f32, device=dev),
+                "_mlp_up_rot_partial_amax": torch.zeros(n, rot_tiles, dtype=f32, device=dev),
+                "_mlp_down_rot_partial_amax": torch.zeros(n, rot_tiles, dtype=f32, device=dev),
+                "_mlp_xt_scales": torch.full((n,), FP8_MLP_X_SCALE, dtype=f32, device=dev),
+                "_mlp_xt_amax": torch.zeros(n, 1, dtype=f32, device=dev),
+            })
+            self.register_buffer("_hadamard_q", signed_hadamard(HADAMARD_BLOCK, HADAMARD_SEED, device=dev), persistent=False)
         for name, buf in buffers.items():
             self.register_buffer(name, buf, persistent=False)
         # Host counter toward FP8_EXACT_SCALE_CALLS (a replay of the captured refresh bumps it too,
@@ -499,6 +533,8 @@ class GPT(nn.Module):
         """relu(x @ c_fc.T)^2 @ c_proj; in FP8 (training) when `fp8_args` holds this slot's _mlp_fp8_args,
         else bf16 (validation)."""
         if fp8_args is None:
+            if self.training:  # FP8_OFF=mlp
+                return ReLUSqrdMLPBF16(x_normed, c_fc, c_proj)
             return ReLUSqrdMLP(x_normed, c_fc, c_proj)
         return ReLUSqrdMLP(x_normed, c_fc, c_proj, *fp8_args)
 
@@ -561,10 +597,12 @@ class GPT(nn.Module):
         bm_sizes = [ws_long if i in LONG_WINDOW_LAYERS else ws_short for i in range(self.num_layers)]
         key_offset = [i in LONG_WINDOW_LAYERS for i in range(self.num_layers)]
 
-        # FP8 is training-only; validation runs the bf16 path.
-        use_fp8 = self.training
-        attn_f8_weights = self._attn_fp8_weights() if use_fp8 else None
-        mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8 else None
+        # FP8 is training-only; validation runs the bf16 path. FP8_OFF turns paths off in training too
+        # (182/hadamard-fp8: the bf16 upper bound); the fp8 caches are still refreshed, just not read.
+        use_fp8_attn = self.training and "qkv" not in FP8_OFF
+        use_fp8_mlp = self.training and "mlp" not in FP8_OFF
+        attn_f8_weights = self._attn_fp8_weights() if use_fp8_attn else None
+        mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8_mlp else None
 
         # ---- Unbind parameters (avoid select_backward kernels) ----
         sa_lambdas = self.scalars[: 2 * self.num_layers].view(-1, 2)
@@ -663,13 +701,13 @@ class GPT(nn.Module):
                     else:
                         attn_in_normed = norm(attn_in)
                     attn_x_f8 = None
-                    if use_fp8:
+                    if use_fp8_attn:
                         attn_x_f8 = quantize_dual_layout_fused(attn_in_normed.detach().view(-1, attn_in_normed.size(-1)),
                                                                self._attn_x_scale, fmt=torch.float8_e4m3fn)
                     if 7 in cache:
                         late_attn_in = (attn_in_normed, attn_x_f8)
                 qkv_fp8 = None
-                if use_fp8:
+                if use_fp8_attn:
                     qkv_fp8 = (*attn_f8_weights[i], self._attn_x_scale, self._attn_grad_scale, *attn_x_f8)
                 B, T = attn_in_normed.size(0), attn_in_normed.size(1)
 
@@ -713,6 +751,7 @@ class GPT(nn.Module):
                     o_gain=post_lambdas_attn[i] if mu is None else None,
                 )
                 qk_w, v_w, o_w = attn_weights[i]
+                FP8_DUMP.set_tag(f"qkv{i}" if i in FP8_DUMP_SLOTS else None)
                 attn_out = self.attn[str(i)](attn_in_normed, attn_args, qk_w, v_w, o_w, qkv_fp8)
 
                 if mu is not None:
@@ -731,13 +770,14 @@ class GPT(nn.Module):
             mlp_in = norm(x)
             # fp8 only: the post-lambda is folded into the down-projection scale, so the MLP output
             # already carries it. Not on the MUDD layer, whose post-lambda mu[13] is per-token.
-            fold_p = post_lambdas_mlp[i] if use_fp8 and mu is None else None
-            if use_fp8:
+            fold_p = post_lambdas_mlp[i] if use_fp8_mlp and mu is None else None
+            if use_fp8_mlp:
                 # One quantize of the input, shared with the parallel MLP.
-                x_f8 = quantize_dual_layout_fused(mlp_in.detach().view(-1, mlp_in.size(-1)), self._mlp_x_scale, fmt=torch.float8_e4m3fn)
-                fp8_args = self._mlp_fp8_args(i, mlp_up_f8[i], x_f8, fold_p)
+                x_f8 = self._quantize_mlp_input(mlp_in.detach().view(-1, mlp_in.size(-1)), i)
+                fp8_args = self._mlp_fp8_args(i, mlp_up_f8[i], x_f8, fold_p, xt_slot=i)
             else:
                 fp8_args = None
+            FP8_DUMP.set_tag(f"mlp{i}" if i in FP8_DUMP_SLOTS else None)
             mlp_out = self._mlp(mlp_in, c_fc, c_proj, fp8_args)
             if mu is not None:
                 x = mu[12] * x + mu[13] * mlp_out
@@ -748,7 +788,8 @@ class GPT(nn.Module):
             if i == PARALLEL_MLP_LAYER:
                 # Same input and the same post-lambda as the layer's own MLP.
                 k = PARALLEL_MLP_SLOT
-                parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p) if use_fp8 else None
+                parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p, xt_slot=i) if use_fp8_mlp else None
+                FP8_DUMP.set_tag(f"mlp{k}" if k in FP8_DUMP_SLOTS else None)
                 parallel_out = self._mlp(mlp_in, mlp_fcs[k], mlp_projs[k], parallel_args)
                 x = x + (parallel_out if fold_p is not None else scale(post_lambdas_mlp[i], parallel_out))
 
@@ -783,7 +824,18 @@ class GPT(nn.Module):
         """
         # @Grad62304977 added tanh softcapping following Gemma 2 paper, @KoszarskyB reduced it from 30 to 15
         # @YouJiacheng shifted it by +15 (2*sigmoid(2*x)=tanh(x)+1). @classiclarryd updated to 23*sigmoid((logits+5)/7.5)
-        if self.training and sampled_loss is not None:
+        if self.training and "lm" in FP8_OFF:
+            # FP8_OFF=lm (182/hadamard-fp8): the same loss with a bf16 lm_head GEMM, in plain torch.
+            n = target_seq.size(0)
+            if sampled_loss is not None:
+                loss_per_token = bf16_training_loss(
+                    x.view(-1, x.size(-1)), self.lm_head.weight, sampled_loss.target_pos[:n], mtp_weights,
+                    sampled_loss.prefix_pos[:n], prefix_weight, candidates=sampled_loss.candidates)
+            else:
+                loss_per_token = bf16_training_loss(
+                    x.view(-1, x.size(-1)), self.lm_head.weight, target_seq, mtp_weights,
+                    self.prefix_table[target_seq], prefix_weight)
+        elif self.training and sampled_loss is not None:
             # Targets and prefix targets arrive as positions in the candidate set, built on the host.
             n = target_seq.size(0)
             loss_per_token = SampledSoftcappedCrossEntropy.apply(
@@ -911,10 +963,24 @@ class GPT(nn.Module):
                                   row=self._mlp_up_f8, col_t=self._mlp_up_f8_col.transpose(1, 2), update_scales=not exact)
         quantize_mlp_weights_dual(down_weights, self._mlp_down_scales, self._mlp_down_partial_amax,
                                   row=self._mlp_down_f8_row, col_t=self._mlp_down_f8.transpose(1, 2), update_scales=not exact)
+        if HADAMARD_FP8:
+            # The two gradient-GEMM caches are overwritten with their rotated copies (perf/kernels/hadamard.py):
+            # W1 rotated along the hidden dim (dx), W2 along the model dim (the dpre GEMM). Same scale rule as
+            # the plain caches: exact for the first calls (from the rotated weights), then one step delayed.
+            q = self._hadamard_q
+            if exact:
+                for scales, w, axis in ((self._mlp_up_rot_scales, up_weights, 1), (self._mlp_down_rot_scales, down_weights, 2)):
+                    scales[:] = (rotate(w, axis, q).reshape(NUM_MLP_SLOTS, -1).abs().amax(dim=1).clamp(min=1e-12) / e4m3_max)
+            quantize_weights_rotated(up_weights, q, self._mlp_up_rot_scales, self._mlp_up_rot_partial_amax,
+                                     out=self._mlp_up_f8_col.transpose(1, 2), along_h=True, update_scales=not exact)
+            quantize_weights_rotated(down_weights, q, self._mlp_down_rot_scales, self._mlp_down_rot_partial_amax,
+                                     out=self._mlp_down_f8_row, along_h=False, update_scales=not exact)
+            self._refresh_delayed_scale(self._mlp_xt_amax, self._mlp_xt_scales, FP8_XT_HEADROOM / e4m3_max, 1e-6)
 
         # Scales derived from them. In-place, so every consumer keeps reading the same tensors.
         torch.mul(self._mlp_up_scales, FP8_MLP_X_SCALE, out=self._mlp_up_dequant)
-        torch.mul(self._mlp_down_scales, FP8_GRAD_SCALE, out=self._mlp_dq_bwd)
+        # The dpre GEMM reads the W2 row cache: rotated (with its own scale) under HADAMARD_FP8.
+        torch.mul(self._mlp_down_rot_scales if HADAMARD_FP8 else self._mlp_down_scales, FP8_GRAD_SCALE, out=self._mlp_dq_bwd)
         self._refresh_delayed_scale(self._mlp_post_amax, self._mlp_post_scales, FP8_POST_HEADROOM / e4m3_max, 1e-6)
         self._refresh_delayed_scale(self._mlp_dpre_amax, self._mlp_dpre_scales, FP8_DPRE_HEADROOM / e5m2_max, 1e-12)
 
@@ -934,6 +1000,10 @@ class GPT(nn.Module):
             self.mlp_quantize_calls = 0
             for amax in (self._mlp_up_partial_amax, self._mlp_down_partial_amax, self._mlp_post_amax, self._mlp_dpre_amax):
                 amax.zero_()
+            if HADAMARD_FP8:
+                for amax in (self._mlp_up_rot_partial_amax, self._mlp_down_rot_partial_amax, self._mlp_xt_amax):
+                    amax.zero_()
+                self._mlp_xt_scales.fill_(FP8_MLP_X_SCALE)
             self._mlp_dpre_scales.fill_(FP8_GRAD_SCALE)
             self._mlp_post_scales.fill_(1.0)
 
@@ -946,10 +1016,22 @@ class GPT(nn.Module):
                 weights[layer] = (cache.row[j], cache.col[j], cache.scales[j:j+1])
         return weights
 
-    def _mlp_fp8_args(self, slot, up_f8, x_f8, fold_p):
+    def _quantize_mlp_input(self, x2d, slot):
+        """(row, transposed) e4m3 copies of the MLP input: row at the static scale for the forward GEMM;
+        the transposed one (dW1) plain, or under HADAMARD_FP8 rotated along tokens at slot's delayed scale."""
+        if not HADAMARD_FP8:
+            return quantize_dual_layout_fused(x2d, self._mlp_x_scale, fmt=torch.float8_e4m3fn)
+        lim = FP8_MAX[torch.float8_e4m3fn]
+        row = torch.clamp(x2d.to(torch.float32) * (1.0 / self._mlp_x_scale), -lim, lim).to(torch.float8_e4m3fn)
+        return row, hadamard_t_quant(x2d, self._hadamard_q, self._mlp_xt_scales[slot], self._mlp_xt_amax[slot])
+
+    def _mlp_fp8_args(self, slot, up_f8, x_f8, fold_p, xt_slot):
         """The FP8 arguments of FusedLinearReLUSquareFunction for MLP bank `slot`, after (x, c_fc, c_proj).
 
-        `x_f8` is the (row, transposed) e4m3 input. With `fold_p` (the post-lambda folded into the
+        `x_f8` is the (row, transposed) e4m3 input, quantized for MLP slot `xt_slot` (the parallel MLP shares
+        its layer's). Under HADAMARD_FP8 the transposed input, the W1 column cache and the W2 row cache are
+        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q.
+        With `fold_p` (the post-lambda folded into the
         down-projection scale), the down projection's forward and dgrad dequant scales are the folded
         ones, and fold_p rides last for its gradient.
         """
@@ -958,7 +1040,11 @@ class GPT(nn.Module):
             down_scales, dq_bwd = self._mlp_down_scales_folded, self._mlp_dq_bwd_folded
         else:
             down_scales, dq_bwd = self._mlp_down_scales, self._mlp_dq_bwd
+        if HADAMARD_FP8:
+            x_t_scale, w1_col_scale, hadamard_q = self._mlp_xt_scales[xt_slot], self._mlp_up_rot_scales[slot], self._hadamard_q
+        else:
+            x_t_scale, w1_col_scale, hadamard_q = self._mlp_x_scale, self._mlp_up_scales[slot], None
         return (up_f8, self._mlp_up_dequant[slot:slot+1], x_row, self._mlp_down_f8[slot], down_scales[slot],
                 self._mlp_post_scales[slot], self._mlp_post_amax[slot], self._mlp_down_f8_row[slot], dq_bwd[slot], x_t,
-                self._mlp_x_scale, self._mlp_up_f8_col[slot], self._mlp_up_scales[slot], self._mlp_grad_scale,
-                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot]) + ((fold_p,) if fold_p is not None else ())
+                x_t_scale, self._mlp_up_f8_col[slot], w1_col_scale, self._mlp_grad_scale,
+                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot], hadamard_q) + ((fold_p,) if fold_p is not None else ())

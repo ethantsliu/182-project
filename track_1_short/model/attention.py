@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from kernels import get_kernel
 from torch import Tensor, nn
 
-from track_1_short.perf.kernels.qkv_rope import PackedFP8QKV, qk_norm_rope_forward
+from track_1_short.perf.kernels.qkv_rope import PackedBF16QKV, PackedFP8QKV, qk_norm_rope_forward
 
 # Record #360's FA3 build, patched to take unequal query/key and value head widths ((64, 128) and
 # (128, 64)). Pinned to the immutable commit of its v1 tag, and the loaded binary is checked against
@@ -157,7 +157,7 @@ class CausalSelfAttention(nn.Module):
         self, x: Tensor, attn_args: AttnArgs, qk_w: Tensor, v_w: Tensor, o_w: Tensor,
         qkv_fp8=None,
     ):
-        """qkv_fp8 (training only; None under validation): (weight_f8, weight_f8_t, weight_scale, x_scale,
+        """qkv_fp8 (training only; None under validation and under FP8_OFF=qkv): (weight_f8, weight_f8_t, weight_scale, x_scale,
         grad_scale, x_f8, x_f8_t), this layer's packed weight cache, its static fp8 scales and its
         already-quantized input."""
         B, T = x.size(0), x.size(1) # batch size, sequence length
@@ -182,6 +182,13 @@ class CausalSelfAttention(nn.Module):
                 x_scale, grad_scale,
                 yarn.factor1[:T], yarn.factor2[:T], H,
                 self.paired, key_offset, Yarn.ROTARY_DIM, x_f8, x_f8_t,
+            )
+            q, k, v = q[None], k[None], v[None]
+        elif self.training:
+            # FP8_OFF=qkv: the same projection and norm/rotary with bf16 GEMMs (182/hadamard-fp8).
+            q, k, v = PackedBF16QKV(
+                x, qk_w.type_as(x), v_w.type_as(x), sa_lambdas[0],
+                yarn.factor1[:T], yarn.factor2[:T], H, self.paired, key_offset, Yarn.ROTARY_DIM,
             )
             q, k, v = q[None], k[None], v[None]
         else:
