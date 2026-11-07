@@ -13,8 +13,11 @@ Provenance: record #344 (packed fp8 QKV, fused norm/rotary); record #360 (mixed 
 padding; the activation quantize hoisted out of the op so layers reading the same input share it).
 """
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
+
+from track_1_short.perf.fp8_dump import FP8_DUMP
 
 
 @triton.jit
@@ -142,7 +145,10 @@ def _qkv_norm_rope_pack_fp8_backward_kernel(
     BLOCK_T: tl.constexpr,
     BLOCK_QK: tl.constexpr,
     BLOCK_V: tl.constexpr,
+    FP8_OUT: tl.constexpr,
 ):
+    # FP8_OUT=False (FP8_OFF=qkv, and the FP8_DUMP hook): the same gradient, stored once in bf16
+    # row-major (grad_row is then bf16 and grad_transposed / grad_scale_ptr are unused).
     logical_head = tl.program_id(0)
     token = tl.program_id(1) * BLOCK_T + tl.arange(0, BLOCK_T)
     offs_d = tl.arange(0, BLOCK_QK)
@@ -163,7 +169,8 @@ def _qkv_norm_rope_pack_fp8_backward_kernel(
                  mask=qk_mask, other=0.0).to(tl.float32)
     f2_flip = tl.load(factor2 + token[:, None] * factor_stride_t + factor_offset + offs_flip[None, :],
                       mask=qk_mask, other=0.0).to(tl.float32)
-    scale = tl.load(grad_scale_ptr)
+    if FP8_OUT:
+        scale = tl.load(grad_scale_ptr)
 
     for qk_kind in tl.static_range(2):
         input_head = logical_head + qk_kind * num_heads
@@ -191,22 +198,59 @@ def _qkv_norm_rope_pack_fp8_backward_kernel(
             grad_normalized = tl.where(offs_d[None, :] >= rotary_dim, stationary_grad, grad_normalized)
         correction = tl.sum(grad_normalized * normalized, axis=1) / qk_dim
         dx = rstd[:, None] * (grad_normalized - normalized * correction[:, None])
-        # Round to bf16 first: the aten chain materialized the QK gradient in bf16 before the fp8 cast.
-        q = (dx.to(tl.bfloat16).to(tl.float32) / scale).to(tl.float8e4nv)
         feature = input_head * qk_dim + offs_d
-        tl.store(grad_row + token[:, None] * qkv_dim + feature[None, :], q, mask=qk_mask)
-        tl.store(grad_transposed + feature[:, None] * tokens + token[None, :], tl.trans(q),
-                 mask=(offs_d[:, None] < qk_dim) & token_mask[None, :])
+        if FP8_OUT:
+            # Round to bf16 first: the aten chain materialized the QK gradient in bf16 before the fp8 cast.
+            q = (dx.to(tl.bfloat16).to(tl.float32) / scale).to(tl.float8e4nv)
+            tl.store(grad_row + token[:, None] * qkv_dim + feature[None, :], q, mask=qk_mask)
+            tl.store(grad_transposed + feature[:, None] * tokens + token[None, :], tl.trans(q),
+                     mask=(offs_d[:, None] < qk_dim) & token_mask[None, :])
+        else:
+            tl.store(grad_row + token[:, None] * qkv_dim + feature[None, :], dx.to(tl.bfloat16), mask=qk_mask)
 
     offs_v = tl.arange(0, BLOCK_V)
     v_mask = token_mask[:, None] & (offs_v[None, :] < v_dim)
     grad_v_value = tl.load(grad_v + token[:, None] * stride_grad_v_t + logical_head * stride_grad_v_h + offs_v[None, :],
                            mask=v_mask, other=0.0).to(tl.float32)
-    qv = (grad_v_value / scale).to(tl.float8e4nv)
     v_feature = 2 * num_heads * qk_dim + logical_head * v_dim + offs_v
-    tl.store(grad_row + token[:, None] * qkv_dim + v_feature[None, :], qv, mask=v_mask)
-    tl.store(grad_transposed + v_feature[:, None] * tokens + token[None, :], tl.trans(qv),
-             mask=(offs_v[:, None] < v_dim) & token_mask[None, :])
+    if FP8_OUT:
+        qv = (grad_v_value / scale).to(tl.float8e4nv)
+        tl.store(grad_row + token[:, None] * qkv_dim + v_feature[None, :], qv, mask=v_mask)
+        tl.store(grad_transposed + v_feature[:, None] * tokens + token[None, :], tl.trans(qv),
+                 mask=(offs_v[:, None] < v_dim) & token_mask[None, :])
+    else:
+        tl.store(grad_row + token[:, None] * qkv_dim + v_feature[None, :], grad_v_value.to(tl.bfloat16), mask=v_mask)
+
+
+def _qkv_backward_grad(grad_q, grad_k, grad_v, qk, factor1, factor2, grad_scale, num_heads, v_dim, rotary_dim,
+                       paired, key_offset, fp8_out):
+    """The packed [tokens, qkv_dim] projection-output gradient: (e4m3 row, e4m3 transposed) with fp8_out,
+    else (bf16 row, None)."""
+    tokens, heads2, qk_dim = qk.shape
+    qkv_dim = 2 * num_heads * qk_dim + num_heads * v_dim
+    assert heads2 == 2 * num_heads and grad_v.shape == (tokens, num_heads, v_dim)
+    assert not (paired and key_offset)
+    if fp8_out:
+        grad_row = torch.empty((tokens, qkv_dim), device=qk.device, dtype=torch.float8_e4m3fn)
+        grad_t = torch.empty((qkv_dim, tokens), device=qk.device, dtype=torch.float8_e4m3fn)
+    else:
+        grad_row = torch.empty((tokens, qkv_dim), device=qk.device, dtype=torch.bfloat16)
+        grad_t = None
+    # Feature rows run BLOCK_T bytes; 32 keeps every transposed store on a full 32 B sector.
+    block_t = 32
+    _qkv_norm_rope_pack_fp8_backward_kernel[(num_heads, triton.cdiv(tokens, block_t))](
+        grad_q, grad_k, grad_v, qk, factor1, factor2, grad_row, grad_row if grad_t is None else grad_t, grad_scale,
+        tokens=tokens, num_heads=num_heads, qk_dim=qk_dim, rotary_dim=rotary_dim,
+        v_dim=v_dim, qkv_dim=qkv_dim,
+        stride_qkt=qk.stride(0), stride_qkh=qk.stride(1), factor_stride_t=factor1.stride(0),
+        stride_grad_q_t=grad_q.stride(0), stride_grad_q_h=grad_q.stride(1),
+        stride_grad_k_t=grad_k.stride(0), stride_grad_k_h=grad_k.stride(1),
+        stride_grad_v_t=grad_v.stride(0), stride_grad_v_h=grad_v.stride(1),
+        PAIRED=paired, KEY_OFFSET=key_offset, BLOCK_T=block_t,
+        BLOCK_QK=triton.next_power_of_2(qk_dim), BLOCK_V=triton.next_power_of_2(v_dim),
+        FP8_OUT=fp8_out, num_warps=4 if qk_dim <= 64 else 8,
+    )
+    return grad_row, grad_t
 
 
 def _scaled_mm_bf16(a, b, scale_a, scale_b, fast_accum):
@@ -244,6 +288,9 @@ class PackedFP8QKVFunction(torch.autograd.Function):
         ctx.input_shape = x.shape
         ctx.num_heads, ctx.v_dim = num_heads, v_dim
         ctx.paired, ctx.key_offset, ctx.rotary_dim = paired, key_offset, rotary_dim
+        if FP8_DUMP.active():
+            ctx.dump_tag, ctx.dump_x = FP8_DUMP.tag, x
+            ctx.dump_w = qkv_scale * torch.cat((qk_weight, v_weight))
         return q, k, v
 
     @staticmethod
@@ -252,26 +299,12 @@ class PackedFP8QKVFunction(torch.autograd.Function):
          x_scale, grad_scale, qk, factor1, factor2) = ctx.saved_tensors
         num_heads, v_dim = ctx.num_heads, ctx.v_dim
         grad_v = grad_v.reshape(-1, num_heads, v_dim)
-        tokens, heads2, qk_dim = qk.shape
-        qkv_dim = 2 * num_heads * qk_dim + num_heads * v_dim
-        assert heads2 == 2 * num_heads and grad_v.shape == (tokens, num_heads, v_dim)
-        assert not (ctx.paired and ctx.key_offset)
-        grad_f8 = torch.empty((tokens, qkv_dim), device=qk.device, dtype=torch.float8_e4m3fn)
-        grad_f8_t = torch.empty((qkv_dim, tokens), device=qk.device, dtype=torch.float8_e4m3fn)
-        # Feature rows run BLOCK_T bytes; 32 keeps every transposed store on a full 32 B sector.
-        block_t = 32
-        _qkv_norm_rope_pack_fp8_backward_kernel[(num_heads, triton.cdiv(tokens, block_t))](
-            grad_q, grad_k, grad_v, qk, factor1, factor2, grad_f8, grad_f8_t, grad_scale,
-            tokens=tokens, num_heads=num_heads, qk_dim=qk_dim, rotary_dim=ctx.rotary_dim,
-            v_dim=v_dim, qkv_dim=qkv_dim,
-            stride_qkt=qk.stride(0), stride_qkh=qk.stride(1), factor_stride_t=factor1.stride(0),
-            stride_grad_q_t=grad_q.stride(0), stride_grad_q_h=grad_q.stride(1),
-            stride_grad_k_t=grad_k.stride(0), stride_grad_k_h=grad_k.stride(1),
-            stride_grad_v_t=grad_v.stride(0), stride_grad_v_h=grad_v.stride(1),
-            PAIRED=ctx.paired, KEY_OFFSET=ctx.key_offset, BLOCK_T=block_t,
-            BLOCK_QK=triton.next_power_of_2(qk_dim), BLOCK_V=triton.next_power_of_2(v_dim),
-            num_warps=4 if qk_dim <= 64 else 8,
-        )
+        grad_f8, grad_f8_t = _qkv_backward_grad(grad_q, grad_k, grad_v, qk, factor1, factor2, grad_scale,
+                                                num_heads, v_dim, ctx.rotary_dim, ctx.paired, ctx.key_offset, fp8_out=True)
+        if FP8_DUMP.active() and getattr(ctx, "dump_tag", None) is not None:
+            grad_bf16, _ = _qkv_backward_grad(grad_q, grad_k, grad_v, qk, factor1, factor2, grad_scale,
+                                              num_heads, v_dim, ctx.rotary_dim, ctx.paired, ctx.key_offset, fp8_out=False)
+            FP8_DUMP.save_qkv(ctx.dump_tag, ctx.dump_x, ctx.dump_w, grad_bf16)
         grad_weight = _scaled_mm_bf16(grad_f8_t, x_f8_t.T, grad_scale, x_scale, False)
         grad_input = _scaled_mm_bf16(grad_f8, weight_f8_t.T, grad_scale, scaled_weight_scale, False)
         # .to(qkv_scale.dtype): qkv_scale is an fp32 scalar while the weights are bf16, and autograd
@@ -284,3 +317,52 @@ class PackedFP8QKVFunction(torch.autograd.Function):
 
 
 PackedFP8QKV = PackedFP8QKVFunction.apply
+
+
+class PackedBF16QKVFunction(torch.autograd.Function):
+    """FP8_OFF=qkv: PackedFP8QKV's math with bf16 GEMMs (the upper-bound arm of 182/hadamard-fp8).
+
+    Forward: qkv = x @ (sa_lambda * [Wq; Wk; Wv]).T in bf16 (as validation computes it), then the same
+    norm/rotary kernel. Backward: the same fused norm/rotary/V gradient kernel, emitting bf16 instead of
+    e4m3, then dW_eff = grad.T @ x and dx = grad @ W_eff in bf16, split into the weight and sa_lambda
+    gradients exactly as PackedFP8QKV does.
+    """
+    @staticmethod
+    def forward(ctx, x, qk_weight, v_weight, qkv_scale, factor1, factor2, num_heads, paired, key_offset, rotary_dim):
+        qk_dim = qk_weight.shape[0] // (2 * num_heads)
+        v_dim = v_weight.shape[0] // num_heads
+        qk_features = 2 * num_heads * qk_dim
+        weight = torch.cat((qk_weight, v_weight))
+        w_eff = (qkv_scale * weight).type_as(x)
+        x_flat = x.reshape(-1, x.shape[-1])
+        qkv = F.linear(x_flat, w_eff)
+        qk = qkv[:, :qk_features].view(-1, 2 * num_heads, qk_dim)
+        v = qkv[:, qk_features:].reshape(-1, num_heads, v_dim)
+        q, k = qk_norm_rope_forward(qk, factor1, factor2, num_heads, rotary_dim, paired, key_offset)
+        ctx.save_for_backward(x_flat, weight, w_eff, qkv_scale, qk, factor1, factor2)
+        ctx.input_shape = x.shape
+        ctx.num_heads, ctx.v_dim, ctx.qk_features = num_heads, v_dim, qk_features
+        ctx.paired, ctx.key_offset, ctx.rotary_dim = paired, key_offset, rotary_dim
+        if FP8_DUMP.active():
+            ctx.dump_tag = FP8_DUMP.tag
+        return q, k, v
+
+    @staticmethod
+    def backward(ctx, grad_q, grad_k, grad_v):
+        x_flat, weight, w_eff, qkv_scale, qk, factor1, factor2 = ctx.saved_tensors
+        num_heads, v_dim = ctx.num_heads, ctx.v_dim
+        grad_v = grad_v.reshape(-1, num_heads, v_dim)
+        grad, _ = _qkv_backward_grad(grad_q, grad_k, grad_v, qk, factor1, factor2, qkv_scale, num_heads, v_dim,
+                                     ctx.rotary_dim, ctx.paired, ctx.key_offset, fp8_out=False)
+        if FP8_DUMP.active() and getattr(ctx, "dump_tag", None) is not None:
+            FP8_DUMP.save_qkv(ctx.dump_tag, x_flat, w_eff, grad)
+        grad_weight = grad.T @ x_flat                 # d/dW_eff
+        grad_input = grad @ w_eff
+        grad_qkv_scale = (grad_weight * weight).sum().to(qkv_scale.dtype)
+        grad_qk_weight, grad_v_weight = (grad_weight * qkv_scale.to(grad_weight.dtype)).split(
+            (ctx.qk_features, num_heads * v_dim))
+        return (grad_input.view(ctx.input_shape), grad_qk_weight, grad_v_weight, grad_qkv_scale,
+                None, None, None, None, None, None)
+
+
+PackedBF16QKV = PackedBF16QKVFunction.apply

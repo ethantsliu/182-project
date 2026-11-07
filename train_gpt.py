@@ -32,6 +32,11 @@ from torch import nn
 # torch._inductor.config.coordinate_descent_tuning = True # we have banned this flag for new records because it causes compilation to take 30min
 from track_1_short.canonical_mask import BackgroundCanonicalMask
 from track_1_short.config import (
+    FP8_DUMP_DIR,
+    FP8_DUMP_ROWS,
+    FP8_DUMP_STEPS,
+    FP8_OFF,
+    HADAMARD_FP8,
     LR_COOLDOWN_FRAC,
     SPLIT_EMBED_STAGE,
     TRAINING_STAGES,
@@ -55,6 +60,7 @@ from track_1_short.perf.cuda_graphs.fp8_refresh_graphs import Fp8RefreshGraphs
 from track_1_short.perf.cuda_graphs.optimizer_graphs import AnvilBankGraphs, assert_banks_alias_live_state
 from track_1_short.perf.cuda_graphs.step_graphs import StepGraphs
 from track_1_short.perf.deferred_gathers import DEFERRED_LABELS, DeferredGathers
+from track_1_short.perf.fp8_dump import run_fp8_dump
 from track_1_short.perf.kernels.mlp import prime_stage_cache
 from track_1_short.perf.pinned_batches import PinnedBatchStaging
 from track_1_short.perf.row_prefetch import PrefetchStaging, RowPrefetch
@@ -73,7 +79,7 @@ PRINT_EVERY = 25
 
 
 def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
-               step: int, lm_head_f8_col, prefetch_next: bool):
+               step: int, lm_head_f8_col, prefetch_next: bool, before_forward=None):
     """One optimizer step on one microbatch: requantize for the previous update, forward/backward, update.
 
     The forward and backward are CUDA-graph replays of the compiled model's training loss
@@ -94,6 +100,8 @@ def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, bat
     # The last moment before the first reader of the banks: wait the previous step's gathers and
     # refresh the fp8 weights.
     deferred_gathers.flush()
+    if before_forward is not None:  # FP8_DUMP_DIR only (perf/fp8_dump.py): reads the refreshed weights
+        before_forward(batch, ngram_slots)
     # Before the forward, after the lm_head fp8 refresh just above: the candidates' lm_head rows. None on
     # full-softmax steps.
     sampled_loss = sampled_softmax.gather(step, lm_head_f8_col)
@@ -164,6 +172,9 @@ def main():
         f"seed={'random' if args.train_seed is None else args.train_seed} "
         f"steps={training_schedule.total_steps} stage boundaries={training_schedule.boundaries}"
     )
+    # 182/hadamard-fp8 knobs (all off in the record configuration).
+    print0(f"fp8 experiment: FP8_OFF={sorted(FP8_OFF) or 'none'} HADAMARD_FP8={int(HADAMARD_FP8)} "
+           f"FP8_DUMP_DIR={FP8_DUMP_DIR or 'off'}" + (f" steps={FP8_DUMP_STEPS}" if FP8_DUMP_DIR else ""), console=True)
     model.cast_matrix_weights_bf16()
     for param in model.parameters():
         dist.broadcast(param.detach(), 0)
@@ -387,8 +398,25 @@ def main():
             break
 
         # --------------- TRAINING SECTION -----------------
+        before_forward = None
+        if FP8_DUMP_DIR and step in FP8_DUMP_STEPS:
+            def before_forward(batch, ngram_slots, step=step):
+                # 182/hadamard-fp8: an eager side pass that saves sample fp8-GEMM operands (rank 0). The clock
+                # is paused for it (t0 moves forward by its duration); it changes no training state.
+                nonlocal t0
+                torch.cuda.synchronize()
+                pause = time.perf_counter()
+                if env.master_process:
+                    n = run_fp8_dump(uncompiled_model, batch, ngram_slots, training_manager.get_forward_args(None),
+                                     path=os.path.join(FP8_DUMP_DIR, f"step{step:06d}.pt"), rows=FP8_DUMP_ROWS,
+                                     extra=dict(step=step, fp8_off=sorted(FP8_OFF), hadamard=HADAMARD_FP8))
+                    print0(f"fp8 dump: step {step}, {n} records -> {FP8_DUMP_DIR}", console=True)
+                torch.cuda.synchronize()
+                dist.barrier()
+                t0 += time.perf_counter() - pause
         train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
-                   step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps)
+                   step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps,
+                   before_forward=before_forward)
         tail_averages.tick(step)
 
         # logging, thinned to every PRINT_EVERY steps and the last two

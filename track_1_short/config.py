@@ -1,6 +1,7 @@
 """Run configuration: hyperparameters and the training-stage table.
 
-The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED) are read here.
+The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED, and the FP8
+experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, FP8_DUMP_* at the bottom) are read here.
 The others: torchrun's RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads
 LOCAL_RANK), PYTORCH_ALLOC_CONF (set by train_gpt.py), and CUDA_HOME (perf/kernels/cross_entropy.py,
 for the CE kernel's CUDA headers).
@@ -89,3 +90,32 @@ TRAINING_STAGES = [
 ]
 assert VIRTUAL_SEQ_CAP % BLOCK_SIZE == 0
 assert any(s.train_max_seq_len > VIRTUAL_SEQ_CAP for s in TRAINING_STAGES), "VIRTUAL_SEQ_CAP would be inert"
+
+
+# -----------------------------------------------------------------------------
+# FP8 experiment knobs (182/hadamard-fp8). Every default is the record's behaviour; they are module
+# constants, so torch.compile sees them as trace-time constants and the default graphs are unchanged.
+
+def _fp8_off_parts(value: str) -> frozenset[str]:
+    """FP8_OFF: "" / "0" = record (all fp8); "1" / "all" = every training GEMM in bf16; or a comma list
+    of "mlp", "qkv", "lm" to turn off only those paths (for attributing a bf16-vs-fp8 gap)."""
+    value = value.strip().lower()
+    if value in ("", "0"):
+        return frozenset()
+    parts = frozenset({"mlp", "qkv", "lm"} if value in ("1", "all") else (p.strip() for p in value.split(",") if p.strip()))
+    assert parts <= {"mlp", "qkv", "lm"}, f"FP8_OFF: unknown parts {sorted(parts - {'mlp', 'qkv', 'lm'})}"
+    return parts
+
+FP8_OFF = _fp8_off_parts(os.environ.get("FP8_OFF", ""))
+# HADAMARD_FP8=1: block-Hadamard-rotated fp8 operands for the four MLP gradient GEMMs (dW1, dW2, dx and
+# the dpre GEMM), rotated along each GEMM's contraction dim (perf/kernels/hadamard.py).
+HADAMARD_FP8 = os.environ.get("HADAMARD_FP8", "0") == "1"
+HADAMARD_SEED = int(os.environ.get("HADAMARD_SEED", "1234"))
+assert not (HADAMARD_FP8 and "mlp" in FP8_OFF), "HADAMARD_FP8 rotates the fp8 MLP; FP8_OFF=mlp removes it"
+# FP8_DUMP_DIR: save sample MLP / QKV operands (x, dy, W) at FP8_DUMP_STEPS from rank 0, for the offline
+# quantization-error study (182/hadamard-fp8/fp8_quant_error.py). Off by default; the clock is paused
+# around each dump, but a dump run is an analysis run, not a timing run (perf/fp8_dump.py).
+FP8_DUMP_DIR = os.environ.get("FP8_DUMP_DIR", "")
+FP8_DUMP_STEPS = tuple(int(s) for s in os.environ.get("FP8_DUMP_STEPS", "100,500,1000").split(",") if s.strip())
+FP8_DUMP_ROWS = int(os.environ.get("FP8_DUMP_ROWS", "8192"))         # leading tokens kept per tensor
+FP8_DUMP_SLOTS = tuple(int(s) for s in os.environ.get("FP8_DUMP_SLOTS", "0,5,10").split(",") if s.strip())
