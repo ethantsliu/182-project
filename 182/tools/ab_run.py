@@ -19,7 +19,7 @@ Log formats: logparse.py (Track 1 short / Track 2 medium "train_time:Nms", Track
 
 Example (8xH100 box, repo at ~/182-project):
   python 182/tools/ab_run.py plan --out ab/fp8 --repo . \
-      --arm base=ref:master --arm new=ref:ws/hadamard-fp8 --env new:HADAMARD_FP8=1 \
+      --arm base=ref:main --arm new=ref:main --env new:HADAMARD_FP8=1 \
       --n 8 --warmup 1 --cache warm
   python 182/tools/ab_run.py run ab/fp8
   python 182/tools/ab_run.py report ab/fp8

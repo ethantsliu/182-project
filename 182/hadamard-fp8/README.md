@@ -1,6 +1,6 @@
 # hadamard-fp8: how much does FP8 cost, and can block-Hadamard rotation win it back?
 
-Branch `ws/hadamard-fp8`, on master = record #92 (ANVIL2, 39.9 s). **Nothing here has run on a GPU.**
+Folded into `main` at the repo root, on top of upstream record #92 (ANVIL2, 39.9 s). **Nothing here has run on a GPU.**
 CPU-verified: the pure-torch Hadamard reference, the bf16 loss, the dump format and the offline script
 (`python -m pytest 182/hadamard-fp8/tests -q`: 23 pass, the GPU file skips). Every Triton change, every
 training-path change and every torch.compile / CUDA-graph interaction is **untested**.
@@ -11,7 +11,7 @@ Run the bf16 upper bound first. **If the bf16-vs-fp8 val-loss gap at a fixed ste
 (0.0005), Hadamard is pointless: drop it.** Rotation can at most recover that gap. Estimate the gap from
 paired runs (same `TRAIN_SEED`, fp8 vs `FP8_OFF=1`), at least 4 seeds, and report the mean paired
 difference with its standard error. Track-1 records report run-to-run std of 0.7-2 mnat, so a single
-pair can't resolve 0.5 mnat. Use the ws/harness A/B runner + t-test.
+pair can't resolve 0.5 mnat. Use the 182/tools A/B runner + t-test.
 - Upper end of the 95% CI below 0.5 mnat: stop.
 - Gap clearly above 0.5 mnat: attribute it (`FP8_OFF=mlp`, `=qkv`, `=lm`), dump tensors, run the offline
   script, and run the `HADAMARD_FP8=1` arm only if the script shows the rotated gradient GEMMs gaining
@@ -93,5 +93,5 @@ for s in 0 1 2 3; do TRAIN_SEED=$s HADAMARD_FP8=1 torchrun --standalone --nproc_
   mode is a smoke test, not evidence.
 
 Credits: the fp8 MLP / QKV / CE kernels and every scale rule are record #360 (ANVIL2) and #344; the
-bf16 MLP kernel is by @andrewbriand and @jrauvola; QK-norm by @Grad62304977. This branch adds only the
+bf16 MLP kernel is by @andrewbriand and @jrauvola; QK-norm by @Grad62304977. This adds only the
 flags, the rotation and the analysis.

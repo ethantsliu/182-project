@@ -18,12 +18,12 @@ changes a trainer: the A/B runner and the nsys hook wrap `train_gpt.py` / `train
 ## Commands on the 8xH100 box
 
 ```bash
-git clone git@github.com:ethantsliu/182-project.git && cd 182-project && git checkout ws/harness   # or merge it into your branch
+git clone git@github.com:ethantsliu/182-project.git && cd 182-project
 bash 182/tools/node_setup.sh --mode docker          # or --mode venv (bare metal: needs libcudart.so.13); writes node_report.txt
 # venv: source .venv-run/bin/activate; export HF_HUB_OFFLINE=1 if get_kernel returns 401
 
-# A/B: master vs a workstream branch, 8 interleaved runs each, cold compile caches (as in certifications)
-python 182/tools/ab_run.py plan --out ab/fp8 --repo . --arm base=ref:master --arm new=ref:ws/hadamard-fp8 \
+# A/B: the record config vs a flag (same tree), or vs a variant folder (--arm new=path:variants/t1-gpu-stack), 8 interleaved runs each, cold compile caches (as in certifications)
+python 182/tools/ab_run.py plan --out ab/fp8 --repo . --arm base=ref:main --arm new=ref:main \
     --env new:HADAMARD_FP8=1 --n 8 --cache cold
 python 182/tools/ab_run.py run ab/fp8            # resumable; then: python 182/tools/ab_run.py report ab/fp8
 # faster iteration: --cache warm --warmup 1 (a per-arm cache, plus one excluded warm-up run per arm)

@@ -1,0 +1,24 @@
+[package]
+name = "exact-match"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "exact_match"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27" }
+numpy = "0.27"
+rayon = "1.11"
+libc = "0.2"
+
+[features]
+# maturin / pip build the extension module (the default); `cargo test --no-default-features` links libpython instead,
+# so the unit tests run (small tables: see the cfg(test) constants in src/slot.rs).
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

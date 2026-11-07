@@ -1,4 +1,4 @@
-# ws/structured — Monarch MLP + fixed-basis optimizer ablations
+# 182/structured — Monarch MLP + fixed-basis optimizer ablations
 
 These are cheap falsification experiments. **We expect both to come out negative.** The point is a clean, quick answer.
 Nothing here has run on a GPU. Every number below is either arithmetic or from a CPU test.
