@@ -275,7 +275,7 @@ def gpu_snapshot() -> str | None:
 def build_cmd(arm: dict, plan: dict, wt: str, run_dir: str, env_extra: dict) -> list[str]:
     env_flags = " ".join(f"-e {shlex.quote(k + '=' + v)}" for k, v in sorted(env_extra.items()))
     text = arm["cmd"].format(nproc=plan["nproc"], script=arm["script"], worktree=wt, run_dir=run_dir,
-                             env_flags=env_flags, data_dir=plan["data_dir"])
+                             env_flags=env_flags, data_dir=plan["data_dir"], work_root=plan["work_root"])
     return shlex.split(text)
 
 
@@ -564,7 +564,7 @@ def main(argv=None):
     p.add_argument("--arm-script", action="append", help="NAME:SCRIPT to override --script for one arm")
     p.add_argument("--cmd", default=DEFAULT_CMD,
                    help="command template, run in the arm's directory; placeholders {nproc} {script} {worktree} "
-                        "{run_dir} {data_dir} {env_flags} (for docker -e). Default: %(default)s")
+                        "{run_dir} {data_dir} {work_root} {env_flags} (docker -e flags for the arm's env). Default: %(default)s")
     p.add_argument("--script", default=DEFAULT_SCRIPT, help="trainer script (default %(default)s; "
                    "train_gpt_medium.py for Track 2, records/track_3_optimization/train_gpt_simple.py for Track 3)")
     p.add_argument("--n", type=int, required=True, help="measured runs per arm")

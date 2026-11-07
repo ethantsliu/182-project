@@ -1,0 +1,80 @@
+# 182/tools: shared harness
+
+Tools that every workstream uses: node setup, interleaved A/B runs, speedrun statistics, and nsys
+profiling. Python is stdlib only (no numpy or scipy), so the tools run in any env. Nothing here
+changes a trainer: the A/B runner and the nsys hook wrap `train_gpt.py` / `train_gpt_medium.py` /
+`train_gpt_simple.py` as they are.
+
+| file | what it does |
+|---|---|
+| `node_setup.sh` | Writes a node report (GPUs, driver, NVLink/topology, CPU, NUMA, RAM, disk, CUDA runtimes). Then, with `--mode venv` or `--mode docker`, it builds the env: `torch==2.10` cu128, `requirements.txt`, a `libcudart.so.13` + `CUDA_HOME` headers check, the pinned patched FA3 (`devenpzak/flash-attn3-12864`, revision and sha256 read from `track_1_short/model/attention.py`, cache seeded for `HF_HUB_OFFLINE=1`), `data/cached_fineweb10B.py 9`, and `node_check.py`. |
+| `node_check.py` | Under torchrun, measures bf16 GEMM TFLOP/s per GPU and flags any GPU >5% below the median. Also measures all_reduce bus bandwidth. |
+| `logparse.py` | Parser for every log format in `records/`: Track 1/2 `train_time:Nms`, Track 3 `train_time:N.Ns`, Track 3's extra `val_avg_loss`/`val_ema_loss` fields, and Track 3 files that hold many runs (split where the step index goes down). It also handles NaN, crashed and incomplete runs. |
+| `stats.py` | `gate`: one-sided t-test that mean val ≤ target, needs p<0.01. `welch`: Welch test of a time or val delta. `z3`: Track 3 rule `(3.28-mean)·√n ≥ 0.004`. `pair3`: Track 3 pairwise rule. `n-gate` / `n-welch` / `n-z3`: runs needed, given σ, margin and power. |
+| `ab_run.py` | Pre-registered, interleaved A/B runner across git refs (one pinned worktree per commit) or directories, each arm with its own env vars. Every run is counted. It can resume after a crash. It writes `report.md` and `runs.csv`. |
+| `profile_nsys.sh` + `nsys_step_hook.py` | Records nsys on rank 0 only, for steps `[start, start+steps)` of the **timed** loop. Each step gets an NVTX range `step N`, `cudaProfilerApi` sets the capture range, and `--cuda-graph-trace=node` is on. The script then exports to sqlite and runs the analyzer. |
+| `analyze_nsys.py` | Per step: kernel count (and how many came from graphs), GPU busy/idle time and the largest gaps (with the kernels on either side), NCCL time and exposed NCCL time, GEMM time. Also the top kernels, and GEMM TFLOP/s wherever a shape can be recovered. |
+
+## Commands on the 8xH100 box
+
+```bash
+git clone git@github.com:ethantsliu/182-project.git && cd 182-project && git checkout ws/harness   # or merge it into your branch
+bash 182/tools/node_setup.sh --mode docker          # or --mode venv (bare metal: needs libcudart.so.13); writes node_report.txt
+# venv: source .venv-run/bin/activate; export HF_HUB_OFFLINE=1 if get_kernel returns 401
+
+# A/B: master vs a workstream branch, 8 interleaved runs each, cold compile caches (as in certifications)
+python 182/tools/ab_run.py plan --out ab/fp8 --repo . --arm base=ref:master --arm new=ref:ws/hadamard-fp8 \
+    --env new:HADAMARD_FP8=1 --n 8 --cache cold
+python 182/tools/ab_run.py run ab/fp8            # resumable; then: python 182/tools/ab_run.py report ab/fp8
+# faster iteration: --cache warm --warmup 1 (a per-arm cache, plus one excluded warm-up run per arm)
+# Track 2: --script train_gpt_medium.py --target 2.92;  Track 3: --script records/track_3_optimization/train_gpt_simple.py --at-step 3250
+# docker: --cmd 'docker run --rm --gpus all --ipc=host --network=host -v {worktree}:{worktree} -v {work_root}:{work_root}
+#                -v {data_dir}:{worktree}/data/fineweb10B -v ~/.cache/huggingface:/root/.cache/huggingface -w {worktree} {env_flags}
+#                modded-nanogpt torchrun --standalone --nproc_per_node={nproc} {script}'
+
+# Stats on any logs
+python 182/tools/stats.py gate ab/fp8/logs/*_new_*.txt                     # mean val <= 3.28, p < 0.01?
+python 182/tools/stats.py welch --a ab/fp8/logs/*_new_*.txt --b ab/fp8/logs/*_base_*.txt
+python 182/tools/stats.py n-gate --sigma 0.0013 --margin 0.0015             # -> n=11 at 80% power
+python 182/tools/stats.py n-welch --sigma 0.12 --delta 0.15                 # -> 15 runs per arm for a 150 ms win
+python 182/tools/ab_run.py parse --group base='records/track_1_short/2026-08-30_ANVIL2/baseline' --group new='...'
+
+# Profile 5 timed-loop steps on rank 0 (not a timing run)
+bash 182/tools/profile_nsys.sh -o nsys/master --start 300 --steps 5 --analyze-args "--peak-tflops 989"
+python 182/tools/analyze_nsys.py nsys/master/rank0.sqlite --list-gemms     # then write a --gemm-shapes JSON
+# train_gpt_medium.py has its loop inline (no step function): --mode window --delay <s> --duration 3
+#   --analyze-args "--step-marker <regex of the step's first kernel>"
+```
+
+## Ab_run rules (why the runner is strict)
+
+- `plan.json` is the pre-registration: arms pinned to commit SHAs (or, for a directory arm, its HEAD plus a hash of the uncommitted diff), seeds, order and cache policy. A hash of the plan is stored next to it. `run` refuses to start if the plan was edited, or if a directory arm's code changed since the plan (unless you pass `--allow-changed`).
+- Order: `blocked` (the default) runs every arm once per rep, in a seeded random order. That spreads node drift and thermal effects evenly across arms. `abba` and `alternate` are also available.
+- Seeds: `none` (the default) leaves runs unseeded, as certifications are. `auto` or a list gives the same seed to every arm within a rep, and the report then adds a paired per-rep test. The trainer reads the seed from `TRAIN_SEED` by default (`--seed-env` changes that).
+- Every trainer outcome is recorded and counted: ok, failed, nan, timeout, incomplete. Nothing is retried or dropped, and the report flags arms with failures. The one exception is a slot cut short by a harness crash: it is logged as `interrupted` and re-run.
+- `--cache cold` gives each run its own fresh `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR`, deleted afterwards, so the ~7 min compile is in every run's wall time but not in `train_time`. `warm` keeps one cache per arm, so arms never share compiled code.
+
+## nsys analysis notes
+
+- The hook wraps `train_gpt.py`'s `train_step` without editing the file. Warmup also calls `train_step`, so the hook profiles the second pass, where the step index restarts (`NSYS_HOOK_PHASE=1`). The capture covers one unannotated step on each side of the profiled range. It synchronizes twice, at the capture boundaries, on every rank.
+- Kernels are assigned to a step by the time of their launch API call, which works for CUDA-graph replays. A step's GPU window runs from its first kernel to the next step's first kernel, so idle time includes bubbles between steps. Exposed NCCL = NCCL kernel time not overlapped by any non-NCCL kernel on the same device.
+- GEMM shapes come from NVTX `aten::mm ... sizes = [...]` ranges (eager trainers, `NSYS_HOOK_EMIT_NVTX=1`) or from a `--gemm-shapes` JSON (`[{"match": regex, "mnk": [M,N,K]}]`). CUDA-graph replays have no CPU ops, so Track 1 needs the JSON. The fixture's example is `tests/fixtures/gemm_shapes_example.json`. GEMMs without a shape are reported with time only.
+
+## Tests (CPU, no GPU)
+
+`cd 182/tools && python -m unittest discover -s tests`. All 40 tests pass on an arm64 Mac (Python 3.10, scipy present for the cross-checks; the scipy tests are skipped without it). They are checked against real records:
+
+- ANVIL2 pool: 17 shipped logs plus the README's 18th row give t=11.5, p=9.40e-10, mean 3.2773111, sd 0.00099048. Baseline: 73.889 ± 0.137 s. Win: 33.975 s.
+- Track 3 #12: n=20 parsed out of one file, 3.2790 at step 3325. Track 3 #20: 3.2790 (n=30) at step 3030.
+- The README's `pair3` examples: 0.00167, 0.0027 and 0.00648.
+- t, ppf and Welch match scipy. A simulation confirms the required-n results reach their stated power.
+- `ab_run` end to end: a fake trainer in a throwaway git repo, with ref worktrees, resume, crash/NaN counting, tamper detection and the s-format logs.
+- The nsys hook, against a stub torch.
+- `analyze_nsys` on `tests/fixtures/synthetic_nsys.sqlite`, built by `make_nsys_fixture.py`, whose docstring gives the expected numbers. It is also run on an older-schema variant of the fixture.
+
+## Not yet verified on GPU
+
+- `node_setup.sh` venv and docker modes, and `node_check.py`. Only `--mode report` has run (on macOS, without a GPU).
+- `profile_nsys.sh` under real nsys and torchrun. Specifically: `--no-python` rank wrapping, the `cudaProfilerApi` capture with CUDA graphs, and whether real nsys exports name tables and columns as the fixture assumes. That assumption covers `StringIds`, `CUPTI_ACTIVITY_KIND_KERNEL.demangledName/shortName/graphNodeId`, `NVTX_EVENTS.text/textId` and `CUPTI_ACTIVITY_KIND_RUNTIME.correlationId/globalTid`. The analyzer tolerates missing optional columns. On the first real trace, check the kernel count against `nsys stats`.
+- `ab_run.py` with real torchrun and docker launches, and the cold-cache wall time.
+- The default GEMM and NCCL name regexes. Real kernel names (cuBLAS `nvjet`/`sm90_xmma`, Triton `triton_tem_*`, this repo's custom fp8 kernels) may need `--gemm-regex` or `--gemm-exclude` adjustments. Check with `--list-gemms`.
