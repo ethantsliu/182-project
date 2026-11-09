@@ -29,6 +29,8 @@ class TestDistributions(unittest.TestCase):
         self.assertAlmostEqual(stats.t_sf(0.0, 7), 0.5)
         self.assertAlmostEqual(stats.t_sf(2.0, 1), 0.1475836176504333, places=12)  # Cauchy: 1/2 - atan(2)/pi
         self.assertAlmostEqual(stats.norm_ppf(0.999), 3.090232306167813, places=9)
+        self.assertEqual(stats.t_sf(float("inf"), 7), 0)
+        self.assertEqual(stats.t_sf(-float("inf"), 7), 1)
 
 
 class TestAnvil2Record(unittest.TestCase):
@@ -82,9 +84,22 @@ class TestWelchScipy(unittest.TestCase):
                 ref = ss.ttest_ind(a, b, equal_var=False, alternative=alt)
                 self.assertAlmostEqual(w["t"], ref.statistic, places=9)
                 self.assertAlmostEqual(w["p"], ref.pvalue, places=9)
+                self.assertAlmostEqual(w["df"], ref.df, places=9)
             g = stats.gate_test(a, 40.0)
             ref = ss.ttest_1samp(a, 40.0, alternative="less")
             self.assertAlmostEqual(g["p"], ref.pvalue, places=9)
+            self.assertEqual(g["df"], len(a) - 1)
+            self.assertAlmostEqual(g["t"], -ref.statistic, places=9)
+
+    @unittest.skipIf(ss is None, "scipy not installed")
+    def test_track2_gate_random_losses(self):
+        rng = random.Random(182)
+        for n in [2, 3, 8, 30, 100]:
+            vals = [rng.gauss(2.919, 0.002) for _ in range(n)]
+            got = stats.gate_test(vals, target=2.92)
+            ref = ss.ttest_1samp(vals, 2.92, alternative="less")
+            self.assertAlmostEqual(got["p"], ref.pvalue, places=10)
+            self.assertEqual(got["passes"], ref.pvalue < 0.01)
 
 
 class TestTrack3Rules(unittest.TestCase):
@@ -96,6 +111,8 @@ class TestTrack3Rules(unittest.TestCase):
         self.assertTrue(stats.z3_rule([3.2779] * 4)["passes"])   # "for n=4 runs, any average below 3.278"
         self.assertFalse(stats.z3_rule([3.2781] * 4)["passes"])
         self.assertAlmostEqual(stats.z3_rule([3.278] * 4)["max_mean_to_pass"], 3.278)
+        self.assertFalse(stats.z3_rule([-float("inf")])["passes"])
+        self.assertFalse(stats.z3_rule([float("nan")])["passes"])
 
     def test_z3_on_result_20_logs(self):
         # Result #20 "3030 steps, 3.2790 (n=30)": its logs run to 3040, readout at the fixed step 3030.

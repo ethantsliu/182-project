@@ -89,6 +89,7 @@ def main():
         state["last"] = step
         live = state["phase"] == phase_want and not state["done"]
         if live and not state["on"] and step == max(start - 1, 0):
+            torch.cuda.synchronize()
             cudart.cudaProfilerStart()
             state["on"] = True
             if emit:
