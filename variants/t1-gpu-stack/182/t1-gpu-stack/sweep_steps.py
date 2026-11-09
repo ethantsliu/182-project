@@ -8,6 +8,9 @@ NUM_SCHEDULED_ITERATIONS; the console goes to <out>/<tag>_s<steps>_r<k>.txt, and
   python 182/t1-gpu-stack/sweep_steps.py run --steps 951 966 981 --runs 4 --out sweeps/stack --tag stack
   # Analysis only (also works on logs from any earlier sweep or record folder with [final] / val_loss lines):
   python 182/t1-gpu-stack/sweep_steps.py fit sweeps/stack --target 3.2785
+  # Screening at equal loss: one sweep directory per arm, the first one the baseline (#397 with no flags, i.e.
+  # a plain step reduction). Each arm's train time at the target loss, and its difference from the baseline:
+  python 182/t1-gpu-stack/sweep_steps.py compare sweeps/base sweeps/hostprep sweeps/copymix --target 3.2785
 
 The fit: mean val loss is close to linear in the step count over a few dozen steps, so it fits
 loss = a + b * scheduled_steps by least squares on all runs (not on the group means), solves for the target,
@@ -70,15 +73,75 @@ def linfit(xs, ys):
     return a, b, sd
 
 
-def fit(log_dirs, target: float):
+def load_runs(log_dirs, quiet: bool = False):
     runs = []
     for d in log_dirs:
         for path in sorted(glob.glob(os.path.join(d, "**", "*.txt"), recursive=True)):
             r = parse_log(path)
             if r is None:
-                print(f"skip (unfinished or unparsed): {path}")
+                if not quiet:
+                    print(f"skip (unfinished or unparsed): {path}")
             else:
                 runs.append(r)
+    return runs
+
+
+def time_at_target(runs, target: float):
+    """(scheduled steps, train time s) where the linear loss fit crosses `target`, or None (one step count, or
+    a loss that does not fall with steps)."""
+    xs = [r[0] for r in runs]
+    if len(set(xs)) < 2:
+        return None
+    a, b, _ = linfit(xs, [r[1] for r in runs])
+    if b >= 0:
+        return None
+    ta, tb, _ = linfit(xs, [r[2] for r in runs])
+    x_star = (target - a) / b
+    return x_star, ta + tb * x_star
+
+
+def compare(log_dirs, target: float, boot: int = 2000, seed: int = 0):
+    """Each arm's train time at the target loss (from its own loss and time fits) and its difference from the first
+    arm, with a 90% bootstrap interval (runs resampled within each arm). Equal loss is the fair comparison for
+    flags that change the loss per step: an arm wins only if it beats the baseline's own step reduction."""
+    import random
+    rng = random.Random(seed)
+    arms = [(d, load_runs([d], quiet=True)) for d in log_dirs]
+    base_dir, base_runs = arms[0]
+    base = time_at_target(base_runs, target)
+    if base is None:
+        sys.exit(f"baseline {base_dir}: needs >= 2 step counts with the loss falling in steps")
+
+    def resample(runs):
+        while True:  # a resample needs two step counts to fit
+            pick = [rng.choice(runs) for _ in runs]
+            r = time_at_target(pick, target)
+            if r is not None:
+                return r[1]
+
+    base_boot = [resample(base_runs) for _ in range(boot)]
+    print(f"target mean val {target}; baseline {base_dir}: {base[1]:.3f} s at {base[0]:.1f} scheduled steps")
+    print(f"{'arm':<32} {'n':>3} {'steps*':>8} {'time* s':>8} {'delta s':>8} {'90% interval':>18}")
+    results = []
+    for d, runs in arms:
+        r = time_at_target(runs, target)
+        if r is None:
+            print(f"{d:<32} {len(runs):>3}   needs >= 2 step counts with the loss falling in steps")
+            continue
+        if d == base_dir:
+            print(f"{d:<32} {len(runs):>3} {r[0]:>8.1f} {r[1]:>8.3f} {'(base)':>8}")
+            continue
+        deltas = sorted(resample(runs) - b for b in base_boot)
+        lo, hi = deltas[int(0.05 * boot)], deltas[int(0.95 * boot) - 1]
+        delta = r[1] - base[1]
+        results.append((d, delta, lo, hi))
+        print(f"{d:<32} {len(runs):>3} {r[0]:>8.1f} {r[1]:>8.3f} {delta:>+8.3f} [{lo:+.3f}, {hi:+.3f}]")
+    print("an arm is worth keeping only if its whole interval is below 0 (and its runs all finished normally)")
+    return results
+
+
+def fit(log_dirs, target: float):
+    runs = load_runs(log_dirs)
     if not runs:
         sys.exit("no finished runs found")
     by_steps = {}
@@ -149,9 +212,15 @@ def main():
     f = sub.add_parser("fit")
     f.add_argument("dirs", nargs="+")
     f.add_argument("--target", type=float, default=3.2785)
+    c = sub.add_parser("compare", help="train time at equal loss per arm (one sweep dir each), vs the first arm")
+    c.add_argument("dirs", nargs="+")
+    c.add_argument("--target", type=float, default=3.2785)
+    c.add_argument("--boot", type=int, default=2000)
     args = p.parse_args()
     if args.cmd == "run":
         run(args)
+    elif args.cmd == "compare":
+        compare(args.dirs, args.target, args.boot)
     else:
         fit(args.dirs, args.target)
 
