@@ -295,7 +295,14 @@ class TestSummarize(unittest.TestCase):
         self.assertAlmostEqual(g["se_mnat"], se, places=6)
         self.assertAlmostEqual(g["hi_mnat"], m + h, places=4)
         self.assertEqual(g["decision"], "INCONCLUSIVE")
-        self.assertTrue(g["run_hadamard"])
+        # mean 0.4 mnat < HADAMARD_MIN_GAP_MNAT (2.0): no Hadamard variant can pay for itself, skip it.
+        self.assertFalse(g["run_hadamard"])
+        big = {k: [dict(r) for r in v] for k, v in groups.items()}
+        for rep, dd in enumerate([3.0, 1.0, 4.0, 2.4]):
+            big["fp8"][rep]["val_loss"] = 3.278 + dd / 1000
+        gb = ss.gate_decision(dict(ab, groups=big))
+        self.assertGreaterEqual(gb["mean_mnat"], 2.0)
+        self.assertTrue(gb["run_hadamard"])
         for rep in range(4):
             groups["fp8"][rep]["val_loss"] = 3.278 + [0.1, 0.0, 0.2, 0.1][rep] / 1000
         self.assertEqual(ss.gate_decision(ab)["decision"], "STOP")

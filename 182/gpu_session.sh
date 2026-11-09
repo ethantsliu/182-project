@@ -24,7 +24,7 @@
 #   sanity    182/hadamard-fp8/gpu_sanity.py (skipped if absent)
 #   gate      README decision gate: record vs FP8_OFF=1, GATE_SEEDS paired, interleaved (ab_run.py);
 #             prints the paired gap mean +- SE, its 95% CI vs 0.5 mnat, and the decision
-#   hadamard  only if the gate CI upper >= 0.5 mnat (or FORCE_HADAMARD=1), and the HADAMARD_FP8 tests /
+#   hadamard  only if the gate is GAP/INCONCLUSIVE with mean gap >= HADAMARD_MIN_GAP_MNAT (2.0) (or FORCE_HADAMARD=1), and the HADAMARD_FP8 tests /
 #             sanity did not fail: record vs HADAMARD_FP8=1 per HADAMARD_VARIANTS (GEMMS@BLOCK), HADAMARD_SEEDS
 #   t2        variants/t2-cpu-ngram at its default 5800 steps, once (skipped with the reason if the host
 #             lacks ~390 GiB RAM, 144 GiB free /dev/shm, 24 vCPU/GPU, or the 103 shards)
@@ -302,7 +302,7 @@ phase_hadamard() {
     else
       # shellcheck disable=SC1091
       source "$SD/gate/decision.env"
-      [[ "${GATE_RUN_HADAMARD:-0}" == 1 ]] || why="gate decision ${GATE_DECISION:-?}: CI upper ${GATE_HI_MNAT:-?} mnat < 0.5 (FORCE_HADAMARD=1 overrides)"
+      [[ "${GATE_RUN_HADAMARD:-0}" == 1 ]] || why="gate decision ${GATE_DECISION:-?}: mean gap ${GATE_MEAN_MNAT:-?} mnat (CI upper ${GATE_HI_MNAT:-?}) is below what any Hadamard variant needs to pay for itself (HADAMARD_MIN_GAP_MNAT, default 2.0; FORCE_HADAMARD=1 overrides)"
     fi
     [[ -z "$why" && "$(cat "$SD/tests/rc_hadamard" 2>/dev/null || echo 0)" != 0 ]] && why="the HADAMARD_FP8=1 tests failed ($SD/tests/pytest_hadamard.txt)"
     [[ -z "$why" && "$(status_of sanity)" == FAIL* ]] && why="gpu_sanity.py failed ($SD/sanity/sanity.txt)"
@@ -434,7 +434,7 @@ if [[ -n "${SESSION_DOCKER:-}" && ! -f /.dockerenv ]]; then
   DOCKER=(docker); docker info >/dev/null 2>&1 || DOCKER=(sudo docker)
   HFC="${HF_HOME:-$HOME/.cache/huggingface}"
   PASS_ENV=()
-  for v in QUICK STOP_AFTER_FAILURES T2_TIMEOUT_S TESTS_TIMEOUT_S SANITY_TIMEOUT_S T2_PREFETCH_WAIT_S NPROC CACHE GATE_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS FORCE_HADAMARD TIMEOUT_S RUN_CMD SANITY_CMD SKIP_DATA \
+  for v in QUICK HADAMARD_MIN_GAP_MNAT STOP_AFTER_FAILURES T2_TIMEOUT_S TESTS_TIMEOUT_S SANITY_TIMEOUT_S T2_PREFETCH_WAIT_S NPROC CACHE GATE_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS FORCE_HADAMARD TIMEOUT_S RUN_CMD SANITY_CMD SKIP_DATA \
            T2_FORCE T2_INSTALL_RUST FORCE DRY_RUN HF_HUB_OFFLINE COLD_RUN_MIN WARM_RUN_MIN; do
     [[ -n "${!v:-}" ]] && PASS_ENV+=(-e "$v=${!v}")
   done

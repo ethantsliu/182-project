@@ -33,6 +33,10 @@ import stats  # noqa: E402
 
 THRESHOLD_MNAT = 0.5          # 182/hadamard-fp8/README.md decision rule
 SEC_PER_MNAT = 0.164          # #360 near its step count (182/structured/ab_fixed_steps.py)
+# The hadamard phase only pays if the gap can buy back its cost: the cheapest default variant (dw1,dw2@32)
+# is estimated at ~0.5-0.7 s, i.e. ~3-4 mnat at SEC_PER_MNAT, so a mean gap under ~2 mnat cannot win and
+# its ~34 GPU-node-minutes are better spent elsewhere. FORCE_HADAMARD=1 in gpu_session.sh overrides.
+HADAMARD_MIN_GAP_MNAT = float(os.environ.get("HADAMARD_MIN_GAP_MNAT", "2.0"))
 T2_REF = dict(val_loss=2.8769, train_time_s=221.0, step_avg_ms=38.1, target=2.877)
 HIDDEN_ENV = {"DATA_PATH", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TRAIN_SEED"}
 
@@ -169,7 +173,8 @@ def gate_decision(ab: dict) -> dict:
         res.update(decision="GAP", reason="95% CI lower > 0.5 mnat: attribute it (FP8_OFF=mlp/qkv/lm), dump, offline script")
     else:
         res.update(decision="INCONCLUSIVE", reason="95% CI straddles 0.5 mnat: more seeds needed")
-    res["run_hadamard"] = res["decision"] in ("GAP", "INCONCLUSIVE")
+    res["min_gap_mnat"] = HADAMARD_MIN_GAP_MNAT
+    res["run_hadamard"] = res["decision"] in ("GAP", "INCONCLUSIVE") and m >= HADAMARD_MIN_GAP_MNAT
     if n >= 2 and n < ab["plan"]["n"]:
         res["reason"] += f" (only {n}/{ab['plan']['n']} seed pairs complete)"
     return res
