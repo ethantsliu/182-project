@@ -6,7 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from track_1_short.config import FP8_DUMP_SLOTS, FP8_OFF, HADAMARD_FP8, HADAMARD_SEED
+from track_1_short.config import (FP8_DUMP_SLOTS, FP8_OFF, HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX,
+                                  HADAMARD_FP8, HADAMARD_SEED)
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
 from track_1_short.model.monarch import (
@@ -32,6 +33,7 @@ from track_1_short.perf.kernels.cross_entropy import (
 from track_1_short.perf.kernels.fp8_attention_quant import PackedQKVFP8Cache
 from track_1_short.perf.kernels.hadamard import (
     HADAMARD_BLOCK,
+    HADAMARD_TILE,
     hadamard_t_quant,
     quantize_weights_rotated,
     quantize_weights_rotated_ntiles,
@@ -378,11 +380,14 @@ class GPT(nn.Module):
         }
         if HADAMARD_FP8:
             # perf/kernels/hadamard.py. The rotated W1 (dx) and W2 (dpre GEMM) live in the _mlp_up_f8_col and
-            # _mlp_down_f8_row caches above; these are their own scales and per-tile rotated amaxes, and the
-            # rotated x_t's delayed scale. The _hadamard_q constant is written once, here.
-            assert h % HADAMARD_BLOCK == 0 and d % HADAMARD_BLOCK == 0
+            # _mlp_down_f8_row caches above (iff HADAMARD_GEMMS selects them); these are their own scales and
+            # per-tile rotated amaxes, the rotated x_t's delayed scale (dw1) and the rotated post_t's (dw2).
+            # The _hadamard_q constant is written once, here.
+            assert h % HADAMARD_TILE == 0 and d % HADAMARD_TILE == 0
             rot_tiles = quantize_weights_rotated_ntiles(h, d)
             buffers.update({
+                "_mlp_post_t_scales": torch.ones(n, dtype=f32, device=dev),
+                "_mlp_post_t_amax": torch.zeros(n, 1, dtype=f32, device=dev),
                 "_mlp_up_rot_scales": torch.ones(n, dtype=f32, device=dev),
                 "_mlp_down_rot_scales": torch.ones(n, dtype=f32, device=dev),
                 "_mlp_up_rot_partial_amax": torch.zeros(n, rot_tiles, dtype=f32, device=dev),
@@ -1000,20 +1005,25 @@ class GPT(nn.Module):
             # The two gradient-GEMM caches are overwritten with their rotated copies (perf/kernels/hadamard.py):
             # W1 rotated along the hidden dim (dx), W2 along the model dim (the dpre GEMM). Same scale rule as
             # the plain caches: exact for the first calls (from the rotated weights), then one step delayed.
+            # Only the caches of selected GEMMs (HADAMARD_GEMMS: dx, dpost) are rotated; the others keep the
+            # record's plain copy and cost nothing extra.
             q = self._hadamard_q
-            if exact:
-                for scales, w, axis in ((self._mlp_up_rot_scales, up_weights, 1), (self._mlp_down_rot_scales, down_weights, 2)):
+            rotated = [(self._mlp_up_rot_scales, self._mlp_up_rot_partial_amax, up_weights, 1, self._mlp_up_f8_col.transpose(1, 2))] if HADAMARD_DX else []
+            if HADAMARD_DPOST:
+                rotated.append((self._mlp_down_rot_scales, self._mlp_down_rot_partial_amax, down_weights, 2, self._mlp_down_f8_row))
+            for scales, partial_amax, w, axis, out in rotated:
+                if exact:
                     scales[:] = (rotate(w, axis, q).reshape(NUM_MLP_SLOTS, -1).abs().amax(dim=1).clamp(min=1e-12) / e4m3_max)
-            quantize_weights_rotated(up_weights, q, self._mlp_up_rot_scales, self._mlp_up_rot_partial_amax,
-                                     out=self._mlp_up_f8_col.transpose(1, 2), along_h=True, update_scales=not exact)
-            quantize_weights_rotated(down_weights, q, self._mlp_down_rot_scales, self._mlp_down_rot_partial_amax,
-                                     out=self._mlp_down_f8_row, along_h=False, update_scales=not exact)
-            self._refresh_delayed_scale(self._mlp_xt_amax, self._mlp_xt_scales, FP8_XT_HEADROOM / e4m3_max, 1e-6)
+                quantize_weights_rotated(w, q, scales, partial_amax, out=out, along_h=axis == 1, update_scales=not exact)
+            if HADAMARD_DW1:
+                self._refresh_delayed_scale(self._mlp_xt_amax, self._mlp_xt_scales, FP8_XT_HEADROOM / e4m3_max, 1e-6)
+            if HADAMARD_DW2:
+                self._refresh_delayed_scale(self._mlp_post_t_amax, self._mlp_post_t_scales, FP8_POST_HEADROOM / e4m3_max, 1e-6)
 
         # Scales derived from them. In-place, so every consumer keeps reading the same tensors.
         torch.mul(self._mlp_up_scales, FP8_MLP_X_SCALE, out=self._mlp_up_dequant)
         # The dpre GEMM reads the W2 row cache: rotated (with its own scale) under HADAMARD_FP8.
-        torch.mul(self._mlp_down_rot_scales if HADAMARD_FP8 else self._mlp_down_scales, FP8_GRAD_SCALE, out=self._mlp_dq_bwd)
+        torch.mul(self._mlp_down_rot_scales if HADAMARD_DPOST else self._mlp_down_scales, FP8_GRAD_SCALE, out=self._mlp_dq_bwd)
         self._refresh_delayed_scale(self._mlp_post_amax, self._mlp_post_scales, FP8_POST_HEADROOM / e4m3_max, 1e-6)
         self._refresh_delayed_scale(self._mlp_dpre_amax, self._mlp_dpre_scales, FP8_DPRE_HEADROOM / e5m2_max, 1e-12)
 
@@ -1034,9 +1044,11 @@ class GPT(nn.Module):
             for amax in (self._mlp_up_partial_amax, self._mlp_down_partial_amax, self._mlp_post_amax, self._mlp_dpre_amax):
                 amax.zero_()
             if HADAMARD_FP8:
-                for amax in (self._mlp_up_rot_partial_amax, self._mlp_down_rot_partial_amax, self._mlp_xt_amax):
+                for amax in (self._mlp_up_rot_partial_amax, self._mlp_down_rot_partial_amax, self._mlp_xt_amax,
+                             self._mlp_post_t_amax):
                     amax.zero_()
                 self._mlp_xt_scales.fill_(FP8_MLP_X_SCALE)
+                self._mlp_post_t_scales.fill_(1.0)
             self._mlp_dpre_scales.fill_(FP8_GRAD_SCALE)
             self._mlp_post_scales.fill_(1.0)
 
@@ -1052,7 +1064,7 @@ class GPT(nn.Module):
     def _quantize_mlp_input(self, x2d, slot):
         """(row, transposed) e4m3 copies of the MLP input: row at the static scale for the forward GEMM;
         the transposed one (dW1) plain, or under HADAMARD_FP8 rotated along tokens at slot's delayed scale."""
-        if not HADAMARD_FP8:
+        if not HADAMARD_DW1:
             return quantize_dual_layout_fused(x2d, self._mlp_x_scale, fmt=torch.float8_e4m3fn)
         lim = FP8_MAX[torch.float8_e4m3fn]
         row = torch.clamp(x2d.to(torch.float32) * (1.0 / self._mlp_x_scale), -lim, lim).to(torch.float8_e4m3fn)
@@ -1073,11 +1085,13 @@ class GPT(nn.Module):
             down_scales, dq_bwd = self._mlp_down_scales_folded, self._mlp_dq_bwd_folded
         else:
             down_scales, dq_bwd = self._mlp_down_scales, self._mlp_dq_bwd
-        if HADAMARD_FP8:
-            x_t_scale, w1_col_scale, hadamard_q = self._mlp_xt_scales[xt_slot], self._mlp_up_rot_scales[slot], self._hadamard_q
-        else:
-            x_t_scale, w1_col_scale, hadamard_q = self._mlp_x_scale, self._mlp_up_scales[slot], None
-        return (up_f8, self._mlp_up_dequant[slot:slot+1], x_row, self._mlp_down_f8[slot], down_scales[slot],
+        x_t_scale = self._mlp_xt_scales[xt_slot] if HADAMARD_DW1 else self._mlp_x_scale
+        w1_col_scale = self._mlp_up_rot_scales[slot] if HADAMARD_DX else self._mlp_up_scales[slot]
+        hadamard_q = self._hadamard_q if HADAMARD_FP8 else None
+        args = (up_f8, self._mlp_up_dequant[slot:slot+1], x_row, self._mlp_down_f8[slot], down_scales[slot],
                 self._mlp_post_scales[slot], self._mlp_post_amax[slot], self._mlp_down_f8_row[slot], dq_bwd[slot], x_t,
                 x_t_scale, self._mlp_up_f8_col[slot], w1_col_scale, self._mlp_grad_scale,
-                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot], hadamard_q) + ((fold_p,) if fold_p is not None else ())
+                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot], hadamard_q)
+        if HADAMARD_FP8:  # p_fold positionally (possibly None), then the rotated post_t's scale and amax slot
+            return args + (fold_p, self._mlp_post_t_scales[slot], self._mlp_post_t_amax[slot])
+        return args + ((fold_p,) if fold_p is not None else ())

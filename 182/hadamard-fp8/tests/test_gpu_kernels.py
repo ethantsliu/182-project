@@ -3,7 +3,8 @@ and the FP8_OFF bf16 paths against autograd references.
 
     HADAMARD_FP8=1 python -m pytest 182/hadamard-fp8/tests/test_gpu_kernels.py -q -x
 
-(HADAMARD_FP8 only matters for prime_stage_cache; the kernels under test take Q explicitly.)
+(HADAMARD_FP8 / HADAMARD_GEMMS / HADAMARD_BLOCK are read at import: the Function rotates the GEMMs
+HADAMARD_GEMMS selects, with HADAMARD_BLOCK-sized Q. Run once per setting you care about.)
 Importing the record's kernels needs the CUDA toolchain (the CE kernel compiles at import).
 """
 import pathlib
@@ -17,6 +18,7 @@ if not torch.cuda.is_available():
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
+from track_1_short.config import HADAMARD_BLOCK, HADAMARD_GEMMS  # noqa: E402
 from track_1_short.perf.hadamard_ref import FP8_MAX, rotate, signed_hadamard  # noqa: E402
 from track_1_short.perf.kernels.hadamard import (  # noqa: E402
     hadamard_dual_quant, hadamard_t_quant, quantize_weights_rotated, quantize_weights_rotated_ntiles)
@@ -26,7 +28,7 @@ from track_1_short.perf.kernels.mlp import (  # noqa: E402
 
 DEV = torch.device("cuda")
 E4, E5 = torch.float8_e4m3fn, torch.float8_e5m2
-Q = signed_hadamard(128, seed=1234, device=DEV)
+Q = signed_hadamard(HADAMARD_BLOCK, seed=1234, device=DEV)
 
 
 def ref_quant(t, scale, fmt):
@@ -98,7 +100,9 @@ def _torch_mlp_grads(x, W1, W2, g):
 
 
 def _fp8_mlp_args(x, W1, W2, hadamard):
-    """The Function's 17 fp8 args (no p_fold), built the way GPT._mlp_fp8_args / quantize_mlp_fp8 build them."""
+    """The Function's 17 fp8 args (+ p_fold=None, post_t_scale, post_t_amax under hadamard), built the way
+    GPT._mlp_fp8_args / quantize_mlp_fp8 build them for HADAMARD_GEMMS."""
+    gm = HADAMARD_GEMMS if hadamard else frozenset()
     H, D = W1.shape
     e4m3 = E4
     bank = torch.stack((W1, W2))[None]  # [1, 2, H, D]
@@ -113,13 +117,16 @@ def _fp8_mlp_args(x, W1, W2, hadamard):
     quantize_mlp_weights_dual(down, down_s, torch.zeros(1, nt, device=DEV), down_row, down_col.transpose(1, 2), False)
     x_scale, g_scale = torch.tensor(2.0 ** -4, device=DEV), torch.tensor(2.0 ** -6, device=DEV)
     w1_col_s, w2_row_s = up_s[0], down_s[0]
-    if hadamard:
-        nr = quantize_weights_rotated_ntiles(H, D)
+    nr = quantize_weights_rotated_ntiles(H, D)
+    if "dx" in gm:
         w1_col_s = (rotate(up, 1, Q).abs().max() / 448).float().reshape(1)
-        w2_row_s = (rotate(down, 2, Q).abs().max() / 448).float().reshape(1)
         quantize_weights_rotated(up, Q, w1_col_s, torch.zeros(1, nr, device=DEV), up_col.transpose(1, 2), True, False)
+        w1_col_s = w1_col_s[0]
+    if "dpost" in gm:
+        w2_row_s = (rotate(down, 2, Q).abs().max() / 448).float().reshape(1)
         quantize_weights_rotated(down, Q, w2_row_s, torch.zeros(1, nr, device=DEV), down_row, False, False)
-        w1_col_s, w2_row_s = w1_col_s[0], w2_row_s[0]
+        w2_row_s = w2_row_s[0]
+    if "dw1" in gm:
         lim = 448.0
         x_row = torch.clamp(x.float() / x_scale, -lim, lim).to(e4m3)
         xt_scale = (rotate(x, 0, Q).abs().max() * 1.1 / 448).float()
@@ -131,9 +138,13 @@ def _fp8_mlp_args(x, W1, W2, hadamard):
     post = torch.relu(pre).float().square()
     post_s = (post.abs().max() * 1.03 / 448).reshape(1)
     dpre_s = torch.tensor(1e-3 * 1.25 / 57344, device=DEV)  # refined below by one priming call
-    return [up_row[0], (up_s * x_scale).reshape(1), x_row, down_col[0], down_s[0], post_s[0],
+    args = [up_row[0], (up_s * x_scale).reshape(1), x_row, down_col[0], down_s[0], post_s[0],
             torch.zeros(1, device=DEV), down_row[0], (w2_row_s * g_scale), x_t, xt_scale, up_col[0], w1_col_s,
             g_scale, dpre_s, torch.zeros(1, device=DEV), Q if hadamard else None]
+    if hadamard:
+        post_t_s = (rotate(post.bfloat16(), 0, Q).abs().max() * 1.03 / 448).reshape(1)[0]
+        args += [None, post_t_s, torch.zeros(1, device=DEV)]
+    return args
 
 
 @pytest.mark.parametrize("hadamard", [False, True])
@@ -156,19 +167,28 @@ def test_fused_mlp_fp8_grads(hadamard):
 
 
 def test_linear_relu_square_hadamard_epilogues():
-    """The forward's rotated post_t and the backward's rotated dpre (both layouts) against the reference."""
+    """The forward's rotated post_t against the reference, at its own scale; post_f8 and the post amax stay
+    bit-identical to the unrotated kernel's (risk b)."""
     x, W1, W2, g = _mlp_case(seed=4)
-    args = _fp8_mlp_args(x, W1, W2, hadamard=True)
+    args = _fp8_mlp_args(x, W1, W2, hadamard=False)
     post_scale = args[5]
-    _, _, post_f8, post_t = linear_relu_square(x, W1, a_f8=args[2], b_f8=args[0], dequant_scale_ptr=args[1],
-                                               emit_f8=True, emit_t=True, post_scale=post_scale,
-                                               post_amax=torch.zeros(1, device=DEV), store_pre=False,
-                                               store_post_bf=False, hadamard_q=Q)
     post = torch.relu((x.float() @ W1.float().T).bfloat16()).float().square().bfloat16()
+    post_t_scale = (rotate(post, 0, Q).abs().max() * 1.03 / 448).reshape(1)
+    outs = []
+    for rot in (False, True):
+        amax, t_amax = torch.zeros(1, device=DEV), torch.zeros(1, device=DEV)
+        kw = dict(hadamard_q=Q, rot_t=True, post_t_scale=post_t_scale, post_t_amax=t_amax) if rot else {}
+        _, _, post_f8, post_t = linear_relu_square(x, W1, a_f8=args[2], b_f8=args[0], dequant_scale_ptr=args[1],
+                                                   emit_f8=True, emit_t=True, post_scale=post_scale,
+                                                   post_amax=amax, store_pre=False, store_post_bf=False, **kw)
+        outs.append((post_f8, amax, post_t, t_amax))
+    assert torch.equal(outs[0][0].view(torch.uint8), outs[1][0].view(torch.uint8))
+    assert torch.equal(outs[0][1], outs[1][1])
     # the fp8 forward GEMM's own rounding makes post differ slightly: compare dequantized, loosely
-    got = post_t.float() * post_scale
+    got = outs[1][2].float() * post_t_scale
     want = rotate(post, 0, Q).T
     assert ((got - want).norm() / want.norm()).item() < 0.08
+    assert abs(outs[1][3].item() - want.abs().max().item()) < 0.02 * want.abs().max().item()
 
 
 def test_bf16_mlp_matches_torch():

@@ -112,6 +112,22 @@ FP8_OFF = _fp8_off_parts(os.environ.get("FP8_OFF", ""))
 HADAMARD_FP8 = os.environ.get("HADAMARD_FP8", "0") == "1"
 HADAMARD_SEED = int(os.environ.get("HADAMARD_SEED", "1234"))
 assert not (HADAMARD_FP8 and "mlp" in FP8_OFF), "HADAMARD_FP8 rotates the fp8 MLP; FP8_OFF=mlp removes it"
+# HADAMARD_BLOCK=32|64|128: the rotation block (Q's size). The kernels keep 128-wide tiles and rotate each
+# one block-diagonally, so the epilogue dots cost 2 * HADAMARD_BLOCK FLOP per element.
+HADAMARD_BLOCK = int(os.environ.get("HADAMARD_BLOCK", "128"))
+assert HADAMARD_BLOCK in (32, 64, 128), f"HADAMARD_BLOCK={HADAMARD_BLOCK}: use 32, 64 or 128"
+
+def _hadamard_gemms(value: str) -> frozenset[str]:
+    """HADAMARD_GEMMS: comma subset of dw1, dw2, dx, dpost (or "all", the default). A GEMM not listed reads
+    the record's unrotated operands on both sides, at the record's cost."""
+    names = {"dw1", "dw2", "dx", "dpost"}
+    value = value.strip().lower()
+    parts = frozenset(names if value in ("", "all") else (p.strip() for p in value.split(",") if p.strip()))
+    assert parts and parts <= names, f"HADAMARD_GEMMS: unknown or empty {sorted(parts - names) or value!r}"
+    return parts
+
+HADAMARD_GEMMS = _hadamard_gemms(os.environ.get("HADAMARD_GEMMS", "all")) if HADAMARD_FP8 else frozenset()
+HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX, HADAMARD_DPOST = (g in HADAMARD_GEMMS for g in ("dw1", "dw2", "dx", "dpost"))
 # FP8_DUMP_DIR: save sample MLP / QKV operands (x, dy, W) at FP8_DUMP_STEPS from rank 0, for the offline
 # quantization-error study (182/hadamard-fp8/fp8_quant_error.py). Off by default; the clock is paused
 # around each dump, but a dump run is an analysis run, not a timing run (perf/fp8_dump.py).

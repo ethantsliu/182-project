@@ -29,7 +29,9 @@ The record's scales were tuned not to saturate.
 | knob | effect |
 |---|---|
 | `FP8_OFF=1` (or `all`, or a list like `mlp,qkv,lm`) | Runs those training GEMMs in bf16 with the same math otherwise. **MLP**: `BF16LinearReLUSquareFunction` (same forward kernel as validation; dW2, dpre, dW1, dx as bf16 GEMMs; post-lambda via `scale_add`, not folded). **QKV**: `PackedBF16QKV` (bf16 projection, the same fused norm/rotary/V backward kernel with a new `FP8_OUT=False` bf16 output). **lm**: `perf/bf16_loss.py`, plain-torch slabbed softcapped MTP + prefix CE with a bf16 lm_head GEMM and the CE kernel's exact gradient convention, also on sampled-softmax steps via a new `SampledLoss.candidates` view. The fp8 caches are still refreshed, just not read. Attention itself stays bf16 FA3 either way. Slower; compare val loss at fixed steps only. |
-| `HADAMARD_FP8=1` (`HADAMARD_SEED`, default 1234) | Block-128 random-sign Hadamard rotation along the contraction dim for the four MLP gradient GEMMs, fused into the existing quantize paths (`perf/kernels/hadamard.py`, `mlp.py` epilogues): dW2 (post_t from the forward epilogue, g_t along tokens), dpost (g_row, W2 row cache along 768), dW1 (dpre_t from the backward epilogue, x_t along tokens), dx (dpre row, W1 col cache along hidden). The forward GEMMs are untouched. Scales: g stays static; post and dpre keep one delayed scale each, whose amax now covers the rotated layouts; the rotated weight caches get their own exact-then-delayed scales; x_t gets a new delayed scale (`FP8_XT_HEADROOM` 1.10). A token-rotated x at the static 2^-4 can saturate (see the `dW1 xt-static` row of the script). QKV and lm_head are **not** rotated (next step if MLP shows a gain). Requires per-rank tokens, 2816 and 768 to be multiples of 128 (asserted). |
+| `HADAMARD_FP8=1` (`HADAMARD_SEED`, default 1234) | Block-128 random-sign Hadamard rotation along the contraction dim for the four MLP gradient GEMMs, fused into the existing quantize paths (`perf/kernels/hadamard.py`, `mlp.py` epilogues): dW2 (post_t from the forward epilogue, g_t along tokens), dpost (g_row, W2 row cache along 768), dW1 (dpre_t from the backward epilogue, x_t along tokens), dx (dpre row, W1 col cache along hidden). The forward GEMMs are untouched, and so are their numerics: the rotated post_t has its own delayed scale (`post_t_scale`/`post_t_amax`), the forward's post scale sees only the unrotated post. Scales: g stays static; dpre keeps one delayed scale whose amax covers both its layouts; the rotated weight caches get their own exact-then-delayed scales; x_t gets a new delayed scale (`FP8_XT_HEADROOM` 1.10). A token-rotated x at the static 2^-4 can saturate (see the `dW1 xt-static` row of the script). QKV and lm_head are **not** rotated (next step if MLP shows a gain). Requires per-rank tokens, 2816 and 768 to be multiples of 128 (asserted). |
+| `HADAMARD_GEMMS=dw1,dw2,dx,dpost` (subset; default all) | Only the listed gradient GEMMs read rotated operands; an unlisted one reads the record's operands on both sides with no extra dot, kernel or weight-cache write (dW2: forward post_t epilogue + g_t; dpost: g_row + W2 row cache; dW1: backward dpre_t epilogue + x_t; dx: backward dpre row epilogue + W1 col cache). Inert without `HADAMARD_FP8=1`. |
+| `HADAMARD_BLOCK=32\|64\|128` (default 128) | Rotation block. Kernels keep 128-wide tiles and rotate each block-diagonally (reshape + `[R*128/b, b] @ [b, b]` dot), so the epilogue dots cost 2b instead of 256 FLOP/element. A factored full-128 rotation (H16 ⊗ H8) was not implemented: the H8 butterflies need shared-memory layout round trips in Triton and K=8 is too small for a bf16 wgmma (see `perf/kernels/hadamard.py`). |
 | `FP8_DUMP_DIR=dir` (`FP8_DUMP_STEPS=100,500,1000`, `FP8_DUMP_ROWS=8192`, `FP8_DUMP_SLOTS=0,5,10`) | Saves `dir/stepNNNNNN.pt` with bf16 x / g / W for those MLP slots and attention layers (`perf/fp8_dump.py`). At those steps, rank 0 runs one extra **eager** forward+backward of the uncompiled model: no gradient sinks, results dropped, every fp8 amax buffer restored. The full softmax is used even on sampled steps. The clock is paused around it (`t0` moves forward) and all ranks barrier. A dump run is an analysis run, not a timing run: every val line it prints ends in `INVALID_FOR_RECORD(fp8_dump)`. The hooks check `FP8_DUMP.active()`, which short-circuits on `torch.compiler.is_compiling()`, so compiled graphs are unchanged. |
 
 Also added: `perf/hadamard_ref.py`, the pure-torch reference and the convention for "rotate both
@@ -76,8 +78,31 @@ python 182/hadamard-fp8/fp8_quant_error.py --dump dumps/fp8 --json dumps/fp8_err
 for s in 0 1 2 3; do TRAIN_SEED=$s HADAMARD_FP8=1 torchrun --standalone --nproc_per_node=8 train_gpt.py; done
 ```
 
+## Estimated HADAMARD overhead per run (8xH100, not measured)
+
+Round-1 method: the measured +3.17 s at all@128 split by share (backward dpre epilogue 50%, forward post_t 25%,
+g + x_t quantizes 15% split by FLOP, rotated weight caches 2.5%, 7.5% unattributed and assumed to be the
+lost pipeline stage of the rotated variants); the dot parts scale with b/128, the cache writes do not. The low
+end drops the unattributed 0.24 s. Small blocks are optimistic: part of each rotation is a layout conversion
+of the bf16 tile that does not shrink with b.
+
+| HADAMARD_GEMMS | MFLOP/token @128 | @128 | @64 | @32 |
+|---|---|---|---|---|
+| all (round 1) | 30.1 | 2.9-3.2 s | 1.5-1.7 s | 0.8-1.0 s |
+| dw1,dw2 | 20.0 | 1.9-2.1 s | 1.0-1.2 s | 0.5-0.7 s |
+| dw2 | 10.1 | 1.0-1.2 s | 0.5-0.7 s | 0.24-0.48 s |
+| dw1 | 9.9 | 0.9-1.2 s | 0.5-0.7 s | 0.24-0.47 s |
+| dx | 7.9 | 0.8-1.1 s | 0.4-0.7 s | 0.24-0.48 s |
+| dpost | 2.2 | 0.20 s | 0.12 s | 0.08 s |
+
+Break-even is ~0.1-0.3 s (see the decision rule), so only dpost alone, or a single GEMM at block 32, comes close.
+`182/hadamard-fp8/gpu_sanity.py` measures the real numbers.
+
 ## Still needs GPU verification / risks
 
+- Interpreter-tested (triton-interp image, `tests/test_interp_kernels.py`): every rotated kernel variant for
+  blocks 32/64/128, the Function end to end for six HADAMARD_GEMMS/BLOCK settings, and byte-identical record
+  kernels with the flags off. That checks arithmetic and indexing only, not layouts, smem or registers.
 - None of the Triton code has been compiled. Watch for: `tl.dot(tl.trans(tile), Q)` layout conversions
   inside the persistent `tl.range(flatten=True)` epilogue; extra shared memory (the stage-stepping retry
   in `prime_stage_cache` covers OutOfResources); and register spills from the four extra 128³ dots in

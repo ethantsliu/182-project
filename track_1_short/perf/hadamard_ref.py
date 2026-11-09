@@ -104,3 +104,78 @@ def amax_scale(t: torch.Tensor, fmt: torch.dtype, headroom: float = 1.0, floor: 
 def quantized_rotated_matmul(a, b, q, a_scale, b_scale, a_fmt, b_fmt):
     """The fp8 GEMM the HADAMARD_FP8 path runs, in fp32: dequant(quant(A R)) @ dequant(quant(R.T B))."""
     return fake_quant(rotate(a, -1, q), a_scale, a_fmt) @ fake_quant(rotate(b, 0, q), b_scale, b_fmt)
+
+
+def rotate_in_tiles(t: torch.Tensor, q: torch.Tensor, tile: int = 128) -> torch.Tensor:
+    """What the kernels' rotate_last does to a [R, tile] register tile: reshape so each length-b block is a
+    row, one [R * tile / b, b] @ [b, b] product, reshape back. Equals rotate(t, -1, q) for every b | tile."""
+    R, C = t.shape
+    b = q.shape[0]
+    assert C == tile and tile % b == 0
+    work = torch.float64 if t.dtype == torch.float64 else torch.float32
+    return ((t.to(work).reshape(R * C // b, b) @ q.to(work)) * (1.0 / math.sqrt(b))).reshape(R, C)
+
+
+# -----------------------------------------------------------------------------
+# The fp8 MLP (perf/kernels/mlp.py FusedLinearReLUSquareFunction) under HADAMARD_GEMMS, in fp32: every
+# operand fake-quantized the way its kernel quantizes it. GEMMs not in `gemms` read the record's operands.
+
+MLP_GEMMS = frozenset({"dw1", "dw2", "dx", "dpost"})
+
+
+def mlp_fp8_reference(x, W1, W2, g, q, gemms, s):
+    """x [T, D], W1 / W2 [H, D] (out = relu(x W1^T)^2 W2), g = dL/dout [T, D]; q the b x b Q; s the scales:
+    x, w1, w2 (the plain caches), post, post_t, g, dpre, xt, w1_col, w2_row. Returns a dict with out, dx,
+    dW1, dW2 and the amaxes the kernels record for the next step's delayed scales:
+      post_amax    max relu(pre)^2 over the UNROTATED post only (the record's: the forward is never rotated)
+      post_t_amax  max |rotated post_t| (None unless dw2)
+      dpre_amax    max over the dpre layouts actually stored (rotated or not; one dpre scale serves both)."""
+    assert gemms <= MLP_GEMMS
+    e4, e5 = torch.float8_e4m3fn, torch.float8_e5m2
+    f = lambda t: t.float()
+    xq, w1q = fake_quant(x, s["x"], e4), fake_quant(W1, s["w1"], e4)
+    pre = (xq @ w1q.T).bfloat16().float()          # the kernel rounds the dequantized accumulator to bf16
+    post = torch.relu(pre) ** 2                       # fp32 (tl.maximum promotes the bf16 pre)
+    post_f8 = fake_quant(post, s["post"], e4)
+    out = post_f8 @ fake_quant(W2, s["w2"], e4)
+    res = dict(out=out, post_amax=post.max(), post_t_amax=None)
+    # dW2 = post^T g, k = tokens
+    if "dw2" in gemms:
+        post_rot = rotate(post.bfloat16(), 0, q)      # the epilogue rotates the bf16-cast tile
+        res["post_t_amax"] = post_rot.abs().max()
+        post_t, g_t = fake_quant(post_rot, s["post_t"], e4), fake_quant(rotate(g, 0, q), s["g"], e5)
+    else:
+        post_t, g_t = post_f8, fake_quant(g, s["g"], e5)
+    res["dW2"] = post_t.T @ g_t
+    # dpost = g W2^T, k = model dim; dpre = 2 dpost relu(pre), relu(pre) rebuilt from the e4m3 post
+    if "dpost" in gemms:
+        g_row, w2_row = fake_quant(rotate(g, 1, q), s["g"], e5), fake_quant(rotate(W2, 1, q), s["w2_row"], e4)
+    else:
+        g_row, w2_row = fake_quant(g, s["g"], e5), fake_quant(W2, s["w2"], e4)
+    dpre = (2.0 * (g_row @ w2_row.T) * torch.sqrt(post_f8)).bfloat16().float()
+    # dW1 = dpre^T x (k = tokens), dx = dpre W1 (k = hidden)
+    dpre_t = rotate(dpre.bfloat16(), 0, q) if "dw1" in gemms else dpre
+    dpre_row = rotate(dpre.bfloat16(), 1, q) if "dx" in gemms else dpre
+    res["dpre_amax"] = torch.maximum(dpre_t.abs().max(), dpre_row.abs().max())
+    x_t = fake_quant(rotate(x, 0, q), s["xt"], e4) if "dw1" in gemms else xq
+    res["dW1"] = fake_quant(dpre_t, s["dpre"], e5).T @ x_t
+    w1_col = fake_quant(rotate(W1, 0, q), s["w1_col"], e4) if "dx" in gemms else w1q
+    res["dx"] = fake_quant(dpre_row, s["dpre"], e5) @ w1_col
+    res.update(post_f8=post_f8, post_t=post_t, dpre=dpre)
+    return {k: (f(v) if isinstance(v, torch.Tensor) else v) for k, v in res.items()}
+
+
+def mlp_reference_scales(x, W1, W2, g, q, gemms):
+    """Exact (own-amax) scales for mlp_fp8_reference, with the repo's headrooms; g and x keep their static
+    scales, as in training."""
+    e4, e5 = torch.float8_e4m3fn, torch.float8_e5m2
+    pre = (x.float() @ W1.float().T).bfloat16().float()
+    post = torch.relu(pre) ** 2
+    dpre = 2.0 * (g.float() @ W2.float().T) * torch.relu(pre)
+    rot = lambda t, d: rotate(t, d, q)
+    return dict(
+        x=2.0 ** -4, g=2.0 ** -6,
+        w1=amax_scale(W1, e4), w2=amax_scale(W2, e4),
+        post=amax_scale(post, e4, 1.03), post_t=amax_scale(rot(post.bfloat16(), 0), e4, 1.03),
+        dpre=amax_scale(torch.cat([rot(dpre, 0).flatten(), rot(dpre, 1).flatten(), dpre.flatten()]), e5, 1.25),
+        xt=amax_scale(rot(x, 0), e4, 1.10), w1_col=amax_scale(rot(W1, 0), e4), w2_row=amax_scale(rot(W2, 1), e4))
