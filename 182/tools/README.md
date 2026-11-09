@@ -14,6 +14,7 @@ changes a trainer: the A/B runner and the nsys hook wrap `train_gpt.py` / `train
 | `ab_run.py` | Pre-registered, interleaved A/B runner across git refs (one pinned worktree per commit) or directories, each arm with its own env vars. Every run is counted. It can resume after a crash. It writes `report.md` and `runs.csv`. |
 | `profile_nsys.sh` + `nsys_step_hook.py` | Records nsys on rank 0 only, for steps `[start, start+steps)` of the **timed** loop. Each step gets an NVTX range `step N`, `cudaProfilerApi` sets the capture range, and `--cuda-graph-trace=node` is on. The script then exports to sqlite and runs the analyzer. |
 | `summarize_session.py` | Reads a `182/gpu_session.sh` bundle (or its directory): per arm n, val/train_time mean ± sd, step-sum, ms/step per schedule stage, flags; paired deltas; the FP8 gate decision (gap mean ± SE, 95% CI vs 0.5 mnat); t2 vs 2.8769 / 221 s. `--gate DIR --write-decision F` is what the session script uses. |
+| `triton_cpu/` | Docker harness for the Triton kernels without a GPU: the interpreter with a numerics shim, plus an sm_90a compile check (see below). |
 | `analyze_nsys.py` | Per step: kernel count (and how many came from graphs), GPU busy/idle time and the largest gaps (with the kernels on either side), NCCL time and exposed NCCL time, GEMM time. Also the top kernels, and GEMM TFLOP/s wherever a shape can be recovered. |
 
 ## Commands on the 8xH100 box
@@ -46,6 +47,31 @@ python 182/tools/analyze_nsys.py nsys/master/rank0.sqlite --list-gemms     # the
 # train_gpt_medium.py has its loop inline (no step function): --mode window --delay <s> --duration 3
 #   --analyze-args "--step-marker <regex of the step's first kernel>"
 ```
+
+## Triton kernels on CPU (`triton_cpu/`, Docker)
+
+Checks a kernel before it costs GPU time. Two modes, same image (torch 2.10.0 CPU + triton 3.6.0, the pair
+the record's `torch==2.10` installs; `TRITON_CPU_VERSION=3.5.1` for torch 2.9.1 + triton 3.5.1):
+
+```bash
+bash 182/tools/triton_cpu/run.sh python -m pytest 182/tools/triton_cpu 182/hadamard-fp8/tests -q   # interpreter
+TRITON_INTERPRET=0 bash 182/tools/triton_cpu/run.sh python 182/tools/triton_cpu/compile_check.py   # sm_90a compile
+```
+
+- **Interpreter** (`TRITON_INTERPRET=1`): runs the real kernels on CPU tensors. The stock interpreter is
+  numerically wrong for bf16 (dot, elementwise ops and int/fp32->bf16 casts act on raw uint16 bits) and
+  for fp32->fp8 (ties away from zero, lost mantissa carry), in triton 3.5.1 through 3.9.0. `shim.py`, loaded
+  by `sitecustomize.py`, routes casts through torch (RNE, fp8 satfinite), dots through fp64 and bf16 math
+  through fp32, and sets `torch.cuda.get_device_properties` to 3 SMs, so persistent loops run several tiles
+  per program. `test_interp_probes.py` checks each fix (73 probes; `TRITON_CPU_NO_SHIM=1` shows 20 failing raw).
+  Not modelled: tf32 for fp32 dots, GPU accumulation order, approximate `tl.sqrt`, races between programs.
+  The GPU kernel tests fall back to CPU under the interpreter. Anything that compiles CUDA C (nvrtc) stays GPU-only.
+- **Compile check**: a fake sm_90 driver turns every launch the real host launchers issue into a JIT
+  warmup. Kernels go through the frontend, TTGIR/LLVM and the wheel's ptxas. Per variant it reports
+  shared memory for each `num_stages` (H100 limit 232448 B) and ptxas registers/spills. Nothing runs.
+
+Labels: interpreter-tested = logic and indexing; compile-tested = it builds for H100 (smem, regs). Neither
+says anything about speed, and neither replaces a GPU run.
 
 ## Ab_run rules (why the runner is strict)
 

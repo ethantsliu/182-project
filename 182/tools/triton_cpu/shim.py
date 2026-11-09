@@ -200,6 +200,10 @@ def install():
             tensor.__index__ = index
 
     I._patch_lang_tensor = _patch_lang_tensor
+    # Markers: other test files carry their own partial patches (hd-speed's test_interp_kernels.py checks
+    # `_hd_patched`); with this shim loaded they skip them, so there is one set of interpreter fixes.
+    I._triton_cpu_shim = True
+    I._hd_patched = True
     _installed = True
 
 

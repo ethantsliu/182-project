@@ -9,8 +9,8 @@ torch's are not, so the reference saturates the out-of-range inputs itself.
 import os
 
 import pytest
-import torch
 
+torch = pytest.importorskip("torch")
 triton = pytest.importorskip("triton")
 import triton.language as tl  # noqa: E402
 
