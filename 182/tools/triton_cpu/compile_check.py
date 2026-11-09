@@ -58,7 +58,7 @@ def _warmup_run(self, *args, grid, warmup, **kwargs):
     stages = [kwargs.get("num_stages", 3)]
     if self.fn.__name__ == "linear_relu_square_kernel":
         stages = [4, 3, 2, 1]
-    key = {k: v for k, v in kwargs.items() if k.isupper() and k not in ("NUM_SMS",)}
+    key = {k: v for k, v in kwargs.items() if k.isupper() and k not in ("NUM_SMS", "BLOCK_SIZE_M", "BLOCK_SIZE_N")}
     for st in stages:
         kw = dict(kwargs, num_stages=st)
         try:
@@ -85,7 +85,8 @@ def ptxas_stats(kernel):
 
 
 def run_launchers():
-    """Call every launcher the way training does (shapes: one 768-wide MLP slot, 1024 tokens)."""
+    """Call every launcher the way training does (shapes: one 768-wide MLP slot, 1024 tokens), for every
+    rotation block (HADAMARD_BLOCK 32 / 64 / 128) and every HADAMARD_GEMMS subset the kernels distinguish."""
     import shim
     shim.cpu_fallbacks(H100_SMS)
     from track_1_short.perf.hadamard_ref import signed_hadamard
@@ -94,35 +95,47 @@ def run_launchers():
 
     E4, E5, BF = torch.float8_e4m3fn, torch.float8_e5m2, torch.bfloat16
     T, D, H = 1024, 768, 3072
-    q = signed_hadamard(128, 1234)
     one = torch.ones(1)
-    calls = [
-        ("hadamard_dual_quant(g, e5m2)", lambda: hd.hadamard_dual_quant(torch.zeros(T, D, dtype=BF), q, one, True)),
-        ("hadamard_t_quant(x)", lambda: hd.hadamard_t_quant(torch.zeros(T, D, dtype=BF), q, one, torch.zeros(1))),
-    ]
-    for along_h in (True, False):
-        bank = torch.zeros(2, 2, H, D, dtype=BF)[:, 1]
-        out = torch.empty((2, D, H) if along_h else (2, H, D), dtype=E4)
-        nt = hd.quantize_weights_rotated_ntiles(H, D)
-        calls.append((f"quantize_weights_rotated(along_h={along_h})",
-                      lambda bank=bank, out=out, nt=nt, along_h=along_h: hd.quantize_weights_rotated(
-                          bank, q, torch.ones(2), torch.zeros(2, nt), out, along_h, False)))
+    a, b = torch.zeros(T, D, dtype=BF), torch.zeros(H, D, dtype=BF)
+    amax = torch.zeros(H100_SMS)
+    calls = []
+    for hb in (32, 64, 128):
+        q = signed_hadamard(hb, 1234)
+        for emit_row, rot_row, rot_t, rec, e5 in ((1, 1, 1, 0, 1), (1, 1, 0, 0, 1), (0, 0, 1, 0, 1), (0, 0, 1, 1, 0)):
+            calls.append((f"_hadamard_quant_dual_kernel HB={hb}", lambda q=q, hb=hb, f=(emit_row, rot_row, rot_t, rec, e5):
+                          hd._hadamard_quant_dual_kernel[(T // 128, D // 128)](
+                              a, q, torch.empty(T, D, dtype=E5 if f[4] else E4), torch.empty(D, T, dtype=E5 if f[4] else E4), one, one, one, T, D, D,
+                              EMIT_ROW=bool(f[0]), ROT_ROW=bool(f[1]), ROT_T=bool(f[2]), RECORD_T_AMAX=bool(f[3]),
+                              E5M2=bool(f[4]), BLOCK=128, HB=hb, num_warps=8)))
+        for along_h in (True, False):
+            bank = torch.zeros(2, 2, H, D, dtype=BF)[:, 1]
+            nt = hd.quantize_weights_rotated_ntiles(H, D)
+            out = torch.empty((2, D, H) if along_h else (2, H, D), dtype=E4)
+            calls.append((f"_quantize_weights_rotated_kernel HB={hb} along_h={along_h}",
+                          lambda q=q, hb=hb, bank=bank, nt=nt, out=out, along_h=along_h:
+                          hd._quantize_weights_rotated_kernel[(2, nt)](
+                              bank, q, out, torch.ones(2), torch.zeros(2, nt), *bank.stride(), H=H, D=D,
+                              num_tiles_d=D // 128, num_tiles=nt, ALONG_H=along_h, BLOCK=128, HB=hb,
+                              num_warps=8, num_stages=1)))
     bank = torch.zeros(2, 2, H, D, dtype=BF)[:, 0]
     calls.append(("quantize_mlp_weights_dual", lambda: mlp.quantize_mlp_weights_dual(
         bank, torch.ones(2), torch.zeros(2, mlp.quantize_weights_dual_ntiles(H, D)), torch.empty(2, H, D, dtype=E4),
         torch.empty(2, D, H, dtype=E4), False)))
-    a, b = torch.zeros(T, D, dtype=BF), torch.zeros(H, D, dtype=BF)
-    amax = torch.zeros(H100_SMS)
-    for hq, tag in ((None, "plain"), (q, "HADAMARD")):
-        calls.append((f"linear_relu_square fp8 forward {tag}", lambda hq=hq: mlp.linear_relu_square(
-            a, b, a_f8=torch.zeros(T, D, dtype=E4), b_f8=torch.zeros(H, D, dtype=E4), dequant_scale_ptr=one,
-            emit_f8=True, emit_t=True, post_scale=one, post_amax=amax, store_pre=False, store_post_bf=False,
-            hadamard_q=hq)))
-        calls.append((f"linear_relu_square fp8 backward {tag}", lambda hq=hq: mlp.linear_relu_square(
-            torch.zeros(T, D, dtype=BF), b, aux=torch.zeros(T, H, dtype=E4), a_f8=torch.zeros(T, D, dtype=E5),
-            b_f8=torch.zeros(H, D, dtype=E4), dequant_scale_ptr=one, post_scale=one, dpre_scale=one,
-            dpre_amax=amax, hadamard_q=hq)))
+    fwd = dict(a_f8=torch.zeros(T, D, dtype=E4), b_f8=torch.zeros(H, D, dtype=E4), dequant_scale_ptr=one,
+               emit_f8=True, emit_t=True, post_scale=one, post_amax=amax, store_pre=False, store_post_bf=False)
+    bwd = dict(aux=torch.zeros(T, H, dtype=E4), a_f8=torch.zeros(T, D, dtype=E5), b_f8=torch.zeros(H, D, dtype=E4),
+               dequant_scale_ptr=one, post_scale=one, dpre_scale=one, dpre_amax=amax)
     calls.append(("linear_relu_square bf16 forward", lambda: mlp.linear_relu_square(a, b)))
+    calls.append(("linear_relu_square fp8 forward (record)", lambda: mlp.linear_relu_square(a, b, **fwd)))
+    calls.append(("linear_relu_square fp8 backward (record)", lambda: mlp.linear_relu_square(a, b, **bwd)))
+    for hb in (32, 64, 128):
+        q = signed_hadamard(hb, 1234)
+        calls.append((f"linear_relu_square fp8 forward ROT_T HB={hb}", lambda q=q: mlp.linear_relu_square(
+            a, b, **fwd, hadamard_q=q, rot_t=True, post_t_scale=one, post_t_amax=amax)))
+        for rr, rt in ((True, True), (True, False), (False, True)):
+            calls.append((f"linear_relu_square fp8 backward ROT_ROW={int(rr)} ROT_T={int(rt)} HB={hb}",
+                          lambda q=q, rr=rr, rt=rt: mlp.linear_relu_square(a, b, **bwd, hadamard_q=q, rot_row=rr,
+                                                                           rot_t=rt)))
     results = []
     for name, fn in calls:
         n0 = len(RECORDS)
