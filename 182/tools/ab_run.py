@@ -66,7 +66,7 @@ def dir_fingerprint(path: str) -> dict:
     if not is_git_dir(path):
         return dict(sha=None, dirty=None, diff_sha256=None)
     sha = git(path, "rev-parse", "HEAD")
-    diff = git(path, "diff", "HEAD", "--binary", check=False)
+    diff = git(path, "diff", "HEAD", "--binary", "--", ".", check=False)
     untracked = git(path, "ls-files", "--others", "--exclude-standard", check=False).splitlines()
     h = hashlib.sha256(diff.encode())
     for u in sorted(untracked):
@@ -90,10 +90,14 @@ def parse_arm(spec: str, repo: str) -> dict:
         sha = git(repo, "rev-parse", "--verify", ref + "^{commit}")
         return dict(name=name, kind="ref", ref=ref, sha=sha, env={})
     path = src[5:] if src.startswith("path:") else src
+    if not os.path.isabs(path):
+        path = os.path.join(repo, path)
     if not os.path.isdir(path):
+        if src.startswith("path:"):
+            raise SystemExit(f"path arm directory does not exist: {path}")
         # bare value that is not a directory: treat as a git ref
-        sha = git(repo, "rev-parse", "--verify", path + "^{commit}")
-        return dict(name=name, kind="ref", ref=path, sha=sha, env={})
+        sha = git(repo, "rev-parse", "--verify", src + "^{commit}")
+        return dict(name=name, kind="ref", ref=src, sha=sha, env={})
     path = os.path.abspath(path)
     return dict(name=name, kind="path", path=path, env={}, **dir_fingerprint(path))
 
@@ -222,11 +226,33 @@ def read_ledger(out: str) -> list[dict]:
     if not os.path.exists(p):
         return []
     with open(p) as f:
-        return [json.loads(l) for l in f if l.strip()]
+        lines = f.readlines()
+    records = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            if i != len(lines) - 1 or line.endswith("\n"):
+                raise
+            # A process can die during the final append. Earlier durable records still count.
+    return records
 
 
 def append_ledger(out: str, rec: dict) -> None:
-    with open(os.path.join(out, "ledger.jsonl"), "a") as f:
+    with open(os.path.join(out, "ledger.jsonl"), "a+") as f:
+        f.seek(0)
+        body = f.read()
+        if body and not body.endswith("\n"):
+            tail = body.rsplit("\n", 1)[-1]
+            try:
+                json.loads(tail)
+            except json.JSONDecodeError:
+                f.seek(0)
+                f.truncate(len(body.encode()) - len(tail.encode()))
+            else:
+                f.write("\n")
         f.write(json.dumps(rec) + "\n")
         f.flush()
         os.fsync(f.fileno())
@@ -258,7 +284,9 @@ def prepare_arm(plan: dict, arm: dict, allow_changed: bool) -> str:
             print("WARNING: " + msg, file=sys.stderr)
     # The trainers read data/fineweb10B relative to cwd: link the shared shards in when absent.
     data = os.path.join(path, "data", "fineweb10B")
-    if not os.path.exists(data) and os.path.isdir(plan["data_dir"]):
+    if os.path.lexists(data) and os.path.realpath(data) != os.path.realpath(plan["data_dir"]):
+        raise SystemExit(f"arm {arm['name']}: {data} does not point to the plan's shared data {plan['data_dir']}")
+    if not os.path.lexists(data) and os.path.isdir(plan["data_dir"]):
         os.makedirs(os.path.dirname(data), exist_ok=True)
         os.symlink(plan["data_dir"], data)
     return path
@@ -297,6 +325,9 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
     os.makedirs(os.path.join(out, "stdout"), exist_ok=True)
     os.makedirs(os.path.join(out, "logs"), exist_ok=True)
     env_extra = dict(arm["env"])
+    # Ignore a caller's relative DATA_PATH: it changes meaning in detached worktrees/variants.
+    # prepare_arm links this directory's data/fineweb10B to the plan's shared root shards.
+    env_extra.setdefault("DATA_PATH", wt)
     if slot["seed"] is not None and plan["seed_env"]:
         env_extra[plan["seed_env"]] = str(slot["seed"])
     if plan["cache"] == "cold":
@@ -319,18 +350,23 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
     t0 = time.time()
     timed_out = False
     with open(stdout_path, "w") as so:
-        proc = subprocess.Popen(cmd, cwd=wt, env=env, stdout=so, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            rc = proc.wait(timeout=plan["timeout_s"])
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            os.killpg(proc.pid, signal.SIGTERM)
+            proc = subprocess.Popen(cmd, cwd=wt, env=env, stdout=so, stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                proc.wait(timeout=30)
+                rc = proc.wait(timeout=plan["timeout_s"])
             except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
-            rc = proc.returncode
+                timed_out = True
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                rc = proc.returncode
+        except OSError as e:
+            rec["launch_error"] = str(e)
+            so.write(f"launch failed: {e}\n")
+            rc = 127
     wall = time.time() - t0
     with open(stdout_path, errors="replace") as f:
         stdout = f.read()

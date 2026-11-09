@@ -9,6 +9,11 @@ import random
 import sys
 import uuid
 
+if os.environ.get("FAKE_REQUIRE_DATA") == "1":
+    assert os.path.isfile(os.path.join(os.environ["DATA_PATH"], "data/fineweb10B/sentinel.bin"))
+if os.environ.get("FAKE_EXPECT_CWD"):
+    assert os.path.realpath(os.getcwd()) == os.path.realpath(os.environ["FAKE_EXPECT_CWD"])
+
 seed = os.environ.get("TRAIN_SEED")
 rng = random.Random(int(seed) if seed is not None else None)
 val = float(os.environ.get("FAKE_VAL", "3.278"))

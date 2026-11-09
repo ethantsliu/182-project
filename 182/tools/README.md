@@ -49,6 +49,7 @@ python 182/tools/analyze_nsys.py nsys/master/rank0.sqlite --list-gemms     # the
 ## Ab_run rules (why the runner is strict)
 
 - `plan.json` is the pre-registration: arms pinned to commit SHAs (or, for a directory arm, its HEAD plus a hash of the uncommitted diff), seeds, order and cache policy. A hash of the plan is stored next to it. `run` refuses to start if the plan was edited, or if a directory arm's code changed since the plan (unless you pass `--allow-changed`).
+- Relative `path:` arms resolve from `--repo` and run from that variant directory. By default, each arm gets an absolute `DATA_PATH` for its run directory, whose `data/fineweb10B` links to the plan's shared root data. This overrides an inherited `DATA_PATH`; an explicit `--env NAME:DATA_PATH=...` or `--common-env DATA_PATH=...` still takes precedence. Existing data directories/links must refer to the plan's data, preventing a stale link from selecting a different corpus. Docker commands receive the same setting through `{env_flags}`.
 - Order: `blocked` (the default) runs every arm once per rep, in a seeded random order. That spreads node drift and thermal effects evenly across arms. `abba` and `alternate` are also available.
 - Seeds: `none` (the default) leaves runs unseeded, as certifications are. `auto` or a list gives the same seed to every arm within a rep, and the report then adds a paired per-rep test. The trainer reads the seed from `TRAIN_SEED` by default (`--seed-env` changes that).
 - Every trainer outcome is recorded and counted: ok, failed, nan, timeout, incomplete. Nothing is retried or dropped, and the report flags arms with failures. The one exception is a slot cut short by a harness crash: it is logged as `interrupted` and re-run.
@@ -62,13 +63,14 @@ python 182/tools/analyze_nsys.py nsys/master/rank0.sqlite --list-gemms     # the
 
 ## Tests (CPU, no GPU)
 
-`cd 182/tools && python -m unittest discover -s tests`. All 40 tests pass on an arm64 Mac (Python 3.10, scipy present for the cross-checks; the scipy tests are skipped without it). They are checked against real records:
+`/usr/local/bin/python3.10 -m pytest -q 182/tools/tests` (or `cd 182/tools && python -m unittest discover -s tests`). The tests run on CPU; scipy cross-checks are skipped if scipy is absent. Open-PR full-log regressions read fetched `upstream/pr/397`, `upstream/pr/381`, and `upstream/pr/261` objects and skip if those refs are absent. They are checked against real records:
 
 - ANVIL2 pool: 17 shipped logs plus the README's 18th row give t=11.5, p=9.40e-10, mean 3.2773111, sd 0.00099048. Baseline: 73.889 ± 0.137 s. Win: 33.975 s.
 - Track 3 #12: n=20 parsed out of one file, 3.2790 at step 3325. Track 3 #20: 3.2790 (n=30) at step 3030.
 - The README's `pair3` examples: 0.00167, 0.0027 and 0.00648.
 - t, ppf and Welch match scipy. A simulation confirms the required-n results reach their stated power.
-- `ab_run` end to end: a fake trainer in a throwaway git repo, with ref worktrees, resume, crash/NaN counting, tamper detection and the s-format logs.
+- `ab_run` end to end: a fake trainer in a throwaway git repo, with same-ref env arms and variant-directory arms sharing data, ref worktrees, resume including a torn ledger append, launch/crash/NaN/timeout counting, tamper detection and the s-format logs.
+- Setup and profile shell entry points against CPU stubs, including missing CUDA runtime, uv pip seeding, venv/docker GPU-check failures and quoted analyzer arguments. Real driver/kernel/container behavior still requires a GPU node.
 - The nsys hook, against a stub torch.
 - `analyze_nsys` on `tests/fixtures/synthetic_nsys.sqlite`, built by `make_nsys_fixture.py`, whose docstring gives the expected numbers. It is also run on an older-schema variant of the fixture.
 

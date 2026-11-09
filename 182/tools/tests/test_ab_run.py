@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from _paths import ANVIL2, TESTS
 import ab_run
@@ -141,6 +142,94 @@ class TestAbRun(unittest.TestCase):
             self.quiet(["run", self.out, "--no-report"])
         self.quiet(["run", self.out, "--no-report", "--allow-changed"])
         self.assertEqual(self.ledger_ends()[0]["status"], "ok")
+
+    def test_main_env_arms_and_variant_use_shared_data(self):
+        sh(self.repo, "git", "branch", "-m", "main")
+        variant = os.path.join(self.repo, "variants", "new")
+        os.makedirs(variant)
+        shutil.copy(os.path.join(TESTS, "fake_trainer.py"), os.path.join(variant, "train_gpt.py"))
+        sh(self.repo, "git", "add", "variants")
+        sh(self.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "variant")
+        with open(os.path.join(self.repo, "data", "fineweb10B", "sentinel.bin"), "w") as f:
+            f.write("shared data")
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "base=ref:main",
+                    "--arm", "new=ref:main", "--env", "new:FAKE_TIME=39", "--arm", "variant=path:variants/new",
+                    "--env", f"variant:FAKE_EXPECT_CWD={variant}", "--common-env", "FAKE_REQUIRE_DATA=1",
+                    "--cmd", f"{PY} {{script}}", "--n", "2", "--seeds", "1,2"])
+        with mock.patch.dict(os.environ, {"DATA_PATH": "/invalid/inherited/data"}):
+            self.quiet(["run", self.out, "--limit", "3", "--no-report"])
+            # Path-arm links/logs do not invalidate its pinned fingerprint on resume.
+            self.quiet(["run", self.out, "--no-report"])
+        ends = self.ledger_ends()
+        self.assertEqual(len(ends), 6)
+        self.assertTrue(all(r["status"] == "ok" for r in ends))
+        vr = [r for r in ends if r["arm"] == "variant"]
+        self.assertEqual(vr[0]["cwd"], variant)
+        self.assertEqual(os.path.realpath(os.path.join(vr[0]["env"]["DATA_PATH"], "data/fineweb10B")),
+                         os.path.realpath(os.path.join(self.repo, "data/fineweb10B")))
+        times = {(r["arm"], r["rep"]): r["train_time_s"] for r in ends}
+        self.assertAlmostEqual(times[("new", 0)] - times[("base", 0)], -1)
+
+    def test_variant_fingerprint_ignores_other_tracked_directories(self):
+        variant = os.path.join(self.repo, "variants", "new")
+        os.makedirs(variant)
+        with open(os.path.join(variant, "code.py"), "w") as f:
+            f.write("x = 1\n")
+        sh(self.repo, "git", "add", "variants")
+        sh(self.repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "variant")
+        before = ab_run.dir_fingerprint(variant)
+        with open(os.path.join(self.repo, "train_gpt.py"), "a") as f:
+            f.write("\n# another arm's edit\n")
+        self.assertEqual(before, ab_run.dir_fingerprint(variant))
+        with open(os.path.join(variant, "code.py"), "a") as f:
+            f.write("x = 2\n")
+        self.assertNotEqual(before, ab_run.dir_fingerprint(variant))
+
+    def test_stale_shared_data_link_is_rejected(self):
+        self.plan(n=1)
+        plan = ab_run.load_plan(self.out)
+        arm = plan["arms"][0]
+        wt = ab_run.prepare_arm(plan, arm, False)
+        link = os.path.join(wt, "data/fineweb10B")
+        os.unlink(link)
+        wrong = os.path.join(self.tmp, "wrong-data")
+        os.mkdir(wrong)
+        os.symlink(wrong, link)
+        with self.assertRaisesRegex(SystemExit, "shared data"):
+            ab_run.prepare_arm(plan, arm, False)
+
+    def test_missing_executable_counts_as_failure_and_is_not_retried(self):
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "bad=ref:master",
+                    "--cmd", "/nonexistent/trainer", "--n", "1"])
+        self.quiet(["run", self.out, "--no-report"])
+        self.quiet(["run", self.out, "--no-report"])
+        self.assertEqual(len(self.ledger_ends()), 1)
+        self.assertEqual(self.ledger_ends()[0]["status"], "failed")
+        self.assertIn("launch_error", self.ledger_ends()[0])
+
+    def test_torn_ledger_tail_recovers_without_losing_finished_slots(self):
+        self.plan(n=1)
+        self.quiet(["run", self.out, "--limit", "1", "--no-report"])
+        ab_run.append_ledger(self.out, dict(event="start", idx=1, arm="new", time=0))
+        with open(os.path.join(self.out, "ledger.jsonl"), "a") as f:
+            f.write('{"event":"end", "idx":1, "status":')
+        self.quiet(["run", self.out, "--no-report"])
+        self.assertEqual([r["idx"] for r in self.ledger_ends()], [0, 1, 2, 3])
+        self.assertEqual(len([r for r in ab_run.read_ledger(self.out) if r["event"] == "interrupted"]), 1)
+
+    def test_valid_ledger_tail_without_newline_is_preserved(self):
+        os.makedirs(self.out)
+        with open(os.path.join(self.out, "ledger.jsonl"), "w") as f:
+            f.write('{"event":"end", "idx":0}')
+        ab_run.append_ledger(self.out, dict(event="end", idx=1))
+        self.assertEqual([r["idx"] for r in ab_run.read_ledger(self.out)], [0, 1])
+
+    def test_timeout_counts_and_timing_is_not_wall_time(self):
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "slow=ref:master",
+                    "--cmd", f'{PY} -c "import time; time.sleep(5)"', "--timeout-s", "0.05", "--n", "1"])
+        self.quiet(["run", self.out, "--no-report"])
+        self.assertEqual(self.ledger_ends()[0]["status"], "timeout")
+        self.assertIsNone(self.ledger_ends()[0]["train_time_s"])
 
     def test_track3_seconds_format_and_at_step(self):
         self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--common-env", "FAKE_FORMAT=s",

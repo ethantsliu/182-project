@@ -26,7 +26,7 @@ if [[ "${_NSYS_WRAP:-}" == "1" ]]; then
   launch=(python)
   [[ "$_NSYS_MODE" == "hook" ]] && launch=(python "$HERE/nsys_step_hook.py")
   if [[ "${RANK:-0}" == "$_NSYS_RANK" ]]; then
-    common=(nsys profile -o "$_NSYS_OUT/rank${RANK}" -f true --trace=cuda,nvtx --cuda-graph-trace=node
+    common=(nsys profile -o "$_NSYS_OUT/rank${RANK}" -f true '--trace=cuda,nvtx' --cuda-graph-trace=node
             --sample=none --cpuctxsw=none --cuda-memory-usage=false --stats=false)
     if [[ "$_NSYS_MODE" == "hook" ]]; then
       exec "${common[@]}" --capture-range=cudaProfilerApi --capture-range-end=stop "${launch[@]}" "$@"
@@ -57,6 +57,10 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg $1" >&2; exit 2;;
   esac
 done
+[[ "$MODE" =~ ^(hook|window)$ ]] || { echo "invalid mode: $MODE" >&2; exit 2; }
+if ! [[ "$NPROC" =~ ^[1-9][0-9]*$ && "$PROF_RANK" =~ ^[0-9]+$ ]] || (( PROF_RANK >= NPROC )); then
+  echo "--rank must be within [0, --nproc)" >&2; exit 2;
+fi
 command -v nsys >/dev/null || { echo "nsys not on PATH (install Nsight Systems, or use the CUDA toolkit's)" >&2; exit 1; }
 command -v torchrun >/dev/null || { echo "torchrun not on PATH (activate the run environment)" >&2; exit 1; }
 nsys --version
@@ -72,6 +76,9 @@ unset _NSYS_WRAP
 REP="$OUT/rank${PROF_RANK}.nsys-rep"
 [[ -f "$REP" ]] || { echo "no report at $REP (did the capture range start? see $OUT/train.out)" >&2; exit 1; }
 nsys export --type sqlite --force-overwrite true -o "$OUT/rank${PROF_RANK}.sqlite" "$REP"
-# shellcheck disable=SC2086
-python "$HERE/analyze_nsys.py" "$OUT/rank${PROF_RANK}.sqlite" --json "$OUT/analysis.json" $ANALYZE_ARGS | tee "$OUT/analysis.md"
+python - "$HERE/analyze_nsys.py" "$OUT/rank${PROF_RANK}.sqlite" "$OUT/analysis.json" "$ANALYZE_ARGS" <<'PY' | tee "$OUT/analysis.md"
+import shlex, subprocess, sys
+script, database, output, extra = sys.argv[1:]
+raise SystemExit(subprocess.call([sys.executable, script, database, "--json", output, *shlex.split(extra)]))
+PY
 echo "trace: $REP  sqlite: $OUT/rank${PROF_RANK}.sqlite  analysis: $OUT/analysis.md"

@@ -60,7 +60,7 @@ class TestHook(unittest.TestCase):
         self.assertEqual(ev[:5], ["run 0", "run 1", "run 2", "run 7", "run 8"])
         timed = ev[5:]
         i = timed.index("start")
-        self.assertEqual(timed[i - 1], "run 3")          # starts one unannotated step early (step 4)
+        self.assertEqual(timed[i - 2:i], ["run 3", "sync"])  # flush pre-capture work on every rank
         self.assertEqual(timed[i + 1], "run 4")
         self.assertEqual([e for e in timed if e.startswith("push")], ["push step 5", "push step 6", "push step 7"])
         j = timed.index("stop")
@@ -72,7 +72,7 @@ class TestHook(unittest.TestCase):
 
     def test_phase0_and_unhooked_fallback(self):
         ev, _ = self.run_hook({"NSYS_START_STEP": "1", "NSYS_NUM_STEPS": "1", "NSYS_HOOK_PHASE": "0"})
-        self.assertEqual(ev[:6], ["start", "run 0", "push step 1", "run 1", "pop", "run 2"])
+        self.assertEqual(ev[:7], ["sync", "start", "run 0", "push step 1", "run 1", "pop", "run 2"])
         inline = "import json, torch\nfor s in range(3): pass\nprint('EVENTS=' + json.dumps(torch.EVENTS))\n"
         ev, out = self.run_hook({}, trainer=inline)
         self.assertEqual(ev, [])

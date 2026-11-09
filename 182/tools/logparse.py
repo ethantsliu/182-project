@@ -176,7 +176,7 @@ def expand(patterns: list[str]) -> list[str]:
 
     Skips README/statistics/metadata files that are not run logs.
     """
-    out = []
+    out, seen = [], set()
     for p in patterns:
         if os.path.isdir(p):
             cands = glob.glob(os.path.join(p, "*.txt"))
@@ -186,6 +186,10 @@ def expand(patterns: list[str]) -> list[str]:
             base = os.path.basename(c).lower()
             if base.startswith(("readme", "statistics", "metadata", "requirements", "stderr", "remote_manifest")):
                 continue
+            identity = os.path.realpath(c)
+            if not os.path.isfile(c) or identity in seen:
+                continue
+            seen.add(identity)
             out.append(c)
     return out
 

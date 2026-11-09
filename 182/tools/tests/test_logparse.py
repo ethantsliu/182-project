@@ -1,12 +1,38 @@
 import glob
 import os
+import statistics
+import subprocess
+import tempfile
 import unittest
 
-from _paths import ANVIL2, RECORDS
+from _paths import ANVIL2, RECORDS, REPO
 import logparse
 
 
 class TestRealLogs(unittest.TestCase):
+    def test_open_pr_full_logs(self):
+        # Read full, source-embedded logs directly from fetched upstream objects, without a checkout.
+        pools = [(397, "track_1_short/2026-10-31_ExactSpeedups/this_pr", 12, 30.6745833333, 3.2774333333),
+                 (381, "track_1_short/2026-10-03_ExactCountChain/this_pr", 16, 9.65275, 3.27588125),
+                 (261, "track_2_medium/2026-0427-MuddFormer/this_pr", 6, 860.4783333333, 2.9170666667)]
+        for pr, folder, n, time_mean, loss_mean in pools:
+            ref = f"refs/remotes/upstream/pr/{pr}"
+            if subprocess.run(["git", "-C", REPO, "rev-parse", "--verify", ref], capture_output=True).returncode:
+                self.skipTest(f"fetch upstream pull/{pr}/head:{ref} for full-log regression")
+            paths = subprocess.check_output(["git", "-C", REPO, "ls-tree", "-r", "--name-only", ref,
+                                             "records/" + folder], text=True).splitlines()
+            runs = []
+            for path in paths:
+                if path.endswith(".txt"):
+                    text = subprocess.check_output(["git", "-C", REPO, "show", ref + ":" + path], text=True)
+                    parsed = logparse.parse_runs(text, path)
+                    self.assertEqual(len(parsed), 1, path)
+                    self.assertTrue(parsed[0].completed, path)
+                    runs.extend(parsed)
+            self.assertEqual(len(runs), n)
+            self.assertAlmostEqual(statistics.mean(r.train_time_s for r in runs), time_mean, places=8)
+            self.assertAlmostEqual(statistics.mean(r.val_loss for r in runs), loss_mean, places=8)
+
     def test_track1_anvil2(self):
         r = logparse.parse_file(os.path.join(ANVIL2, "this_pr", "01b2f094-4536-479c-b0dd-cb14eba4844c.txt"))
         self.assertEqual(r.fmt, "ms")
@@ -78,6 +104,15 @@ class TestRealLogs(unittest.TestCase):
 class TestSynthetic(unittest.TestCase):
     SRC = 'print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms")\n'
     SEP = "=" * 100
+
+    def test_overlapping_inputs_and_symlinks_do_not_inflate_n(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "run.txt")
+            with open(path, "w") as f:
+                f.write("step:10/10 val_loss:3.278 train_time:1000ms\n")
+            alias = os.path.join(d, "alias.txt")
+            os.symlink(path, alias)
+            self.assertEqual(logparse.expand([path, d, os.path.join(d, "*.txt")]), [path])
 
     def test_source_dump_ignored_and_nan(self):
         text = (self.SRC + "step:5/10 val_loss:9.9 train_time:1ms step_avg:1ms\n" + self.SEP + "\n"

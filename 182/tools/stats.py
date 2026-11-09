@@ -82,6 +82,8 @@ def t_sf(t: float, df: float) -> float:
     """P(T > t) for Student's t with df degrees of freedom (df may be fractional, as in Welch)."""
     if math.isinf(df):
         return norm_sf(t)
+    if math.isinf(t):
+        return 0.0 if t > 0 else 1.0
     # tail = I_x(df/2, 1/2) / 2 with x = df/(df+t^2); for small |t|, x ~ 1 and the complement
     # 1 - I_{1-x}(1/2, df/2) with 1-x = t^2/(df+t^2) computed directly keeps full precision.
     x, xc = df / (df + t * t), t * t / (df + t * t)
@@ -187,7 +189,7 @@ def z3_rule(values, target: float = TARGET, threshold: float = T3_THRESHOLD) -> 
     m, sd = mean_sd(vals)
     score = (target - m) * math.sqrt(n) if n else float("nan")
     return dict(test="z3", n=n, mean=m, sd=sd, target=target, score=score, threshold=threshold,
-                passes=bool(n) and score >= threshold,
+                passes=bool(n) and all(math.isfinite(v) for v in vals) and score >= threshold,
                 max_mean_to_pass=target - threshold / math.sqrt(n) if n else float("nan"),
                 z_equiv=score / T3_SIGMA if n else float("nan"))
 

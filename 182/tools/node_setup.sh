@@ -30,9 +30,10 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg $1" >&2; exit 2;;
   esac
 done
+[[ "$MODE" =~ ^(venv|docker|report)$ ]] || { echo "invalid mode: $MODE" >&2; exit 2; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-cd "$REPO"
+cd "$REPO" || exit 1
 REPORT="$REPO/node_report.txt"
 FAILS=0
 fail() { echo "FAIL: $*" | tee -a "$REPORT"; FAILS=$((FAILS + 1)); }
@@ -91,8 +92,9 @@ node_report() {
 }
 
 find_cudart13() {
-  ldconfig -p 2>/dev/null | grep -q 'libcudart.so.13' && return 0
-  for d in /usr/local/cuda-13*/targets/x86_64-linux/lib /usr/local/cuda/lib64 ${LD_LIBRARY_PATH//:/ }; do
+  ldconfig -p 2>/dev/null | grep 'libcudart.so.13' >/dev/null && return 0
+  local d libs="${LD_LIBRARY_PATH:-}"
+  for d in /usr/local/cuda-13*/targets/x86_64-linux/lib /usr/local/cuda/lib64 ${libs//:/ }; do
     [[ -e "$d/libcudart.so.13" ]] && { echo "$d"; return 0; }
   done
   return 1
@@ -178,12 +180,16 @@ EOF
 data_download() {
   [[ "$SKIP_DATA" == 1 ]] && return 0
   local n
+  # Shard filenames are fixed by cached_fineweb10B.py, without whitespace or newlines.
+  # shellcheck disable=SC2012
   n=$(ls data/fineweb10B/fineweb_train_*.bin 2>/dev/null | wc -l)
   if [[ "$n" -ge "$SHARDS" && -f data/fineweb10B/fineweb_val_000000.bin ]]; then
     echo "data: $n train shards + val already present"
   else
     "$@" data/cached_fineweb10B.py "$SHARDS" || fail "data download"
   fi
+  # Human-readable listing only, not filename parsing.
+  # shellcheck disable=SC2012
   { echo; echo "## Data"; ls -la data/fineweb10B 2>&1 | head -20; } >> "$REPORT"
 }
 
@@ -195,10 +201,10 @@ if [[ "$MODE" == "venv" ]]; then
   check_cuda13
   PY=python3.12; command -v "$PY" >/dev/null || PY=python3
   if [[ ! -x "$VENV/bin/python" ]]; then
-    if command -v uv >/dev/null; then uv venv -p 3.12 "$VENV" || "$PY" -m venv "$VENV"; else "$PY" -m venv "$VENV"; fi
+    if command -v uv >/dev/null; then uv venv --seed -p 3.12 "$VENV" || "$PY" -m venv "$VENV"; else "$PY" -m venv "$VENV"; fi
   fi
   VPY="$VENV/bin/python"
-  "$VPY" -m pip install -q --upgrade pip
+  "$VPY" -m pip install -q --upgrade pip || fail "pip bootstrap"
   "$VPY" -m pip install -q -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128 || fail "pip install -r requirements.txt"
   "$VPY" -m pip install -q torch==2.10 --index-url https://download.pytorch.org/whl/cu128 || fail "pip install torch==2.10 cu128"
   [[ "$SKIP_FA3" == 1 ]] || { fa3_prefetch_py | "$VPY" - || fail "FA3 prefetch"; }
@@ -208,25 +214,27 @@ if [[ "$MODE" == "venv" ]]; then
   if [[ "$SKIP_CHECK" == 0 ]]; then
     sec "GPU / NCCL sanity"
     "$VENV/bin/torchrun" --standalone --nproc_per_node="$(nvidia-smi -L | grep -c GPU)" "$HERE/node_check.py" 2>&1 | tee -a "$REPORT"
+    [[ ${PIPESTATUS[0]} -eq 0 ]] || fail "GPU / NCCL sanity"
   fi
   echo; echo "activate with: source $VENV/bin/activate   (torchrun must be this venv's: $VENV/bin/torchrun)"
 elif [[ "$MODE" == "docker" ]]; then
   command -v docker >/dev/null || { fail "docker not installed"; exit 1; }
-  SUDO=""; docker info >/dev/null 2>&1 || SUDO=sudo
-  $SUDO docker build -t "$IMAGE" . || { fail "docker build"; exit 1; }
+  DOCKER=(docker); docker info >/dev/null 2>&1 || DOCKER=(sudo docker)
+  "${DOCKER[@]}" build -t "$IMAGE" . || { fail "docker build"; exit 1; }
   HFC="${HF_HOME:-$HOME/.cache/huggingface}"; mkdir -p "$HFC"
   DOPTS=(--rm --gpus all --ipc=host --network=host --ulimit memlock=-1 --ulimit stack=67108864
          -v "$REPO":/modded-nanogpt -v "$HFC":/root/.cache/huggingface -w /modded-nanogpt)
-  DRUN=($SUDO docker run "${DOPTS[@]}" "$IMAGE")            # a command follows
-  DPIPE=($SUDO docker run -i "${DOPTS[@]}" "$IMAGE" python -)  # a script on stdin
+  DRUN=("${DOCKER[@]}" run "${DOPTS[@]}" "$IMAGE")            # a command follows
+  DPIPE=("${DOCKER[@]}" run -i "${DOPTS[@]}" "$IMAGE" python -)  # a script on stdin
   [[ "$SKIP_FA3" == 1 ]] || { fa3_prefetch_py | "${DPIPE[@]}" || fail "FA3 prefetch (docker)"; }
   sec "Stack check (docker, offline against the seeded cache)"
-  stack_check_py | $SUDO docker run -i -e HF_HUB_OFFLINE=1 "${DOPTS[@]}" "$IMAGE" python - 2>&1 | tee -a "$REPORT"
+  stack_check_py | "${DOCKER[@]}" run -i -e HF_HUB_OFFLINE=1 "${DOPTS[@]}" "$IMAGE" python - 2>&1 | tee -a "$REPORT"
   [[ ${PIPESTATUS[1]} -eq 0 ]] || fail "stack check (docker)"
   data_download "${DRUN[@]}" python
   if [[ "$SKIP_CHECK" == 0 ]]; then
     sec "GPU / NCCL sanity (docker)"
     "${DRUN[@]}" torchrun --standalone --nproc_per_node=8 182/tools/node_check.py 2>&1 | tee -a "$REPORT"
+    [[ ${PIPESTATUS[0]} -eq 0 ]] || fail "GPU / NCCL sanity (docker)"
   fi
   echo; echo "run with: ${DRUN[*]} sh run.sh   (add -e HF_HUB_OFFLINE=1 if get_kernel returns 401)"
 fi
