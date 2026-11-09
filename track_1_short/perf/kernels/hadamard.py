@@ -17,8 +17,10 @@ untouched.
 
 Scales: g stays at the static e5m2 2^-6 (a rotation preserves each block's L2 norm, and e5m2 has the
 range); x_t gets its own delayed scale from the rotated amax (a static 2^-4 is NOT safe once a
-channel's tokens are summed into one coefficient); post and dpre keep one delayed scale each whose
-amax covers both layouts; the rotated weight caches get their own exact-then-delayed scales.
+channel's tokens are summed into one coefficient); the rotated post_t gets its own delayed scale
+(post_t_scale / post_t_amax, model/gpt.py) so the forward's unrotated post keeps the record's scale;
+dpre keeps one delayed scale whose amax covers both rotated layouts; the rotated weight caches get
+their own exact-then-delayed scales.
 
 Block size (HADAMARD_BLOCK in config.py, 32 | 64 | 128): every kernel keeps HADAMARD_TILE = 128 wide tiles
 and rotates each tile block-diagonally: the tile is reshaped so each length-b block is one row, and one
@@ -144,21 +146,37 @@ def _(src, q, scale, e5m2):
     return src.new_empty(src.shape, dtype=fmt), src.new_empty((src.shape[1], src.shape[0]), dtype=fmt)
 
 
-@torch.library.custom_op("nanogpt::hadamard_t_quant", mutates_args={"amax"})
-def hadamard_t_quant(src: torch.Tensor, q: torch.Tensor, scale: torch.Tensor, amax: torch.Tensor) -> torch.Tensor:
-    """t [N, M] e4m3 = quant(src.T rotated along M) at the delayed `scale`; atomic-maxes the rotated amax
-    into amax[0] for the next step's scale. The MLP input's transposed copy, read only by dW1."""
+@torch.library.custom_op("nanogpt::hadamard_t_quant", mutates_args=())
+def hadamard_t_quant(src: torch.Tensor, q: torch.Tensor, scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """(t [N, M] e4m3 = quant(src.T rotated along M) at the delayed `scale`, amax [1] f32 = max |rotated|).
+    The MLP input's transposed copy, read only by dW1.
+
+    Functional: the amax comes back as a fresh tensor (atomic-maxed by the kernel into its own zeroed
+    element) instead of being written through a view of the caller's buffer. The caller folds it into
+    its delayed-amax buffer with aten ops (GPT._quantize_mlp_input), so torch.compile sees an ordinary
+    buffer mutation, which functionalization and the captured step graphs handle like any other."""
     M, N = _check_2d(src, q)
     t = torch.empty((N, M), device=src.device, dtype=torch.float8_e4m3fn)
+    amax = torch.zeros(1, device=src.device, dtype=torch.float32)
     _hadamard_quant_dual_kernel[(M // HADAMARD_TILE, N // HADAMARD_TILE)](
         src, q, t, t, scale, scale, amax, M, N, src.stride(0),
         EMIT_ROW=False, ROT_ROW=False, ROT_T=True, RECORD_T_AMAX=True, E5M2=False,
         BLOCK=HADAMARD_TILE, HB=HADAMARD_BLOCK, num_warps=8)
-    return t
+    return t, amax
 
 @hadamard_t_quant.register_fake
-def _(src, q, scale, amax):
-    return src.new_empty((src.shape[1], src.shape[0]), dtype=torch.float8_e4m3fn)
+def _(src, q, scale):
+    return src.new_empty((src.shape[1], src.shape[0]), dtype=torch.float8_e4m3fn), src.new_empty((1,), dtype=torch.float32)
+
+@hadamard_t_quant.register_kernel("cpu")
+def _(src, q, scale):
+    """CPU reference (tests only; training is CUDA): the same math in torch, perf/hadamard_ref.py."""
+    from track_1_short.perf.hadamard_ref import FP8_MAX, rotate
+    _check_2d(src, q)
+    r = rotate(src.float(), 0, q.float())
+    lim = FP8_MAX[torch.float8_e4m3fn]
+    t = torch.clamp(r.T / scale, -lim, lim).to(torch.float8_e4m3fn).contiguous()
+    return t, r.abs().amax().reshape(1)
 
 
 # -----------------------------------------------------------------------------

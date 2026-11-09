@@ -1,4 +1,5 @@
 """The GPT model: embeddings, 11 transformer blocks with MUDD skip connections, and the loss."""
+import inspect
 import math
 from dataclasses import dataclass
 
@@ -155,6 +156,59 @@ ReLUSqrdMLP = FusedLinearReLUSquareFunction.apply
 ReLUSqrdMLPBF16 = BF16LinearReLUSquareFunction.apply
 # HADAMARD_FP8: the rotated x_t (read by dW1 only) has its own delayed scale; see perf/kernels/hadamard.py.
 FP8_XT_HEADROOM = 1.10
+# HADAMARD_FP8 extra args of FusedLinearReLUSquareFunction, the contract with perf/kernels/mlp.py. Under
+# HADAMARD_FP8, _mlp_fp8_args appends, positionally after the 16 fp8 args and hadamard_q:
+#     p_fold (or an explicit None), post_t_scale, post_t_amax
+# post_t_scale is the 0-d f32 view _mlp_post_t_scales[slot], post_t_amax the (1,) f32 view
+# _mlp_post_t_amax[slot] (the same layout as post_scale / post_amax). The forward epilogue quantizes the
+# unrotated e4m3 post row at post_scale and atomic-maxes only its amax into post_amax, which is the record's
+# forward numerics. It quantizes the token-rotated post_t at post_t_scale and atomic-maxes the rotated
+# amax into post_t_amax. dW2 dequantizes post_t with post_t_scale. The backward dpre epilogue reads the
+# e4m3 post row at post_scale, as in the record. With the flags off, the arg list is the record's.
+
+def check_mlp_takes_post_t():
+    """HADAMARD_FP8 needs the mlp.py side of the post_t contract above. Without it the Function would get
+    3 unexpected args, or would silently fold post_t into the forward's post amax."""
+    params = inspect.signature(FusedLinearReLUSquareFunction.forward).parameters
+    assert "post_t_scale" in params and "post_t_amax" in params, (
+        "HADAMARD_FP8: FusedLinearReLUSquareFunction lacks post_t_scale/post_t_amax (perf/kernels/mlp.py)")
+
+
+# HADAMARD_SAT_STATS=1 (train_gpt.py, analysis only): per MLP slot, every delayed / weight fp8 scale and the
+# ratio amax / (scale * fmt_max) of the amax recorded under that scale. > 1 means values were clamped;
+# a delayed scale still at its init value after warmup means its amax never arrived.
+# Rows: (name, scale buffer, amax buffer (per-slot max over dim 1), fmt max, init scale or None).
+def _fp8_sat_rows(model):
+    e4, e5 = 448.0, 57344.0
+    rows = [("post", "_mlp_post_scales", "_mlp_post_amax", e4, 1.0),
+            ("dpre", "_mlp_dpre_scales", "_mlp_dpre_amax", e5, FP8_GRAD_SCALE),
+            ("w1", "_mlp_up_scales", "_mlp_up_partial_amax", e4, None),
+            ("w2", "_mlp_down_scales", "_mlp_down_partial_amax", e4, None)]
+    # Only the rotated operands HADAMARD_GEMMS selects: an unselected one's scale never moves off its init.
+    rows += [row for on, row in ((HADAMARD_DW2, ("post_t", "_mlp_post_t_scales", "_mlp_post_t_amax", e4, 1.0)),
+                                 (HADAMARD_DW1, ("x_t", "_mlp_xt_scales", "_mlp_xt_amax", e4, FP8_MLP_X_SCALE)),
+                                 (HADAMARD_DX, ("w1_rot", "_mlp_up_rot_scales", "_mlp_up_rot_partial_amax", e4, None)),
+                                 (HADAMARD_DPOST, ("w2_rot", "_mlp_down_rot_scales", "_mlp_down_rot_partial_amax", e4, None)))
+             if on]
+    return rows
+
+
+# Over this ratio a slot counts as saturated: 1% slack because an exact weight scale is amax / 448 rounded
+# in bf16 (up to 0.4% low), so its ratio can sit just above 1 with nothing clamped beyond rounding.
+SAT_RATIO = 1.01
+
+
+def format_fp8_sat(step: int, names: list, snap: torch.Tensor) -> list[str]:
+    """snap [rows, 3, slots] = (scale, amax / (scale * fmt_max), is-init) from GPT.fp8_sat_snapshot, after any
+    cross-rank max. One line per row: max ratio, the slots over the limit or stuck, then per-slot values."""
+    lines = []
+    for name, (scale, ratio, at_init) in zip(names, snap.tolist()):
+        sat = [i for i, r in enumerate(ratio) if r > SAT_RATIO]
+        stuck = [i for i, z in enumerate(at_init) if z > 0]
+        flags = (f" SAT{sat}" if sat else "") + (f" STUCK{stuck}" if stuck else "")
+        lines.append(f"fp8 sat step:{step} {name:<6} max_ratio:{max(ratio):.3f}{flags} "
+                     f"ratio:[{' '.join(f'{r:.2f}' for r in ratio)}] scale:[{' '.join(f'{v:.2e}' for v in scale)}]")
+    return lines
 assert (bf16_loss.SOFTCAP_A, bf16_loss.SOFTCAP_B, bf16_loss.SOFTCAP_C) == (
     cross_entropy.SOFTCAP_A, cross_entropy.SOFTCAP_B, cross_entropy.SOFTCAP_C)
 
@@ -384,16 +438,19 @@ class GPT(nn.Module):
             # per-tile rotated amaxes, the rotated x_t's delayed scale (dw1) and the rotated post_t's (dw2).
             # The _hadamard_q constant is written once, here.
             assert h % HADAMARD_TILE == 0 and d % HADAMARD_TILE == 0
+            check_mlp_takes_post_t()
             rot_tiles = quantize_weights_rotated_ntiles(h, d)
             buffers.update({
-                "_mlp_post_t_scales": torch.ones(n, dtype=f32, device=dev),
-                "_mlp_post_t_amax": torch.zeros(n, 1, dtype=f32, device=dev),
                 "_mlp_up_rot_scales": torch.ones(n, dtype=f32, device=dev),
                 "_mlp_down_rot_scales": torch.ones(n, dtype=f32, device=dev),
                 "_mlp_up_rot_partial_amax": torch.zeros(n, rot_tiles, dtype=f32, device=dev),
                 "_mlp_down_rot_partial_amax": torch.zeros(n, rot_tiles, dtype=f32, device=dev),
                 "_mlp_xt_scales": torch.full((n,), FP8_MLP_X_SCALE, dtype=f32, device=dev),
                 "_mlp_xt_amax": torch.zeros(n, 1, dtype=f32, device=dev),
+                # The rotated post_t (dW2) has its own delayed scale, refreshed like post's (see
+                # FP8_XT_HEADROOM's contract comment).
+                "_mlp_post_t_scales": torch.ones(n, dtype=f32, device=dev),
+                "_mlp_post_t_amax": torch.zeros(n, 1, dtype=f32, device=dev),
             })
             self.register_buffer("_hadamard_q", signed_hadamard(HADAMARD_BLOCK, HADAMARD_SEED, device=dev), persistent=False)
         for name, buf in buffers.items():
@@ -1052,6 +1109,18 @@ class GPT(nn.Module):
             self._mlp_dpre_scales.fill_(FP8_GRAD_SCALE)
             self._mlp_post_scales.fill_(1.0)
 
+    @torch.no_grad()
+    def fp8_sat_snapshot(self):
+        """(names, [rows, 3, slots] f32) for format_fp8_sat; device ops only, no host sync. Take it BEFORE the
+        owed fp8 refresh: the refresh clears the activation amaxes and moves their scales on."""
+        rows = _fp8_sat_rows(self)
+        out = []
+        for _, scale_name, amax_name, fmt_max, init in rows:
+            scale, amax = getattr(self, scale_name), getattr(self, amax_name).amax(dim=1)
+            at_init = (scale == init) if init is not None else torch.zeros_like(scale, dtype=torch.bool)
+            out.append(torch.stack((scale, amax / (scale * fmt_max), at_init.float())))
+        return [r[0] for r in rows], torch.stack(out)
+
     def _attn_fp8_weights(self):
         """Per attention layer: (qkv_f8, qkv_f8_t, qkv_scale) from its width group's cache, for PackedFP8QKV."""
         weights = {}
@@ -1068,14 +1137,20 @@ class GPT(nn.Module):
             return quantize_dual_layout_fused(x2d, self._mlp_x_scale, fmt=torch.float8_e4m3fn)
         lim = FP8_MAX[torch.float8_e4m3fn]
         row = torch.clamp(x2d.to(torch.float32) * (1.0 / self._mlp_x_scale), -lim, lim).to(torch.float8_e4m3fn)
-        return row, hadamard_t_quant(x2d, self._hadamard_q, self._mlp_xt_scales[slot], self._mlp_xt_amax[slot])
+        x_t, amax = hadamard_t_quant(x2d, self._hadamard_q, self._mlp_xt_scales[slot])
+        # The op returns its amax; folding it in here is a plain buffer mutation, which torch.compile
+        # functionalizes and the captured step graph replays. A max, not a copy: a slot's amax collects
+        # every forward between two refreshes (the step-graph self-check and FP8_DUMP add extra ones).
+        self._mlp_xt_amax[slot].copy_(torch.maximum(self._mlp_xt_amax[slot], amax))
+        return row, x_t
 
     def _mlp_fp8_args(self, slot, up_f8, x_f8, fold_p, xt_slot):
         """The FP8 arguments of FusedLinearReLUSquareFunction for MLP bank `slot`, after (x, c_fc, c_proj).
 
         `x_f8` is the (row, transposed) e4m3 input, quantized for MLP slot `xt_slot` (the parallel MLP shares
         its layer's). Under HADAMARD_FP8 the transposed input, the W1 column cache and the W2 row cache are
-        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q.
+        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q, and p_fold (or
+        None), post_t_scale and post_t_amax ride last (the contract at FP8_XT_HEADROOM).
         With `fold_p` (the post-lambda folded into the
         down-projection scale), the down projection's forward and dgrad dequant scales are the folded
         ones, and fold_p rides last for its gradient.
@@ -1092,6 +1167,7 @@ class GPT(nn.Module):
                 self._mlp_post_scales[slot], self._mlp_post_amax[slot], self._mlp_down_f8_row[slot], dq_bwd[slot], x_t,
                 x_t_scale, self._mlp_up_f8_col[slot], w1_col_scale, self._mlp_grad_scale,
                 self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot], hadamard_q)
-        if HADAMARD_FP8:  # p_fold positionally (possibly None), then the rotated post_t's scale and amax slot
+        if HADAMARD_FP8:
+            # Positional, p_fold possibly None: see the contract comment at FP8_XT_HEADROOM.
             return args + (fold_p, self._mlp_post_t_scales[slot], self._mlp_post_t_amax[slot])
         return args + ((fold_p,) if fold_p is not None else ())

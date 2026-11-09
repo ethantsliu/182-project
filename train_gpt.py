@@ -45,7 +45,7 @@ from track_1_short.config import (
 )
 from track_1_short.data import ScheduledBatches, cu_seqlens_rows, distributed_data_generator
 from track_1_short.distributed import setup_distributed
-from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT, MLP_HIDDEN_DIM
+from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT, MLP_HIDDEN_DIM, format_fp8_sat
 from track_1_short.model.monarch import MONARCH_MLP
 from track_1_short.model.prefix_prediction import build_prefix_table_bucket
 from track_1_short.ngram_table import (
@@ -79,7 +79,12 @@ dynamo.config.recompile_limit = 64
 PRINT_EVERY = 25
 # FP8_DUMP_DIR runs (182/hadamard-fp8) do extra eager passes with the clock paused: their timings are not
 # record timings, so every val line carries a machine-readable tag (empty in the record configuration).
-TIMING_TAG = " INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else ""
+# HADAMARD_SAT_STATS=1 (182/hadamard-fp8, analysis only): at every validation, print each MLP slot's fp8
+# scales and amax / limit ratios (model/gpt.py format_fp8_sat). The snapshot is a few device copies on the
+# clock, so its val lines are tagged too.
+HADAMARD_SAT_STATS = os.environ.get("HADAMARD_SAT_STATS", "0") == "1"
+TIMING_TAG = ((" INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else "")
+              + (" INVALID_FOR_RECORD(sat_stats)" if HADAMARD_SAT_STATS else ""))
 
 
 def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
@@ -178,7 +183,9 @@ def main():
     )
     # 182/hadamard-fp8 knobs (all off in the record configuration).
     print0(f"fp8 experiment: FP8_OFF={sorted(FP8_OFF) or 'none'} HADAMARD_FP8={int(HADAMARD_FP8)} "
-           f"FP8_DUMP_DIR={FP8_DUMP_DIR or 'off'}" + (f" steps={FP8_DUMP_STEPS}" if FP8_DUMP_DIR else ""), console=True)
+           f"FP8_DUMP_DIR={FP8_DUMP_DIR or 'off'}" + (f" steps={FP8_DUMP_STEPS}" if FP8_DUMP_DIR else "")
+           + f" HADAMARD_SAT_STATS={int(HADAMARD_SAT_STATS)}"
+           + "".join(f" {k}={os.environ[k]}" for k in ("HADAMARD_GEMMS", "HADAMARD_BLOCK") if k in os.environ), console=True)
     if MONARCH_MLP:
         ms = model.monarch_shape
         print0(f"MONARCH_MLP=1: blocks={ms.blocks} expand={ms.expand} hidden={ms.hidden} block=[{ms.q}, {ms.p}] "
@@ -359,6 +366,8 @@ def main():
         training_manager.advance_schedule(step)
         # --------------- VALIDATION SECTION -----------------
         if last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0):
+            # HADAMARD_SAT_STATS: the last step's amaxes under the scales it used, before the refresh clears them.
+            sat_snapshot = uncompiled_model.fp8_sat_snapshot() if HADAMARD_SAT_STATS else None
             # The deferred gathers land first: validation reads the banks and, at the last step, ships
             # into them.
             if last_step:
@@ -405,6 +414,14 @@ def main():
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms"
                    + TIMING_TAG, console=True)
+            if sat_snapshot is not None:
+                # Ratios: the max over ranks (each rank's delayed scales follow its own tokens); scales: rank 0's.
+                names, snap = sat_snapshot
+                ratios = snap[:, 1:].contiguous()
+                dist.all_reduce(ratios, op=dist.ReduceOp.MAX)
+                snap = torch.cat((snap[:, :1], ratios), dim=1)
+                for line in format_fp8_sat(step, names, snap):
+                    print0(line, console=True)
             # The clock is stopped: flush the log and collect the loop's garbage here.
             flush_log()
             gc.collect()
