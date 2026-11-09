@@ -48,10 +48,34 @@ class Host:
     avx512: bool
     kernel: str
     gpus: int
+    cgroup_limit: int = 0  # this process's memory cgroup limit (0: none); mem_available is clamped to its headroom
 
     @property
     def per_gpu(self):
         return self.allowed // max(1, self.gpus)
+
+
+def cgroup_memory(root="/sys/fs/cgroup", self_cgroup="/proc/self/cgroup"):
+    """(limit, headroom) bytes of this process's memory cgroup (v2, else v1), or None if it has no limit. Headroom is
+    the limit less the cgroup's usage without its reclaimable page cache (/dev/shm pages, shmem, count as used: a
+    container's tmpfs tables are charged to it). /proc/meminfo shows the host's memory, not a container's limit."""
+    lines = _read(self_cgroup).splitlines()
+    v2 = [l.split(":", 2)[2] for l in lines if l.startswith("0::")]
+    v1 = [l.split(":", 2)[2] for l in lines if len(l.split(":", 2)) == 3 and "memory" in l.split(":", 2)[1].split(",")]
+    candidates = [(os.path.join(root, p.lstrip("/")), "memory.max", "memory.current", "file", "shmem") for p in v2 + ["/"]]
+    candidates += [(os.path.join(root, "memory", p.lstrip("/")), "memory.limit_in_bytes", "memory.usage_in_bytes", "total_cache", "total_shmem")
+                   for p in v1 + ["/"]]
+    best = None
+    for d, lim, cur, cache, shmem in candidates:
+        text = _read(os.path.join(d, lim))
+        if not text.isdigit() or int(text) >= 1 << 60:  # absent, "max", or v1's "unlimited" (a page-rounded 2^63)
+            continue
+        stat = dict((k, int(v)) for k, _, v in (l.partition(" ") for l in _read(os.path.join(d, "memory.stat")).splitlines()) if v.isdigit())
+        used = int(_read(os.path.join(d, cur), "0") or 0) - max(0, stat.get(cache, stat.get(cache.replace("total_", ""), 0))
+                                                              - stat.get(shmem, stat.get(shmem.replace("total_", ""), 0)))
+        cg = (int(text), max(0, int(text) - max(0, used)))
+        best = cg if best is None or cg[1] < best[1] else best
+    return best
 
 
 def detect(gpus=None) -> Host:
@@ -76,11 +100,15 @@ def detect(gpus=None) -> Host:
     model = next((l.split(":", 1)[1].strip() for l in _read("/proc/cpuinfo").splitlines() if l.startswith("model name")), platform.processor())
     flags = next((l for l in _read("/proc/cpuinfo").splitlines() if l.startswith("flags")), "")
     thp = _read("/sys/kernel/mm/transparent_hugepage/enabled", "n/a")
+    cg = cgroup_memory()
+    if cg is not None:
+        meminfo["MemAvailable"] = min(meminfo.get("MemAvailable", cg[1]), cg[1])
     if gpus is None:
         gpus = int(os.environ.get("LOCAL_WORLD_SIZE", "0")) or len(glob.glob("/proc/driver/nvidia/gpus/*")) or 1
     return Host(cpu_model=model, allowed=len(allowed), cores=len(siblings), numa_nodes=len(glob.glob("/sys/devices/system/node/node[0-9]*")) or 1,
                 mem_total=meminfo.get("MemTotal", 0), mem_available=meminfo.get("MemAvailable", 0), shm_total=shm_total, shm_free=shm_free,
-                thp=thp, avx512=all(f" {f}" in flags for f in ("avx512f", "avx512bw", "avx512dq", "avx512vl")), kernel=platform.release(), gpus=gpus)
+                thp=thp, avx512=all(f" {f}" in flags for f in ("avx512f", "avx512bw", "avx512dq", "avx512vl")), kernel=platform.release(), gpus=gpus,
+                cgroup_limit=cg[0] if cg is not None else 0)
 
 
 def shard_tokens(path):
@@ -133,7 +161,7 @@ def check(host: Host, need: Plan):
 def describe(host: Host):
     return (f"host: {host.cpu_model} | {host.allowed} CPUs allowed ({host.cores} cores, {host.numa_nodes} NUMA nodes, "
             f"{host.per_gpu} per GPU over {host.gpus}) | AVX-512 {'yes' if host.avx512 else 'no'} | RAM {host.mem_total / GiB:.0f} GiB "
-            f"({host.mem_available / GiB:.0f} available) | /dev/shm {host.shm_total / GiB:.0f} GiB ({host.shm_free / GiB:.0f} free) | "
+            f"({host.mem_available / GiB:.0f} available{f', cgroup limit {host.cgroup_limit / GiB:.0f} GiB' if host.cgroup_limit else ''}) | /dev/shm {host.shm_total / GiB:.0f} GiB ({host.shm_free / GiB:.0f} free) | "
             f"THP {host.thp} | kernel {host.kernel}")
 
 
@@ -141,4 +169,5 @@ def usage():
     """This process's peak RSS and the node's memory in use now (incl. /dev/shm), GiB, for the end-of-run report."""
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if platform.system() == "Darwin" else 1024)
     now = detect(gpus=1)
-    return peak / GiB, (now.mem_total - now.mem_available) / GiB, (now.shm_total - now.shm_free) / GiB
+    total = now.cgroup_limit or now.mem_total  # in a memory cgroup: its usage (mem_available is its headroom there)
+    return peak / GiB, (total - now.mem_available) / GiB, (now.shm_total - now.shm_free) / GiB
