@@ -20,6 +20,8 @@ import torch
 import torch.distributed as dist
 from exact_match import CELLS as RET_CELLS, SlotIndex, StreamIndex
 
+from track_1_short import host
+
 per_gpu = len(os.sched_getaffinity(0)) // int(os.environ.get("LOCAL_WORLD_SIZE", "1"))  # vCPUs per GPU, before any pinning
 VAL_BUILD_THREADS = 64 if per_gpu >= 24 else 32 if per_gpu >= 16 else 16  # rank 0's validation index build, on cores every rank sets aside
 LARGE_HOST = per_gpu >= 24  # >= 24 vCPUs per GPU
@@ -98,8 +100,8 @@ class OnlineCache:
 
     def _rows(self, step, tokens, starts, ends, inputs):
         x = inputs.astype(np.uint16)  # per position the longest match of the 6-, 3- and 2-token indexes
-        lower = [(source, cache) for source, cache in self.lower if step >= self.hint_from[0] and cache.built.done()]
-        if self.full is not None and step >= self.hint_from[1] and self.full.built.done():
+        lower = [(source, cache) for source, cache in self.lower if step >= self.hint_from[0] and built(cache.built)]
+        if self.full is not None and step >= self.hint_from[1] and built(self.full.built):
             rows = np.zeros((len(x), 9), dtype=np.int32)
             self.full.index.query_into(x, len(x), rows, 0)
         else:
@@ -146,7 +148,12 @@ class ValidationCache:
         cpus = [None] * world
         dist.all_gather_object(cpus, sorted(build_cpus), group=group)
         if self.rank == 0:
-            self.index = SlotIndex.create(path[0], files, VAL_BUILD_THREADS, sum(cpus, [])[:VAL_BUILD_THREADS], lookup_cpus, key)
+            try:
+                self.index = SlotIndex.create(path[0], files, VAL_BUILD_THREADS, sum(cpus, [])[:VAL_BUILD_THREADS], lookup_cpus, key)
+            except BaseException:  # do not leave a table file in /dev/shm (RAM) behind
+                if os.path.exists(path[0]):
+                    os.unlink(path[0])
+                raise
         dist.barrier(group)
         if self.rank != 0:
             self.index = SlotIndex.attach(path[0], lookup_cpus, key)
@@ -161,13 +168,23 @@ class ValidationCache:
         self.built = self.worker.submit(self._build, after)
 
     def _build(self, after):
-        if after is not None:
-            after.result()
-        if self.rank == 0:
-            t = time.perf_counter()
-            self.index.build()
-            print(f"validation index built in {time.perf_counter() - t:.2f} s", flush=True)
-        dist.barrier(self.group)
+        ok = torch.ones(1, dtype=torch.int32)
+        try:
+            if after is not None:
+                after.result()
+            if self.rank == 0:
+                t = time.perf_counter()
+                self.index.build()
+                print(f"validation index built in {time.perf_counter() - t:.2f} s", flush=True)
+        except BaseException:
+            ok.zero_()
+            raise
+        finally:
+            # In place of a barrier: every rank learns whether the build succeeded (a rank whose build failed still
+            # gets here, so the others do not wait for it forever), and a failed one fails `built` on every rank.
+            dist.all_reduce(ok, op=dist.ReduceOp.MIN, group=self.group)
+        if not ok.item():
+            raise RuntimeError("a rank's validation index build failed (see its traceback)")
         if self.rank == 0:
             self.index.release()
 
@@ -187,6 +204,39 @@ class ValidationCache:
         """Wait for the build and the lookup: the rows of each of this rank's validation chunks."""
         self.built.result()
         return self.looked_up.result()
+
+
+def host_plan(train_files, exclude, world, print0):
+    """Before the validation indexes allocate, on every rank (the node's state is the same for all): this node's CPUs
+    and RAM, and the retrieval's estimated host memory, into the log. With HOST_CHECK=1 (the default) a node whose
+    /dev/shm or available RAM (the cgroup limit included) cannot hold it fails here, before the clock, instead of
+    with a SIGBUS mid-build that leaves a table file in /dev/shm. HOST_CHECK=0: report only."""
+    files = sorted(glob.glob(train_files))[exclude:]
+    tokens = [host.shard_tokens(f) for f in files]
+    need = host.plan(sum(tokens), sum(tokens[:20]), VAL_BUILD_THREADS, world)
+    h = host.detect()
+    print0(host.describe(h), console=True)
+    print0(f"retrieval host plan: {VAL_BUILD_THREADS} build threads; 6-token index {len(files)} shards "
+           f"({sum(tokens) / 1e9:.2f}B tokens), 3-/2-token indexes 20 shards; estimated arenas {need.arenas / host.GiB:.0f} GiB "
+           f"+ tables {need.tables / host.GiB:.0f} GiB (/dev/shm) + {world} ranks x {host.RANK_GIB:.0f} GiB = "
+           f"{need.total / host.GiB:.0f} GiB", console=True)
+    problems = host.check(h, need)
+    for msg in problems:
+        print0(f"HOST CHECK: {msg}", console=True)
+    if problems and host.HOST_CHECK:
+        raise RuntimeError("this node cannot hold the exact-match retrieval: " + "; ".join(problems) + " (HOST_CHECK=0 to try anyway)")
+    return need
+
+
+def host_usage(print0):  # after the run, off the clock: this rank's peak RSS and the node's memory in use
+    peak, used, shm = host.usage()
+    print0(f"host memory: rank 0 peak RSS {peak:.1f} GiB, node in use {used:.0f} GiB (incl. /dev/shm {shm:.0f} GiB)", console=True)
+
+
+def built(future):
+    """Whether a ValidationCache's build is done. A failed build raises here: done() alone is also true after a
+    failure, and its half-built table would be queried."""
+    return future.done() and future.result() is None
 
 
 def mix_q(rows, targets):  # the target's share of the row's candidate counts

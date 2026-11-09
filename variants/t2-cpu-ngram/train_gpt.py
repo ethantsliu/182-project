@@ -71,7 +71,8 @@ from track_1_short.perf.kernels.mlp import prime_stage_cache
 from track_1_short.perf.pinned_batches import PinnedBatchStaging
 from track_1_short.perf.row_prefetch import PrefetchStaging, RowPrefetch
 from track_1_short.perf.value_embed_pull import ValueEmbedPull
-from track_1_short.retrieval import LARGE_HOST, RET_CELLS, FitRows, OnlineCache, ValidationCache, mix_q, pin_cpus, pin_threads, rows_part
+from track_1_short.retrieval import (LARGE_HOST, RET_CELLS, FitRows, OnlineCache, ValidationCache, host_plan, host_usage, mix_q,
+                                     pin_cpus, pin_threads, rows_part)
 from track_1_short.sampled_softmax import SampledSoftmax
 from track_1_short.schedule import TrainingSchedule
 from track_1_short.tail_average import TailAverages
@@ -249,6 +250,8 @@ def main():
     # the 6-token index and the 3- and 2-token ones (20 shards) leave out the shards the loader may train on
     exclude = -(-int(1.5 * sum(training_schedule.lookup(s)[0].batch_size + env.world_size
                                for s in range(training_schedule.total_steps))) // 100_000_000)
+    # this node's CPUs and RAM against what the retrieval needs, into the log (fails before the clock if it cannot fit)
+    host_plan(args.train_files, exclude, env.world_size, print0)
     val_cache = ValidationCache(args.train_files, args.val_files, val_tokens_per_rank, args.val_tokens,
                                 dist.new_group(backend="gloo"), cpus.val_build, cpus.val_lookup, exclude=exclude)
     lower = [ValidationCache(args.train_files, args.val_files, val_tokens_per_rank, args.val_tokens, dist.new_group(backend="gloo"),
@@ -548,6 +551,7 @@ def main():
 
     print0(f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB "
            f"reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB", console=True)
+    host_usage(print0)
     dist.destroy_process_group()
 
 

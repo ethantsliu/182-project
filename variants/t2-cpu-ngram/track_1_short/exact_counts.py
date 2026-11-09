@@ -77,7 +77,7 @@ def _lookup(tab_ptr, key, live, HB: tl.constexpr):
 @triton.jit(do_not_specialize=["q0", "q1", "dummy_base"])
 def _ins_kernel(tok_ptr, tgt_ptr, start_ptr, q0, q1, tab_ptr, dummy_base, filt_ptr, MAXO: tl.constexpr,
                 HB: tl.constexpr, FILT: tl.constexpr, FW: tl.constexpr, BLOCK: tl.constexpr):
-    offs = q0 + (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
+    offs = q0 + tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)  # int64 before the multiply
     live = offs < q1
     lane = tl.arange(0, BLOCK).to(tl.int64)
     start = tl.load(start_ptr + offs, mask=live, other=0).to(tl.int64)
@@ -98,7 +98,7 @@ def _ins_kernel(tok_ptr, tgt_ptr, start_ptr, q0, q1, tab_ptr, dummy_base, filt_p
 @triton.jit(do_not_specialize=["n"])
 def _scan_kernel(corpus_ptr, n, tab_ptr, filt_ptr, MAXLEN: tl.constexpr, HB: tl.constexpr,
                  FILT: tl.constexpr, FW: tl.constexpr, BLOCK: tl.constexpr):
-    offs = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
+    offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)  # int64 before the multiply
     alive = offs < n
     h = tl.zeros([BLOCK], dtype=tl.int64)
     pw = tl.full([BLOCK], 1, dtype=tl.int64)
@@ -121,7 +121,7 @@ def _scan_kernel(corpus_ptr, n, tab_ptr, filt_ptr, MAXLEN: tl.constexpr, HB: tl.
 @triton.jit(do_not_specialize=["n"])
 def _find_kernel(tok_ptr, tgt_ptr, start_ptr, n, tab_ptr, out_ptr, MAXO: tl.constexpr, HB: tl.constexpr,
                  BLOCK: tl.constexpr):
-    offs = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
+    offs = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK).to(tl.int64)  # int64 before the multiply
     live = offs < n
     start = tl.load(start_ptr + offs, mask=live, other=0).to(tl.int64)
     y = tl.load(tgt_ptr + offs, mask=live, other=0).to(tl.int64)
@@ -147,6 +147,18 @@ def segment_starts(tokens, chunk_starts):  # per position the first index its co
     return torch.maximum(loc, pre[:, None]).view(-1)[:n]
 
 
+def read_exact(fd, view, offset):
+    """Fill the byte memoryview `view` from file `fd` at `offset`; an early end of file raises (preadv returns 0
+    there, which a plain `got += preadv(...)` loop would retry forever)."""
+    got = 0
+    while got < view.nbytes:
+        n = os.preadv(fd, [view[got:]], offset + got)
+        if n <= 0:
+            raise EOFError(f"end of file after {got} of {view.nbytes} bytes at offset {offset}")
+        got += n
+    return got
+
+
 class ExactCounts:  # one rank's corpus share on its GPU and the query table (buckets of two [count, key] slots)
     def __init__(self, train_files, exclude, rank, world, device, q_chunk, pinned=False):  # q_chunk: each query's segment start
         self.device, self.files = device, sorted(train_files)[exclude:][rank::world]
@@ -164,24 +176,29 @@ class ExactCounts:  # one rank's corpus share on its GPU and the query table (bu
 
     def load_corpus(self):  # a thread: this rank's corpus share into GPU memory, on a side stream
         def run():
-            torch.cuda.set_device(self.device)
-            stream, off, done = torch.cuda.Stream(self.device), 0, [torch.cuda.Event(), torch.cuda.Event()]
-            with torch.cuda.stream(stream):
-                for i, f in enumerate(self.files):
-                    if self.bufs is None:
-                        a = torch.from_numpy(np.fromfile(f, dtype=np.int16, offset=1024))
-                    else:  # one read into a pinned buffer (two, in turn) and an asynchronous copy
-                        a = self.bufs[i % 2][:(os.path.getsize(f) - 1024) // 2]
-                        done[i % 2].synchronize()
-                        view, got = memoryview(a.numpy()).cast("B"), 0
-                        with open(f, "rb", buffering=0) as fh:
-                            while got < view.nbytes:
-                                got += os.preadv(fh.fileno(), [view[got:]], 1024 + got)
-                    self.corpus[off:off + len(a)].copy_(a, non_blocking=self.bufs is not None)
-                    done[i % 2].record(stream)
-                    off += len(a)
-            stream.synchronize()
-            self.loaded.set()
+            try:
+                torch.cuda.set_device(self.device)
+                stream, off, done = torch.cuda.Stream(self.device), 0, [torch.cuda.Event(), torch.cuda.Event()]
+                with torch.cuda.stream(stream):
+                    for i, f in enumerate(self.files):
+                        if self.bufs is None:
+                            a = torch.from_numpy(np.fromfile(f, dtype=np.int16, offset=1024))
+                        else:  # one read into a pinned buffer (two, in turn) and an asynchronous copy
+                            a = self.bufs[i % 2][:(os.path.getsize(f) - 1024) // 2]
+                            done[i % 2].synchronize()
+                            with open(f, "rb", buffering=0) as fh:
+                                read_exact(fh.fileno(), memoryview(a.numpy()).cast("B"), 1024)
+                        self.corpus[off:off + len(a)].copy_(a, non_blocking=self.bufs is not None)
+                        done[i % 2].record(stream)
+                        off += len(a)
+                stream.synchronize()
+                # a shard that shrank since __init__ would leave the tail of the corpus uninitialized
+                assert off == self.n, f"corpus share read {off} tokens, expected {self.n}"
+            except BaseException as e:  # launch() re-raises it instead of waiting forever
+                self.load_error = e
+            finally:
+                self.loaded.set()
+        self.load_error = None
         threading.Thread(target=run, daemon=True).start()
 
     def _count(self, tok, tgt, start, out, n_corpus):  # the query table, the scan of the corpus share, the lookups
@@ -198,6 +215,8 @@ class ExactCounts:  # one rank's corpus share on its GPU and the query table (bu
     @torch.no_grad()
     def launch(self):  # after training, the queries in q_tok / q_tgt: this rank's counts into self.out
         self.loaded.wait()
+        if self.load_error is not None:
+            raise RuntimeError("loading the exact-count corpus failed") from self.load_error
         self._count(self.q_tok, self.q_tgt, segment_starts(self.q_tok, self.q_chunk), self.out, self.n)
 
 
