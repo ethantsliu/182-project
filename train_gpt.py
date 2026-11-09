@@ -77,6 +77,9 @@ from track_1_short.training import TrainingManager
 dynamo.config.recompile_limit = 64
 # Step lines in the timed loop (console and log): every Nth step, plus the last two (record #360).
 PRINT_EVERY = 25
+# FP8_DUMP_DIR runs (182/hadamard-fp8) do extra eager passes with the clock paused: their timings are not
+# record timings, so every val line carries a machine-readable tag (empty in the record configuration).
+TIMING_TAG = " INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else ""
 
 
 def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
@@ -400,7 +403,8 @@ def main():
             val_loss /= val_steps
             del val_batches, val_pulls
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
-            print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
+            print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms"
+                   + TIMING_TAG, console=True)
             # The clock is stopped: flush the log and collect the loop's garbage here.
             flush_log()
             gc.collect()

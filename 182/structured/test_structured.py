@@ -116,6 +116,19 @@ class TestMonarch(unittest.TestCase):
         self.assertEqual({slot0[j] for j in range(r_up.start, l_up.stop)}, {M.MONARCH_LR_MUL})
         self.assertEqual({slot0[j] for j in range(l_down.start, r_down.stop)}, {M.MONARCH_LR_MUL * M.MONARCH_DOWN_LR_MUL})
 
+    def test_monarch_rejects_hadamard_fp8(self):
+        """MONARCH_MLP has no fp8 MLP to rotate: HADAMARD_FP8=1 with it must fail loudly, not run as Monarch alone."""
+        import subprocess
+        code = "import track_1_short.model.monarch"
+        env = {**os.environ, "MONARCH_MLP": "1", "HADAMARD_FP8": "1"}
+        r = subprocess.run([sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("HADAMARD_FP8", r.stderr)
+        for extra in ({"MONARCH_MLP": "1"}, {"HADAMARD_FP8": "1"}):
+            env = {**os.environ, "MONARCH_MLP": "0", "HADAMARD_FP8": "0", **extra}
+            r = subprocess.run([sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_per_block_polar_is_polar_of_block_diag_factor(self):
         """Per-block Muon == Muon of the block-diagonal factor (but not of the composed weight)."""
         def polar(a):
@@ -356,6 +369,31 @@ class TestSmokeRuns(unittest.TestCase):
                 first, last = sum(losses[:5]) / 5, sum(losses[-5:]) / 5
                 print(f"  {cfg}: loss {first:.3f} -> {last:.3f}")
                 self.assertLess(last, first - 0.5, cfg)
+
+
+class TestABRunner(unittest.TestCase):
+    """182/structured/ab_fixed_steps.py: log parsing and run order (no torchrun)."""
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("ab_fixed_steps", REPO / "182/structured/ab_fixed_steps.py")
+        cls.AB = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.AB)
+
+    def test_final_val_reads_root_format_and_rejects_invalid(self):
+        line = "step:1194/1194 val_loss:3.2773 train_time:39914ms step_avg:33.43ms"
+        self.assertEqual(self.AB.final_val("step:1100/1194 val_loss:3.3100 train_time:36000ms\n" + line), (3.2773, 39.914))
+        self.assertIsNone(self.AB.final_val(line + " INVALID_FOR_RECORD(fp8_dump)"))
+
+    def test_runs_are_interleaved_by_seed(self):
+        calls = []
+        orig = self.AB.run_one
+        self.AB.run_one = lambda name, env, seed, *a: calls.append((seed, name)) or (3.28, 40.0)
+        try:
+            arms = self.AB.run_interleaved([("base", {}), ("m", {"MONARCH_MLP": "1"})], [0, 1], None, 8, Path("."))
+        finally:
+            self.AB.run_one = orig
+        self.assertEqual(calls, [(0, "base"), (0, "m"), (1, "base"), (1, "m")])
+        self.assertEqual({k: len(v) for k, v in arms.items()}, {"base": 2, "m": 2})
 
 
 if __name__ == "__main__":

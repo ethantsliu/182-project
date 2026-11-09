@@ -29,7 +29,12 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from track_1_short.config import HADAMARD_FP8
+
 MONARCH_MLP = os.environ.get("MONARCH_MLP", "0") == "1"
+# The Monarch MLP is bf16 and bypasses the fp8 MLP entirely, so HADAMARD_FP8 (which only rotates the fp8
+# MLP's gradient GEMMs) would be a silent no-op while the run log still reports HADAMARD_FP8=1.
+assert not (MONARCH_MLP and HADAMARD_FP8), "HADAMARD_FP8 rotates the fp8 MLP; MONARCH_MLP replaces it with a bf16 MLP"
 MONARCH_BLOCKS = int(os.environ.get("MONARCH_BLOCKS", "4"))   # k: blocks of the first factor
 MONARCH_EXPAND = int(os.environ.get("MONARCH_EXPAND", "2"))   # e: hidden = model_dim * e^2
 # ANVIL lr multipliers: every Monarch block gets MONARCH_LR_MUL, the down-projection blocks a further

@@ -36,6 +36,9 @@ def final_val(text: str):
     hits = VAL_RE.findall(text)
     if not hits:
         return None
+    if "INVALID_FOR_RECORD" in text:  # e.g. an FP8_DUMP_DIR analysis run: its train_time is not a timing
+        print("warning: log is tagged INVALID_FOR_RECORD; skipped", file=sys.stderr)
+        return None
     step, total, loss, ms = hits[-1]
     if step != total:
         print(f"warning: last val line is step {step}/{total} (run did not finish?)", file=sys.stderr)
@@ -51,24 +54,33 @@ def parse_arm(spec: str) -> tuple[str, dict[str, str]]:
     return name, env
 
 
-def run_arm(name, env_extra, seeds, steps, nproc, log_dir: Path):
-    results = []
+def run_one(name, env_extra, seed, steps, nproc, log_dir: Path):
+    """One run of one arm; (val_loss, train_time_s) or None."""
+    env = {**os.environ, **env_extra, "TRAIN_SEED": str(seed)}
+    if steps is not None:
+        env["NUM_SCHEDULED_ITERATIONS"] = str(steps)
+    out = log_dir / f"{name}_seed{seed}.txt"
+    cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}", "train_gpt.py"]
+    print(f"[{name} seed={seed}] {' '.join(f'{k}={v}' for k, v in env_extra.items())} {' '.join(cmd)}", flush=True)
+    with out.open("w") as f:
+        proc = subprocess.run(cmd, cwd=REPO, env=env, stdout=f, stderr=subprocess.STDOUT)
+    r = final_val(out.read_text())
+    if proc.returncode != 0 or r is None:
+        print(f"  FAILED (rc={proc.returncode}); see {out}", flush=True)
+        return None
+    print(f"  val_loss={r[0]:.4f} train_time={r[1]:.2f}s", flush=True)
+    return r
+
+
+def run_interleaved(arm_specs, seeds, steps, nproc, log_dir: Path):
+    """Seed-major order (seed 0: every arm, seed 1: every arm, ...), so node drift over the session lands
+    on every arm alike instead of on Δtime."""
+    arms = {name: [] for name, _ in arm_specs}
     for seed in seeds:
-        env = {**os.environ, **env_extra, "TRAIN_SEED": str(seed)}
-        if steps is not None:
-            env["NUM_SCHEDULED_ITERATIONS"] = str(steps)
-        out = log_dir / f"{name}_seed{seed}.txt"
-        cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}", "train_gpt.py"]
-        print(f"[{name} seed={seed}] {' '.join(f'{k}={v}' for k, v in env_extra.items())} {' '.join(cmd)}", flush=True)
-        with out.open("w") as f:
-            proc = subprocess.run(cmd, cwd=REPO, env=env, stdout=f, stderr=subprocess.STDOUT)
-        r = final_val(out.read_text())
-        if proc.returncode != 0 or r is None:
-            print(f"  FAILED (rc={proc.returncode}); see {out}", flush=True)
-            continue
-        print(f"  val_loss={r[0]:.4f} train_time={r[1]:.2f}s", flush=True)
-        results.append(r)
-    return results
+        for name, env in arm_specs:
+            if (r := run_one(name, env, seed, steps, nproc, log_dir)) is not None:
+                arms[name].append(r)
+    return arms
 
 
 def mean_sem(xs):
@@ -121,9 +133,7 @@ def main():
             ap.error("give at least one --arm (or --parse)")
         log_dir = (REPO / args.log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
-        for spec in args.arm:
-            name, env = parse_arm(spec)
-            arms[name] = run_arm(name, env, args.seeds, args.steps, args.nproc, log_dir)
+        arms = run_interleaved([parse_arm(spec) for spec in args.arm], args.seeds, args.steps, args.nproc, log_dir)
     summarize(arms, args.sec_per_mnat)
 
 

@@ -28,11 +28,13 @@ Nothing here has run on a GPU. Every number below is either arithmetic or from a
   It is **not** Muon applied to the composed MLP weight. Separately, orthogonalizing each attention head on its own, instead of the whole Q/K/V matrix, is known to hurt in this speedrun. So expect some of the loss hit to come from the optimizer as well as from lost capacity.
   Lr multipliers: `MONARCH_LR_MUL` (1.0) on every block, and an extra `MONARCH_DOWN_LR_MUL` (2.0) on the down blocks, mirroring c_proj's 2×. The dead slot 7 gets 0.
 - **Init.** The up projection keeps the dense `c_fc`'s output variance. Only the *last* down factor starts at zero; if both down factors were zero, neither would ever get a gradient.
-- **Precision and speed.** The Monarch MLP is plain bf16 `torch.einsum` plus transposes. It **bypasses the FP8 MLP kernel**. Attention and the lm_head stay fp8. The fp8 MLP buffers are still allocated but unused.
+- **Precision and speed.** The Monarch MLP is plain bf16 `torch.einsum` plus transposes. It **bypasses the FP8 MLP kernel**. Attention and the lm_head stay fp8. The fp8 MLP buffers are still allocated but unused. `HADAMARD_FP8=1` together with `MONARCH_MLP=1` fails at import, because there is no fp8 MLP to rotate. `FP8_OFF=mlp` together with it is redundant but harmless.
   So the measured step time is *not* what a tuned Monarch kernel would give. It will probably be slower than dense FP8 even though it does fewer FLOPs.
   Use the loss side as the result.
 
-**A/B at fixed steps** (`182/structured/ab_fixed_steps.py`). Every arm runs on the same seeds at the record's step count.
+**A/B at fixed steps** (`182/structured/ab_fixed_steps.py`). Every arm runs on the same seeds at the record's step count, interleaved
+seed by seed (seed 0 of every arm, then seed 1, ...) so node drift does not land on Δtime. Logs tagged `INVALID_FOR_RECORD` are skipped.
+Every arm uses the root's timing, which, like upstream master, lacks #390's `dist.barrier()` before `t0`. Never mix in timings from a tree that has it.
 The script reports, against the first arm:
 - `Δloss_mnat`
 - `loss→s = Δloss_mnat × 0.164 s` (about 164 ms per millinat near the record)
@@ -64,6 +66,12 @@ python 182/structured/ab_fixed_steps.py --parse base=logs/ab_structured/base_see
 None of `gpt.py`/`anvil.py` can be imported on this Mac (they need Triton), so the integration has only been `py_compile`d. The Monarch math itself is unit-tested.
 
 ## 2. Fixed-basis optimizers on Track 3
+
+Track 3 allows only optimizer, hyperparameter and init changes (rule 1: same data, batch and architecture), so these arms change
+only the optimizer. Monarch is an architecture change and is Track 1 only. These arms are ablations on the 3250-step #36 baseline.
+They are **not record candidates**: the accepted record is #46 at 2690 steps, and open PRs claim 2615 (#388), 2635 (#398, H200) and
+2450 pooled / 2455 prospective (#395). A record needs fewer steps than the record with `(3.28 - avg)·√n >= 0.004`, i.e. a mean at or
+below 3.2780 for n=4, 3.27859 for n=8, 3.2790 for n=16. It should also clear the pairwise rule against the prior record.
 
 `182/structured/train_gpt_rotated.py` is `records/track_3_optimization/train_gpt_simple.py` (the result #36 baseline) with:
 - the setup and training code wrapped in `main()`, so tests can import it
@@ -105,7 +113,7 @@ SOAPFixedBasis computes every update on every rank (dense fp32 rotations, up to 
 ## Tests (CPU)
 
 ```bash
-TORCH_COMPILE_DISABLE=1 python -m pytest -q 182/structured/test_structured.py   # 19 tests, ~35 s on an M-series Mac
+TORCH_COMPILE_DISABLE=1 python -m pytest -q 182/structured/test_structured.py   # 22 tests, ~50 s on an M-series Mac
 ```
 On Apple Silicon, run it under the arm64 Python (`arch -arm64 python3 ...`). An x86 `timeout` wrapper will load the wrong-architecture torch.
 
