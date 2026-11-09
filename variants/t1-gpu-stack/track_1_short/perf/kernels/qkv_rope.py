@@ -322,7 +322,7 @@ class PackedFP8QKVFunction(torch.autograd.Function):
             grad_qkv_scale = (grad_weight * torch.cat((qk_weight, v_weight))).sum().to(qkv_scale.dtype)
             # One slot per forward argument; only x, the two weights and qkv_scale carry gradients.
             return (grad_input.view(ctx.input_shape), grad_qk_weight * qkv_scale, grad_v_weight * qkv_scale,
-                    None, None, None, grad_qkv_scale, None, None, None, None, None, None, None, None, None, None, None)
+                    None, None, None, grad_qkv_scale, None, None, None, None, None, None, None, None, None, None)
         # LAYER_ROPE: the effective weight is W * col_scale (columns) and grad_weight is its gradient, so
         # dL/dW = grad * col_scale and dL/dcol_scale = per-column <grad, W>: the scalar case's two passes, per column.
         grad_col_scale = (grad_weight.float() * torch.cat((qk_weight, v_weight)).float()).sum(dim=0)

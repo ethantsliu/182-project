@@ -1,7 +1,8 @@
 """Open PRs folded onto #397, each behind its own environment variable. Every default is OFF, so an unset
 environment runs #397's exact code path; 182/t1-gpu-stack/README.md lists the A/B runs.
 
-  HOST_PREP    #387 (@nikhil-lalgudi): exact host-side batch preparation, a comma list or "all":
+  HOST_PREP    #387 (@nikhil-lalgudi): exact host-side batch preparation, a comma list or "all" (= batchplan,cands;
+               ngramhash must be named, since it adds a torch.compile call site that Track 1's compile rule may not allow):
                  batchplan  Shard.next_batch plans every rank's documents from one cumulative-length array and a
                             searchsorted per rank instead of a per-document Python walk (data.py); same starts/ends
                  cands      the sampled-softmax candidate build gathers with integer indexing instead of np.take
@@ -28,6 +29,8 @@ environment runs #397's exact code path; 182/t1-gpu-stack/README.md lists the A/
 import os
 
 HOST_PREP_KNOWN = ("batchplan", "cands", "ngramhash")
+# What "all" means: the plain numpy rewrites only. ngramhash (a CPU torch.compile) is opt-in by name.
+HOST_PREP_ALL = ("batchplan", "cands")
 
 
 def _flag(name: str) -> bool:
@@ -36,18 +39,18 @@ def _flag(name: str) -> bool:
     return value in ("1", "on", "true")
 
 
-def _subset(name: str, known: tuple[str, ...]) -> frozenset[str]:
-    raw = os.environ.get(name, "none").replace(" ", "").lower()
+def _subset(name: str, known: tuple[str, ...], everything: tuple[str, ...], raw: str | None = None) -> frozenset[str]:
+    raw = (os.environ.get(name, "none") if raw is None else raw).replace(" ", "").lower()
     if raw in ("", "none", "off", "0"):
         return frozenset()
     chosen = frozenset(x for x in raw.split(",") if x)
     if "all" in chosen:
-        chosen = frozenset(known) | (chosen - {"all"})
+        chosen = frozenset(everything) | (chosen - {"all"})
     assert chosen <= set(known), f"unknown {name} {sorted(chosen - set(known))} (known: {known})"
     return chosen
 
 
-HOST_PREP = _subset("HOST_PREP", HOST_PREP_KNOWN)
+HOST_PREP = _subset("HOST_PREP", HOST_PREP_KNOWN, HOST_PREP_ALL)
 HOST_BATCH_PLAN = "batchplan" in HOST_PREP
 HOST_CANDIDATE_GATHER = "cands" in HOST_PREP
 HOST_NGRAM_HASH = "ngramhash" in HOST_PREP

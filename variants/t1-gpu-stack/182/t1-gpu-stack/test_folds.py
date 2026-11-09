@@ -4,7 +4,8 @@
 
 What it covers: HOST_PREP's three exact rewrites against #397's code (batch plan, candidate gather, n-gram hash),
 the copy mixture's matcher / loss / fit (COPY_MIX) against brute force, the consumed-token window, PR #378's matcher
-(DOC_COPY) against brute force, and LayerRoPE's gain function and its weight-fold gradient identities. What it does
+(DOC_COPY) against brute force, LayerRoPE's gain function and its weight-fold gradient identities, HOST_PREP's
+parsing, and sweep_steps.py's equal-loss comparison on synthetic logs. What it does
 not cover: anything that needs CUDA (the compiled model, the fp8 / Triton kernels, the CUDA graphs, NCCL).
 """
 import os
@@ -311,9 +312,52 @@ def check_layer_rope():
     print("ok  LAYER_ROPE: gains == #385's formula; QKV column-fold and O row-fold gradient identities")
 
 
+def check_folds_parsing():
+    """HOST_PREP=all is the plain numpy rewrites only; the CPU torch.compile (ngramhash) needs its own name."""
+    from track_1_short import folds
+    sub = lambda raw: folds._subset("HOST_PREP", folds.HOST_PREP_KNOWN, folds.HOST_PREP_ALL, raw=raw)
+    assert sub("all") == {"batchplan", "cands"}
+    assert sub("all,ngramhash") == {"batchplan", "cands", "ngramhash"}
+    assert sub("ngramhash") == {"ngramhash"} and sub("") == sub("none") == sub("0") == frozenset()
+    try:
+        sub("bogus")
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("an unknown HOST_PREP name must be refused")
+    print("ok  folds: HOST_PREP=all == batchplan,cands (ngramhash opt-in by name); unknown names refused")
+
+
+def check_sweep_compare():
+    """sweep_steps.py compare: on synthetic logs with known lines, each arm's time at the target and its delta."""
+    import tempfile
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import sweep_steps
+    gen = np.random.default_rng(1)
+    # baseline: val = 3.2785 at 970 steps, 0.17 millinats per step; 30 ms per scheduled step.
+    # arm: the same loss 10 steps sooner at +1 ms per step (so it reaches the target at 960 steps).
+    arms = {"base": (970, 0.0), "arm": (960, 0.001)}
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, (x_target, extra) in arms.items():
+            os.makedirs(os.path.join(tmp, name))
+            for k in range(6):
+                for steps in (950, 965, 980):
+                    loss = 3.2785 - 0.00017 * (steps - x_target) + gen.normal(0, 1e-5)
+                    secs = 1.6 + (0.030 + extra) * steps
+                    with open(os.path.join(tmp, name, f"{name}_s{steps}_r{k}.txt"), "w") as f:
+                        f.write(f"[final] val_loss:{loss:.6f} train_time_ms:{secs * 1000:.0f} steps:{steps + 72} scheduled:{steps}\n")
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()):
+            (name, delta, lo, hi), = sweep_steps.compare([os.path.join(tmp, "base"), os.path.join(tmp, "arm")], 3.2785, boot=200)
+    expect = (1.6 + 0.031 * 960) - (1.6 + 0.030 * 970)
+    assert abs(delta - expect) < 0.01 and lo <= delta <= hi, (delta, expect, lo, hi)
+    print(f"ok  sweep_steps compare: equal-loss time delta {delta:+.3f} s (exact {expect:+.3f}), interval [{lo:+.3f}, {hi:+.3f}]")
+
+
 # check_ngram_hash last: it removes the triton import stub before torch.compile.
 CHECKS = [check_batch_plan, check_candidate_gather, check_copy_candidates, check_copy_loss_and_fit,
-          check_consumed_tokens, check_doc_copy, check_layer_rope, check_ngram_hash]
+          check_consumed_tokens, check_doc_copy, check_layer_rope, check_folds_parsing, check_sweep_compare,
+          check_ngram_hash]
 
 if __name__ == "__main__":
     import time
