@@ -13,6 +13,7 @@ changes a trainer: the A/B runner and the nsys hook wrap `train_gpt.py` / `train
 | `stats.py` | `gate`: one-sided t-test that mean val ≤ target, needs p<0.01. `welch`: Welch test of a time or val delta. `z3`: Track 3 rule `(3.28-mean)·√n ≥ 0.004`. `pair3`: Track 3 pairwise rule. `n-gate` / `n-welch` / `n-z3`: runs needed, given σ, margin and power. |
 | `ab_run.py` | Pre-registered, interleaved A/B runner across git refs (one pinned worktree per commit) or directories, each arm with its own env vars. Every run is counted. It can resume after a crash. It writes `report.md` and `runs.csv`. |
 | `profile_nsys.sh` + `nsys_step_hook.py` | Records nsys on rank 0 only, for steps `[start, start+steps)` of the **timed** loop. Each step gets an NVTX range `step N`, `cudaProfilerApi` sets the capture range, and `--cuda-graph-trace=node` is on. The script then exports to sqlite and runs the analyzer. |
+| `summarize_session.py` | Reads a `182/gpu_session.sh` bundle (or its directory): per arm n, val/train_time mean ± sd, step-sum, ms/step per schedule stage, flags; paired deltas; the FP8 gate decision (gap mean ± SE, 95% CI vs 0.5 mnat); t2 vs 2.8769 / 221 s. `--gate DIR --write-decision F` is what the session script uses. |
 | `analyze_nsys.py` | Per step: kernel count (and how many came from graphs), GPU busy/idle time and the largest gaps (with the kernels on either side), NCCL time and exposed NCCL time, GEMM time. Also the top kernels, and GEMM TFLOP/s wherever a shape can be recovered. |
 
 ## Commands on the 8xH100 box
