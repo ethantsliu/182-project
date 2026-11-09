@@ -2,13 +2,18 @@
 # One GPU session on the 8xH100 box -> one file to send back. Run from anywhere inside the repo.
 #
 #   bash 182/gpu_session.sh              # = all: env tests sanity gate hadamard t2 bundle
+#   QUICK=1 bash 182/gpu_session.sh      # = env sanity gate bundle: the decision gate only (n=4 still)
 #   bash 182/gpu_session.sh sanity gate  # just those phases (in the canonical order)
 #   DRY_RUN=1 bash 182/gpu_session.sh    # print every GPU/pip/download command; writes only to a temp dir
 #
 # Resumable: re-run the same command after a crash or ctrl-C. A phase whose status is PASS is skipped
 # (FORCE=1 redoes it); the A/B phases resume inside ab_run.py at the first unfinished run. Every phase is
 # logged to 182/results/session-<sha>/ (gitignored); `all` always ends with the bundle, even after a failed
-# phase. The script never commits or pushes.
+# phase. An A/B phase stops after STOP_AFTER_FAILURES consecutive failed runs (slots stay pending; re-run
+# resumes them); one that finished unusable (gate < 2 seed pairs, or an arm with no ok run) is FAIL, and the
+# next re-run moves it to <phase>.attemptN and re-plans it (FORCE=1 always re-plans). Every GPU command has
+# a timeout. After ctrl-C, `bash 182/gpu_session.sh bundle` packs what exists. Run it inside tmux/screen.
+# The script never commits or pushes.
 #
 # Phases (est. node-minutes printed before each; GPU-minutes = 8x):
 #   env       git sha/status, node report (182/tools/node_setup.sh --mode report), driver >= 580 check,
@@ -27,7 +32,8 @@
 #
 # Knobs (env): PY (python), NPROC (8), CACHE (warm|cold; warm = one compile cache per arm), GATE_SEEDS
 # (1,2,3,4), HADAMARD_VARIANTS ("all@128 dw1,dw2@32"), HADAMARD_SEEDS (1,2), FORCE_HADAMARD, TIMEOUT_S
-# (2400 per run), RUN_CMD (ab_run --cmd template), SANITY_CMD, SKIP_DATA, T2_FORCE (ignore host checks),
+# (1500 per A/B run), STOP_AFTER_FAILURES (3), T2_TIMEOUT_S (5400), TESTS_TIMEOUT_S (1800 per pytest),
+# SANITY_TIMEOUT_S (1200), T2_PREFETCH_WAIT_S (3600), QUICK, RUN_CMD (ab_run --cmd template), SANITY_CMD, SKIP_DATA, T2_FORCE (ignore host checks),
 # T2_INSTALL_RUST (auto: only inside a container), SESSION_DIR, SESSION_DOCKER=<image> (re-run this script
 # inside that image, e.g. modded-nanogpt from node_setup.sh --mode docker), FORCE, DRY_RUN.
 set -euo pipefail
@@ -45,7 +51,9 @@ CACHE=${CACHE:-warm}
 GATE_SEEDS=${GATE_SEEDS:-1,2,3,4}
 HADAMARD_VARIANTS=${HADAMARD_VARIANTS:-"all@128 dw1,dw2@32"}
 HADAMARD_SEEDS=${HADAMARD_SEEDS:-1,2}
-TIMEOUT_S=${TIMEOUT_S:-2400}
+TIMEOUT_S=${TIMEOUT_S:-1500}      # a cold run is ~9 min; a hung NCCL run should not cost 40
+STOP_AFTER_FAILURES=${STOP_AFTER_FAILURES:-3}
+T2_TIMEOUT_S=${T2_TIMEOUT_S:-5400}; TESTS_TIMEOUT_S=${TESTS_TIMEOUT_S:-1800}; SANITY_TIMEOUT_S=${SANITY_TIMEOUT_S:-1200}
 RUN_CMD=${RUN_CMD:-"torchrun --standalone --nproc_per_node={nproc} {script}"}
 SANITY_CMD=${SANITY_CMD:-"$PY 182/hadamard-fp8/gpu_sanity.py"}
 COLD_RUN_MIN=${COLD_RUN_MIN:-9}   # one Track 1 run with a cold compile cache (~7 min compile + train + val)
@@ -66,6 +74,13 @@ log() { printf '%s\n' "$*"; }
 q() { printf '%q ' "$@"; }
 # x CMD...: run it, or print it under DRY_RUN (for GPU work, installs, downloads)
 x() { if [[ "$DRY_RUN" == 1 ]]; then log "+ $(q "$@")"; else "$@"; fi; }
+# tmo SECS CMD...: CMD under a wall-clock limit (exit 124 on expiry). --foreground keeps CMD in our process
+# group, so ctrl-C still reaches torchrun; torchrun forwards the SIGTERM to its ranks.
+tmo() {
+  local s=$1; shift
+  if timeout --foreground 5 true >/dev/null 2>&1; then timeout --foreground -k 60 "$s" "$@"
+  else log "WARN: no coreutils timeout: running without the ${s}s limit"; "$@"; fi
+}
 # xlog FILE CMD...: same, with output tee'd to FILE; returns CMD's status
 xlog() {
   local f=$1; shift
@@ -91,7 +106,7 @@ estimate() {
     sanity) echo 3;;
     gate) ab_estimate 2 "$(count_csv "$GATE_SEEDS")";;
     hadamard) echo $(( $(ab_estimate $(( $(n_variants) + 1 )) "$(count_csv "$HADAMARD_SEEDS")") - COLD_RUN_MIN + WARM_RUN_MIN ));;  # baseline reuses the gate's cache
-    t2) echo 15;;
+    t2) echo 20;;  # ~7 min compile/capture + ~4 min train (t2 README) + the table build
     *) echo 0;;
   esac
 }
@@ -123,6 +138,11 @@ t2_host_problems() {  # prints one line per reason the host cannot run t2; nothi
   [[ "$avail_gib" -ge "$T2_MIN_RAM_GIB" ]] || echo "RAM available ${avail_gib} GiB < ${T2_MIN_RAM_GIB} GiB (retrieval tables + arenas + ranks)"
   [[ "$shm_gib" -ge "$T2_MIN_SHM_GIB" ]] || echo "/dev/shm free ${shm_gib} GiB < ${T2_MIN_SHM_GIB} GiB (remount larger: sudo mount -o remount,size=200G /dev/shm; docker: --ipc=host)"
   (( cpus / ngpu >= T2_MIN_CPU_PER_GPU )) || echo "$cpus CPUs for $ngpu GPUs < ${T2_MIN_CPU_PER_GPU}/GPU (LARGE_HOST)"
+  local have need free_gib
+  have=$(find data/fineweb10B -maxdepth 1 -name 'fineweb_train_*.bin' 2>/dev/null | wc -l | tr -d ' ' || true)
+  need=$(( (T2_SHARDS - ${have:-0}) * 19 / 100 + 5 ))   # 0.19 GiB per shard + slack
+  free_gib=$(df -Pk data 2>/dev/null | awk 'NR==2 {print int($4 / 1048576)}' || true)
+  [[ "${have:-0}" -ge "$T2_SHARDS" || "${free_gib:-0}" -ge "$need" ]] || echo "disk: ${free_gib:-?} GiB free under data/, the missing shards need ~$need GiB"
   return 0
 }
 
@@ -187,13 +207,15 @@ EOF
     mv node_report.txt "$d/node_report.txt"
     [[ -f "$d/node_report.setup.txt" ]] && cp "$d/node_report.setup.txt" node_report.txt
   fi
-  xlog "$d/node_check.txt" torchrun --standalone --nproc_per_node="$NPROC" 182/tools/node_check.py || log "WARN: node_check.py failed (see $d/node_check.txt)"
+  xlog "$d/node_check.txt" tmo 300 torchrun --standalone --nproc_per_node="$NPROC" 182/tools/node_check.py || log "WARN: node_check.py failed (see $d/node_check.txt)"
   ensure_data 9
   if [[ " ${SELECTED:-} " == *" t2 "* && -z "$(t2_host_problems)" && ! -f "$SD/t2/prefetch.pid" ]]; then
     mkdir -p "$SD/t2"
     if [[ "$DRY_RUN" == 1 ]]; then log "+ (background) t2 prefetch: $PY data/cached_fineweb10B.py $T2_SHARDS; pip install ./$T2_DIR/exact_match"
     else
-      nohup bash -c "bash $(q "$SELF") --t2-prefetch; echo \$? > $(q "$SD/t2/prefetch.rc")" > "$SD/t2/prefetch.txt" 2>&1 &
+      local lowprio=(nice -n 19); command -v ionice >/dev/null 2>&1 && lowprio+=(ionice -c2 -n7)
+      # low priority: it overlaps the timed A/B runs (their data loaders and the hadamard step times)
+      nohup "${lowprio[@]}" bash -c "bash $(q "$SELF") --t2-prefetch; echo \$? > $(q "$SD/t2/prefetch.rc")" > "$SD/t2/prefetch.txt" 2>&1 &
       echo $! > "$SD/t2/prefetch.pid"
       log "t2: 103-shard download + exact_match build started in the background (pid $!, log $SD/t2/prefetch.txt)"
     fi
@@ -206,9 +228,9 @@ phase_tests() {
   local d="$SD/tests" rc1=0 rc2=0
   mkdir -p "$d"
   "$PY" -c "import pytest" 2>/dev/null || x "$PY" -m pip install -q pytest
-  xlog "$d/pytest.txt" "$PY" -m pytest 182/hadamard-fp8/tests -q -rs || rc1=$?
+  xlog "$d/pytest.txt" tmo "$TESTS_TIMEOUT_S" "$PY" -m pytest 182/hadamard-fp8/tests -q -rs || rc1=$?
   echo "$rc1" > "$d/rc_plain"
-  HADAMARD_FP8=1 xlog "$d/pytest_hadamard.txt" "$PY" -m pytest 182/hadamard-fp8/tests -q -rs -s || rc2=$?
+  HADAMARD_FP8=1 xlog "$d/pytest_hadamard.txt" tmo "$TESTS_TIMEOUT_S" "$PY" -m pytest 182/hadamard-fp8/tests -q -rs -s || rc2=$?
   echo "$rc2" > "$d/rc_hadamard"
   log "tests: plain rc=$rc1, HADAMARD_FP8=1 rc=$rc2"
   [[ "$rc1" == 0 && "$rc2" == 0 ]]
@@ -221,21 +243,41 @@ phase_sanity() {
   if [[ ! -f 182/hadamard-fp8/gpu_sanity.py && "$SANITY_CMD" == "$PY 182/hadamard-fp8/gpu_sanity.py" ]]; then
     skip "182/hadamard-fp8/gpu_sanity.py is not in this checkout (not merged yet)"; return 0
   fi
-  # shellcheck disable=SC2086  # SANITY_CMD is a command line
-  xlog "$d/sanity.txt" $SANITY_CMD
+  local cmd=$SANITY_CMD
+  [[ "$cmd" == "$PY 182/hadamard-fp8/gpu_sanity.py" ]] && cmd+=" --json $d/sanity.json"
+  # shellcheck disable=SC2086  # a command line
+  xlog "$d/sanity.txt" tmo "$SANITY_TIMEOUT_S" $cmd
 }
 
 # ----------------------------------------------------------------------------------------- A/B helpers
-ab_plan_run() {  # ab_plan_run DIR [plan args...]: plan once, then run/resume, then report
-  local out=$1; shift
+ab_check() {  # ab_check gate|ab DIR: 0 complete+usable, 3 slots pending, 4 complete but unusable, 2 no plan
+  if [[ "$1" == gate ]]; then "$PY" 182/tools/summarize_session.py --check "$2" --check-gate
+  else "$PY" 182/tools/summarize_session.py --check "$2"; fi
+}
+ab_plan_run() {  # ab_plan_run gate|ab DIR [plan args...]: plan once, run/resume, report; returns ab_check's code
+  local kind=$1 out=$2 rc=0 k=1 why; shift 2
+  if [[ -f "$out/plan.json" ]]; then
+    why=$(ab_check "$kind" "$out") || rc=$?
+    if [[ "${FORCE:-0}" == 1 || "$rc" == 4 ]]; then
+      # ab_run never re-runs a finished slot, so a dead attempt (e.g. every run crashed) is set aside, kept
+      # in the bundle, and the phase is planned afresh.
+      while [[ -e "$out.attempt$k" ]]; do k=$((k + 1)); done
+      log "re-planning: previous attempt moved to $out.attempt$k ($([[ "$rc" == 4 ]] && echo "unusable: $why" || echo FORCE=1))"
+      mv "$out" "$out.attempt$k"
+    else
+      log "plan exists: $out/plan.json (resuming: $why)"
+    fi
+  fi
   if [[ ! -f "$out/plan.json" ]]; then
     "$PY" 182/tools/ab_run.py plan --out "$out" --repo "$REPO" --work-root "$SD/work" --cache "$CACHE" \
-      --order blocked --order-seed 182 --nproc "$NPROC" --timeout-s "$TIMEOUT_S" --cmd "$RUN_CMD" "$@"
-  else
-    log "plan exists: $out/plan.json (resuming)"
+      --order blocked --order-seed 182 --nproc "$NPROC" --timeout-s "$TIMEOUT_S" --cmd "$RUN_CMD" "$@" || return 1
   fi
-  x "$PY" 182/tools/ab_run.py run "$out" --no-report
-  [[ "$DRY_RUN" == 1 ]] || "$PY" 182/tools/ab_run.py report "$out" --quiet
+  x "$PY" 182/tools/ab_run.py run "$out" --no-report --stop-after-failures "$STOP_AFTER_FAILURES" || return 1
+  [[ "$DRY_RUN" == 1 ]] && return 0
+  "$PY" 182/tools/ab_run.py report "$out" --quiet || true
+  rc=0; why=$(ab_check "$kind" "$out") || rc=$?
+  [[ "$rc" == 0 ]] || log "A/B $(basename "$out") not usable yet: $why"
+  return "$rc"
 }
 
 # ------------------------------------------------------------------------------------------ phase: gate
@@ -243,9 +285,12 @@ phase_gate() {
   local g="$SD/gate"
   mkdir -p "$SD"
   ensure_data 9
-  ab_plan_run "$g" --arm fp8=ref:HEAD --arm bf16=ref:HEAD --env bf16:FP8_OFF=1 --baseline fp8 \
-    --n "$(count_csv "$GATE_SEEDS")" --seeds "$GATE_SEEDS"
+  local rc=0
+  ab_plan_run gate "$g" --arm fp8=ref:HEAD --arm bf16=ref:HEAD --env bf16:FP8_OFF=1 --baseline fp8 \
+    --n "$(count_csv "$GATE_SEEDS")" --seeds "$GATE_SEEDS" || rc=$?
+  [[ -f "$g/plan.json" ]] || return 1
   "$PY" 182/tools/summarize_session.py --gate "$g" --write-decision "$g/decision.env" | tee "$g/decision.txt"
+  [[ "$DRY_RUN" == 1 || "$rc" == 0 ]] || { log "FAIL: the gate has no decision yet (re-run to resume / re-plan)"; return 1; }
 }
 
 # -------------------------------------------------------------------------------------- phase: hadamard
@@ -265,6 +310,10 @@ phase_hadamard() {
       if [[ "$DRY_RUN" == 1 ]]; then log "(dry run) would skip: $why; showing the commands anyway"; else skip "$why"; return 0; fi
     fi
   fi
+  local spec='^(all|(dw1|dw2|dx|dpost)(,(dw1|dw2|dx|dpost))*)@(32|64|128)$'
+  for v in $HADAMARD_VARIANTS; do  # a bad spec would crash every run at import: refuse before any GPU time
+    [[ "$v" =~ $spec ]] || { log "FAIL: HADAMARD_VARIANTS entry '$v' is not GEMMS@BLOCK (GEMMS: all or a comma list of dw1,dw2,dx,dpost; BLOCK: 32, 64 or 128)"; return 1; }
+  done
   if grep -rqs HADAMARD_GEMMS track_1_short && grep -rqs HADAMARD_BLOCK track_1_short; then
     for v in $HADAMARD_VARIANTS; do
       gemms=${v%@*}; block=${v#*@}
@@ -275,13 +324,15 @@ phase_hadamard() {
     log "WARN: this checkout has no HADAMARD_GEMMS/HADAMARD_BLOCK knobs: one arm, HADAMARD_FP8=1 (block 128, all four GEMMs)"
     args+=(--arm "h_default=ref:HEAD" --env "h_default:HADAMARD_FP8=1")
   fi
-  ab_plan_run "$h" --arm fp8=ref:HEAD "${args[@]}" --baseline fp8 \
-    --n "$(count_csv "$HADAMARD_SEEDS")" --seeds "$HADAMARD_SEEDS"
-  [[ "$DRY_RUN" == 1 ]] || "$PY" - "$h" <<'EOF'
+  local rc=0
+  ab_plan_run ab "$h" --arm fp8=ref:HEAD "${args[@]}" --baseline fp8 \
+    --n "$(count_csv "$HADAMARD_SEEDS")" --seeds "$HADAMARD_SEEDS" || rc=$?
+  [[ "$DRY_RUN" == 1 || ! -f "$h/plan.json" ]] || "$PY" - "$h" <<'EOF'
 import sys; sys.path.insert(0, "182/tools")
 import summarize_session as s
 ab = s.load_ab(sys.argv[1]); print("\n".join(s.ab_table("hadamard", ab)))
 EOF
+  return "$rc"
 }
 
 # ---------------------------------------------------------------------------------------------- phase: t2
@@ -296,7 +347,14 @@ phase_t2() {
   fi
   if [[ -f "$d/prefetch.pid" ]]; then
     pid=$(cat "$d/prefetch.pid")
-    while kill -0 "$pid" 2>/dev/null; do log "t2: waiting for the background prefetch (pid $pid; $d/prefetch.txt)"; sleep 30; done
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+      if (( waited >= ${T2_PREFETCH_WAIT_S:-3600} )); then
+        log "FAIL: the background prefetch (pid $pid) is still running after ${waited}s: $(tail -n2 "$d/prefetch.txt")"; return 1
+      fi
+      (( waited % 300 == 0 )) && log "t2: waiting for the background prefetch (pid $pid; $d/prefetch.txt)"
+      sleep 30; waited=$((waited + 30))
+    done
     rm -f "$d/prefetch.pid"
   fi
   if [[ -f "$d/prefetch.rc" ]]; then  # the background prefetch finished
@@ -313,7 +371,7 @@ phase_t2() {
   fi
   (cd "$T2_DIR" && x "$PY" -m track_1_short.memory_budget) > "$d/memory_budget.txt" 2>&1 || true
   rc=0
-  (cd "$T2_DIR" && DATA_PATH=../.. xlog "$d/stdout.txt" torchrun --standalone --nproc_per_node="$NPROC" train_gpt_medium_cpu.py) || rc=$?
+  (cd "$T2_DIR" && DATA_PATH=../.. xlog "$d/stdout.txt" tmo "$T2_TIMEOUT_S" torchrun --standalone --nproc_per_node="$NPROC" train_gpt_medium_cpu.py) || rc=$?
   if [[ "$DRY_RUN" != 1 ]]; then
     rel=$(grep -m1 -E '^logs/[0-9A-Za-z_.-]+\.txt$' "$d/stdout.txt" || true)
     [[ -n "$rel" && -f "$T2_DIR/$rel" ]] && cp "$T2_DIR/$rel" "$d/"
@@ -358,7 +416,10 @@ case "${1:-}" in
   -h|--help) sed -n '2,40p' "$SELF"; exit 0;;
 esac
 
-WANT=("$@"); [[ ${#WANT[@]} -eq 0 ]] && WANT=(all)
+WANT=("$@")
+if [[ ${#WANT[@]} -eq 0 ]]; then
+  if [[ "${QUICK:-0}" == 1 ]]; then WANT=(env sanity gate bundle); else WANT=(all); fi
+fi
 SELECTED_PHASES=()
 for p in "${PHASES[@]}"; do
   for w in "${WANT[@]}"; do
@@ -373,7 +434,7 @@ if [[ -n "${SESSION_DOCKER:-}" && ! -f /.dockerenv ]]; then
   DOCKER=(docker); docker info >/dev/null 2>&1 || DOCKER=(sudo docker)
   HFC="${HF_HOME:-$HOME/.cache/huggingface}"
   PASS_ENV=()
-  for v in NPROC CACHE GATE_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS FORCE_HADAMARD TIMEOUT_S RUN_CMD SANITY_CMD SKIP_DATA \
+  for v in QUICK STOP_AFTER_FAILURES T2_TIMEOUT_S TESTS_TIMEOUT_S SANITY_TIMEOUT_S T2_PREFETCH_WAIT_S NPROC CACHE GATE_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS FORCE_HADAMARD TIMEOUT_S RUN_CMD SANITY_CMD SKIP_DATA \
            T2_FORCE T2_INSTALL_RUST FORCE DRY_RUN HF_HUB_OFFLINE COLD_RUN_MIN WARM_RUN_MIN; do
     [[ -n "${!v:-}" ]] && PASS_ENV+=(-e "$v=${!v}")
   done
@@ -387,7 +448,8 @@ if [[ -n "${SESSION_DOCKER:-}" && ! -f /.dockerenv ]]; then
 fi
 
 mkdir -p "$SD/status"
-exec > >(tee -a "$SD/session.log") 2>&1
+# tee ignores ctrl-C, so the interrupt message below still reaches the terminal and session.log
+exec > >(trap '' INT TERM HUP; exec tee -a "$SD/session.log") 2>&1
 if [[ ! -f "$SD/meta.txt" ]]; then
   { echo "session_date $(date +%F)"; echo "sha $(git rev-parse HEAD 2>/dev/null || echo nogit)"; echo "host $(hostname)"; } > "$SD/meta.txt"
 fi
@@ -398,8 +460,17 @@ log "GPU session $SHA -> $SD"
 log "phases: ${SELECTED_PHASES[*]}   upper-bound estimate $total node-min (~$((total * 8)) GPU-min; hadamard/t2 may skip)"
 [[ "$DRY_RUN" == 1 ]] && log "DRY_RUN=1: GPU/pip/download commands are printed, not run; files go to $SD"
 
+CUR_PHASE=""
+on_interrupt() {
+  [[ -n "$CUR_PHASE" ]] && echo "FAIL interrupted" > "$SD/status/$CUR_PHASE"
+  log ""; log "interrupted during ${CUR_PHASE:-startup}. Re-run the same command to resume, or pack what exists:"
+  log "  bash 182/gpu_session.sh bundle"
+  exit 130
+}
+trap on_interrupt INT TERM HUP
 FAILED=()
 for p in "${SELECTED_PHASES[@]}"; do
+  CUR_PHASE=$p
   run_phase "$p"
   [[ "$(status_of "$p")" == FAIL* ]] && FAILED+=("$p")
 done

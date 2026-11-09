@@ -223,29 +223,47 @@ def describe_stage_key(key):
         return str(key)
 
 
-def kernel_resources(kernels):
-    """[name, variant, stages, warps, shared, regs, spills] per compiled specialization on the device."""
-    import torch
+def kernel_resources(kernels, dev=None):
+    """[name, variant, stages, warps, shared, regs, spills] per compiled specialization on the device.
+
+    Triton internals (checked against triton 3.6, torch 2.10's pin): JITFunction.device_caches[device] is
+    (kernel_cache, kernel_key_cache, target, backend, binder), kernel_cache maps a key to a CompiledKernel,
+    whose _init_handles() sets n_regs / n_spills and whose metadata namedtuple has shared / num_warps /
+    num_stages. Anything else (another triton, an @autotune wrapper, an async-compile future) gives an
+    'unavailable' row instead of an exception."""
     rows = []
-    dev = torch.cuda.current_device()
+    if dev is None:
+        import torch
+        dev = torch.cuda.current_device()
     for kfn in kernels:
-        caches = getattr(kfn, "device_caches", {})
-        if dev not in caches:
+        name = getattr(kfn, "__name__", None) or getattr(getattr(kfn, "fn", None), "__name__", repr(kfn))
+        try:
+            fn = kfn
+            while not hasattr(fn, "device_caches") and hasattr(fn, "fn"):  # Autotuner / Heuristics wrappers
+                fn = fn.fn
+            caches = fn.device_caches
+            entry = caches[dev] if dev in caches else None
+            compiled = list(entry[0].values()) if entry is not None else []
+        except Exception as e:  # noqa: BLE001 - report, don't die
+            rows.append([name, f"unavailable: {type(e).__name__}: {e}", None, None, None, None, None])
             continue
-        for ck in caches[dev][0].values():
+        for ck in compiled:
             try:
                 ck._init_handles()
-            except Exception as e:  # noqa: BLE001 - report, don't die
-                rows.append([kfn.__name__, f"init failed: {e}", None, None, None, None, None]); continue
-            variant = ""
+                md = ck.metadata
+                row = [name, "", getattr(md, "num_stages", None), getattr(md, "num_warps", None),
+                       getattr(md, "shared", None), getattr(ck, "n_regs", None), getattr(ck, "n_spills", None)]
+            except Exception as e:  # noqa: BLE001
+                rows.append([name, f"unavailable: {type(e).__name__}: {e}", None, None, None, None, None])
+                continue
             try:
                 names = ck.src.fn.arg_names
-                flags = {names[k[0]]: v for k, v in ck.src.constants.items() if isinstance(v, bool) and v}
-                variant = ",".join(sorted(n for n in flags if n.isupper()))
-            except Exception:  # noqa: BLE001
+                flags = {names[k[0] if isinstance(k, tuple) else k]: v for k, v in ck.src.constants.items()
+                         if isinstance(v, bool) and v}
+                row[1] = ",".join(sorted(n for n in flags if n.isupper()))
+            except Exception:  # noqa: BLE001 - the variant label is cosmetic
                 pass
-            md = ck.metadata
-            rows.append([kfn.__name__, variant, md.num_stages, md.num_warps, md.shared, ck.n_regs, ck.n_spills])
+            rows.append(row)
     return rows
 
 
@@ -347,7 +365,10 @@ def worker(args):
         res["bench"] = {"error": f"{type(e).__name__}: {e}"}
     kernels = [mk.linear_relu_square_kernel, mk._quantize_weights_dual_kernel]
     kernels += [getattr(hk, n) for n in dir(hk) if n.startswith("_") and n.endswith("_kernel")]
-    res["kernels"] = kernel_resources(kernels)
+    try:
+        res["kernels"] = kernel_resources(kernels)
+    except Exception as e:  # noqa: BLE001
+        res["kernels"] = [["(all)", f"unavailable: {type(e).__name__}: {e}", None, None, None, None, None]]
     print(MARK + json.dumps(res), flush=True)
 
 
@@ -359,7 +380,12 @@ def run_worker(hadamard, args):
     cmd = [sys.executable, __file__, "--worker", "--iters", str(args.iters), "--tokens", args.tokens]
     if args.skip_compile:
         cmd.append("--skip-compile")
-    p = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=ROOT)
+    try:
+        p = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=ROOT, timeout=args.worker_timeout)
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        sys.stderr.write(out[-4000:])
+        return {"error": f"worker HADAMARD_FP8={hadamard} timed out after {args.worker_timeout:.0f} s"}
     for line in p.stdout.splitlines():
         if line.startswith(MARK):
             return json.loads(line[len(MARK):])
@@ -374,6 +400,19 @@ def projected_seconds(delta_ms_by_T, refresh_delta_ms):
             return None
         total += steps * MLP_CALLS_PER_STEP * delta_ms_by_T[str(T)] / 1000.0
     return total + sum(s for _, s in STAGES) * refresh_delta_ms / 1000.0
+
+
+def failures(off, on, skip_compile=False):
+    """Why the run should exit nonzero: a failed amax check, a worker without a result, a part that raised."""
+    out = [f"amax check FAIL: {n}" for n, (ok, _) in (on.get("amax_check") or {}).items() if not ok]
+    for tag, r in (("off", off), ("on", on)):
+        if "error" in r:
+            out.append(f"worker {tag}: {r['error']}")
+        elif "error" in (r.get("bench") or {}) and not (tag == "on" and "post_t contract" in r["bench"]["error"]):
+            out.append(f"bench {tag}: {r['bench']['error']}")
+    if "error" not in on and not skip_compile and not on.get("amax_check"):
+        out.append("the HADAMARD_FP8=1 worker returned no amax check")
+    return out
 
 
 def report(off, on):
@@ -441,6 +480,7 @@ def main():
     ap.add_argument("--tokens", default="16384,32768,40960,49152")
     ap.add_argument("--skip-compile", action="store_true", help="skip part (ii)")
     ap.add_argument("--json", help="also write both workers' raw results here")
+    ap.add_argument("--worker-timeout", type=float, default=540, help="seconds per worker process (default %(default)s)")
     args = ap.parse_args()
     if args.worker:
         worker(args)
@@ -449,8 +489,10 @@ def main():
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps({"off": off, "on": on}, indent=1))
     report(off, on)
-    checks = on.get("amax_check") or {}
-    sys.exit(1 if any(not ok for ok, _ in checks.values()) else 0)
+    bad = failures(off, on, args.skip_compile)
+    if bad:
+        print("\nFAILED: " + "; ".join(bad))
+    sys.exit(1 if bad else 0)
 
 
 if __name__ == "__main__":

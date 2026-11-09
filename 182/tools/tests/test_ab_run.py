@@ -198,6 +198,39 @@ class TestAbRun(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "shared data"):
             ab_run.prepare_arm(plan, arm, False)
 
+    def test_stop_after_failures_leaves_slots_pending_and_resumes(self):
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--arm", "b=ref:master",
+                    "--common-env", "FAKE_FAIL=1", "--cmd", f"{PY} {{script}}", "--n", "3"])
+        out = self.quiet(["run", self.out, "--no-report", "--stop-after-failures", "2"])
+        self.assertIn("stopping: 2 consecutive non-ok runs", out)
+        self.assertEqual(len(self.ledger_ends()), 2)  # 4 slots stay pending, nothing is recorded for them
+        self.quiet(["run", self.out, "--no-report"])
+        self.assertEqual(len(self.ledger_ends()), 6)
+        self.assertEqual({r["status"] for r in self.ledger_ends()}, {"failed"})
+
+    def test_interrupting_the_harness_stops_the_trainer(self):
+        import signal
+        import time
+        pidf = os.path.join(self.tmp, "trainer.pid")
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--n", "1",
+                    "--cmd", f"{PY} -c \"import os,time; open('{pidf}','w').write(str(os.getpid())); time.sleep(120)\""])
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            if os.path.exists(pidf):
+                os.remove(pidf)
+            p = subprocess.Popen([PY, ab_run.__file__, "run", self.out, "--no-report"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(200):
+                if os.path.exists(pidf) and open(pidf).read():
+                    break
+                time.sleep(0.05)
+            pid = int(open(pidf).read())
+            p.send_signal(sig)
+            p.wait(timeout=30)
+            time.sleep(0.2)
+            with self.assertRaises(ProcessLookupError, msg=f"trainer survived {sig!r} of the harness"):
+                os.kill(pid, 0)
+        self.assertEqual(self.ledger_ends(), [])  # the slot is still pending
+
     def test_missing_executable_counts_as_failure_and_is_not_retried(self):
         self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "bad=ref:master",
                     "--cmd", "/nonexistent/trainer", "--n", "1"])
