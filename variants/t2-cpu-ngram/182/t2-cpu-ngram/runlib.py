@@ -40,15 +40,49 @@ def parse_result(text: str) -> dict | None:
     return out
 
 
+FULL_TRAIN_SHARDS = 103  # data/cached_fineweb10B.py's default: all of fineweb10B
+
+
+def resolve_data_path(env: dict, repo: Path = REPO) -> str:
+    """The DATA_PATH the run will use (config.py: DATA_PATH, default ".", resolved against the run's cwd, the
+    variant folder). The shards live at the repository root, two levels up, so when DATA_PATH is unset
+    and the variant folder holds no shards, ../.. is used instead of letting the run start without data."""
+    if "DATA_PATH" in env:
+        return env["DATA_PATH"]
+    here = list((repo / "data" / "fineweb10B").glob("fineweb_train_*.bin"))
+    root = list((repo / ".." / ".." / "data" / "fineweb10B").glob("fineweb_train_*.bin"))
+    return "../.." if not here and root else "."
+
+
+def check_shards(data_path: str, repo: Path = REPO) -> tuple[int, str | None]:
+    """(train shard count, problem). The exact-count corpus is every train shard on disk that the loader
+    cannot reach, so a partial download silently changes the hints, and with them the loss: anything but
+    the full 103 shards is reported. No validation shard or no train shard is a hard problem."""
+    base = (repo / data_path / "data" / "fineweb10B").resolve()
+    n_train = len(list(base.glob("fineweb_train_*.bin")))
+    if n_train == 0 or not list(base.glob("fineweb_val_*.bin")):
+        return n_train, f"no FineWeb train/val shards under {base} (set DATA_PATH; README: Commands)"
+    if n_train != FULL_TRAIN_SHARDS:
+        return n_train, (f"{n_train} train shards under {base}, not {FULL_TRAIN_SHARDS}: the exact-count corpus, "
+                         f"and so the val loss, will differ from @ldmberman's run")
+    return n_train, None
+
+
 def launch(scheduled_iterations: int, seed: int | None, out_file: Path, nproc: int = 8, extra_env: dict | None = None,
            dry_run: bool = False) -> dict | None:
     """One fresh torchrun of the Track 2 entry point (PR #380's chain is fitted at the endpoint, so every
     sweep point is its own run). stdout+stderr go to out_file; returns the parsed result."""
     env = dict(os.environ, NUM_SCHEDULED_ITERATIONS=str(scheduled_iterations), **(extra_env or {}))
+    env["DATA_PATH"] = resolve_data_path(env)
+    n_train, problem = check_shards(env["DATA_PATH"])
+    if problem and not dry_run:
+        if n_train == 0 or os.environ.get("ALLOW_PARTIAL_SHARDS", "0") != "1":
+            raise SystemExit(f"[run] {problem}" + ("" if n_train == 0 else "; ALLOW_PARTIAL_SHARDS=1 to run anyway"))
+        print(f"[run] WARNING: {problem}", file=sys.stderr)
     if seed is not None:
         env["TRAIN_SEED"] = str(seed)
     cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}", ENTRY]
-    shown = " ".join(f"{k}={env[k]}" for k in ("NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED", *(extra_env or {})) if k in env)
+    shown = " ".join(f"{k}={env[k]}" for k in ("DATA_PATH", "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED", *(extra_env or {})) if k in env)
     print(f"[run] {shown} {' '.join(cmd)}  > {out_file}", flush=True)
     if dry_run:
         return None

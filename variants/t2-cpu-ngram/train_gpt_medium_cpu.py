@@ -46,4 +46,11 @@ if __name__ == "__main__":
     if os.environ.get("RANK", "0") == "0":
         print(f"track 2 settings: { {k: os.environ[k] for k in TRACK2_DEFAULTS} } "
               f"coordinate_descent_tuning={os.environ.get('COORD_DESCENT_TUNING', '0') == '1'}")
+        # The exact-count corpus is every train shard on disk the loader cannot reach, so a partial download
+        # changes the hints and the loss without any error. @ldmberman's run had all 103.
+        train_files = train_gpt.Hyperparameters().train_files
+        n_train = len(train_gpt.glob.glob(train_files))
+        if n_train != 103:
+            print(f"WARNING: {n_train} train shards match {train_files}, not 103 (set DATA_PATH=../.. from this "
+                  f"folder); the exact-count hints, and so the val loss, will not match @ldmberman's run")
     train_gpt.main()
