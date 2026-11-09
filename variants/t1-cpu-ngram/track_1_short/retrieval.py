@@ -117,8 +117,10 @@ class OnlineCache:
 
     def _rows(self, step, tokens, starts, ends, inputs):
         x = inputs.astype(np.uint16)  # per position the longest match of the 6-, 3- and 2-token indexes
-        lower = [(source, cache) for source, cache in self.lower if step >= self.hint_from[0] and cache.built.done()]
-        if self.full is not None and step >= self.hint_from[1] and self.full.built.done():
+        # a finished build's result() re-raises its error: a failed table is never queried (the step's job fails)
+        lower = [(source, cache) for source, cache in self.lower if step >= self.hint_from[0] and cache.built.done()
+                 and cache.built.result() is None]
+        if self.full is not None and step >= self.hint_from[1] and self.full.built.done() and self.full.built.result() is None:
             rows = np.zeros((len(x), 9), dtype=np.int32)
             self.full.index.query_into(x, len(x), rows, 0)
         else:
@@ -181,13 +183,24 @@ class ValidationCache:
         self.built = self.worker.submit(self._build, after)
 
     def _build(self, after):
-        if after is not None:
-            after.result()
-        if self.rank == 0:
-            t = time.perf_counter()
-            self.index.build()
-            print(f"validation index built in {time.perf_counter() - t:.2f} s", flush=True)
-        dist.barrier(self.group)
+        failed = None
+        try:
+            if after is not None:
+                after.result()
+            if self.rank == 0:
+                t = time.perf_counter()
+                self.index.build()
+                print(f"validation index built in {time.perf_counter() - t:.2f} s", flush=True)
+        except Exception as e:
+            failed = e
+        # the barrier, carrying whether any rank failed: every rank's build future then fails together (no rank waits
+        # on a peer that has given up, and none queries a partial table)
+        status = torch.tensor([failed is not None], dtype=torch.int32)
+        dist.all_reduce(status, group=self.group)
+        if failed is not None:
+            raise failed
+        if status.item():
+            raise RuntimeError("the validation index build failed on another rank")
         if self.rank == 0:
             self.index.release()
 

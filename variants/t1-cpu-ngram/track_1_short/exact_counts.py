@@ -247,25 +247,38 @@ class ExactCounts:  # one rank's corpus share on its GPU and the query table (bu
         torch.cuda.synchronize(device)
 
     def load_corpus(self):  # a thread: this rank's corpus share into GPU memory, on a side stream
+        self.load_error = None
         def run():
-            torch.cuda.set_device(self.device)
-            stream, off, done = torch.cuda.Stream(self.device), 0, [torch.cuda.Event(), torch.cuda.Event()]
-            with torch.cuda.stream(stream):
-                for i, f in enumerate(self.files):
-                    if self.bufs is None:
-                        a = torch.from_numpy(np.fromfile(f, dtype=np.int16, offset=1024))
-                    else:  # one read into a pinned buffer (two, in turn) and an asynchronous copy
-                        a = self.bufs[i % 2][:(os.path.getsize(f) - 1024) // 2]
-                        done[i % 2].synchronize()
-                        view, got = memoryview(a.numpy()).cast("B"), 0
-                        with open(f, "rb", buffering=0) as fh:
-                            while got < view.nbytes:
-                                got += os.preadv(fh.fileno(), [view[got:]], 1024 + got)
-                    self.corpus[off:off + len(a)].copy_(a, non_blocking=self.bufs is not None)
-                    done[i % 2].record(stream)
-                    off += len(a)
-            stream.synchronize()
-            self.loaded.set()
+            try:  # a failed load still sets `loaded`, and launch() raises its error rather than waiting forever
+                torch.cuda.set_device(self.device)
+                stream, off, done = torch.cuda.Stream(self.device), 0, [torch.cuda.Event(), torch.cuda.Event()]
+                with torch.cuda.stream(stream):
+                    for i, f in enumerate(self.files):
+                        if self.bufs is None:
+                            a = torch.from_numpy(np.fromfile(f, dtype=np.int16, offset=1024))
+                        else:  # one read into a pinned buffer (two, in turn) and an asynchronous copy
+                            a = self.bufs[i % 2][:(os.path.getsize(f) - 1024) // 2]
+                            done[i % 2].synchronize()
+                            view, got = memoryview(a.numpy()).cast("B"), 0
+                            with open(f, "rb", buffering=0) as fh:
+                                while got < view.nbytes:
+                                    n = os.preadv(fh.fileno(), [view[got:]], 1024 + got)
+                                    if n == 0:
+                                        raise EOFError(f"{f}: read {got} of {view.nbytes} bytes")
+                                    got += n
+                        if off + len(a) > self.n:
+                            raise EOFError(f"{f}: the shards hold more than the {self.n} tokens planned")
+                        self.corpus[off:off + len(a)].copy_(a, non_blocking=self.bufs is not None)
+                        done[i % 2].record(stream)
+                        off += len(a)
+                stream.synchronize()
+                if off != self.n:
+                    raise EOFError(f"read {off} of the {self.n} corpus tokens planned (a shard shrank)")
+            except BaseException as e:
+                self.load_error = e
+                raise
+            finally:
+                self.loaded.set()
         threading.Thread(target=run, daemon=True).start()
 
     def _count(self, tok, tgt, start, out, n_corpus, blocks=None):  # the query table, the scan of the corpus share, the lookups
@@ -286,6 +299,8 @@ class ExactCounts:  # one rank's corpus share on its GPU and the query table (bu
     @torch.no_grad()
     def launch(self):  # after training, the queries in q_tok / q_tgt: this rank's counts into self.out
         self.loaded.wait()
+        if getattr(self, "load_error", None) is not None:
+            raise RuntimeError("the exact-count corpus load failed") from self.load_error
         self._count(self.q_tok, self.q_tgt, segment_starts(self.q_tok, self.q_chunk), self.out, self.n)
 
     def launch_marked(self, marks):  # SCAN_HINTS_SKIP, on the thread that looked the marks up: the launch, once the queries are in
