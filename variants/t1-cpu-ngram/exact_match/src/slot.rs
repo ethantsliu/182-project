@@ -768,6 +768,37 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// SLOT_SHARED_ARENA under concurrency: three builds on one arena (the run's 2-, 3- and 6-token indexes) started
+    /// at once from three OS threads. The arena lock serializes them, so each table equals its own-arena build byte
+    /// for byte (one build thread: a fixed placement order), in whichever order the lock was taken, every round.
+    #[test]
+    fn concurrent_builds_on_shared_arena_serialize() {
+        let dir = tmp("concurrent");
+        let big: Vec<String> = (0..3).map(|i| shard(&dir, &format!("big{i}.bin"), &corpus(6000, 40 + i))).collect();
+        let small: Vec<Vec<String>> = (0..2).map(|i| vec![shard(&dir, &format!("small{i}.bin"), &corpus(4000, 50 + i))]).collect();
+        let lone6 = create(&dir, "lone6", &big, 1, 6, None);
+        let lone3 = create(&dir, "lone3", &small[0], 1, 3, None);
+        let lone2 = create(&dir, "lone2", &small[1], 1, 2, None);
+        for ix in [&lone6, &lone3, &lone2] {
+            ix.build_core().unwrap();
+        }
+        for round in 0..8 {
+            let owner = create(&dir, &format!("o{round}"), &big, 1, 6, None);
+            let s3 = create(&dir, &format!("s3-{round}"), &small[0], 1, 3, Some(&owner));
+            let s2 = create(&dir, &format!("s2-{round}"), &small[1], 1, 2, Some(&owner));
+            assert!(s3.memory().2 && s2.memory().2, "both small indexes take the owner's arena");
+            std::thread::scope(|scope| {
+                for ix in [&owner, &s3, &s2] {
+                    scope.spawn(move || ix.build_core().unwrap());
+                }
+            });
+            assert!(owner.view[..] == lone6.view[..], "round {round}: 6-token table");
+            assert!(s3.view[..] == lone3.view[..], "round {round}: 3-token table");
+            assert!(s2.view[..] == lone2.view[..], "round {round}: 2-token table");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// An arena too small for the index (or another thread count) is not shared: the index allocates its own.
     #[test]
     fn small_arena_not_shared() {
