@@ -5,7 +5,8 @@
 The check is gpu_sanity.check_compiled_amax (also part (ii) of gpu_sanity.py). It runs GPT's real
 _quantize_mlp_input and the fp8 MLP inside a compiled module, captures forward and backward in a CUDA graph,
 and replays it. Only the target slot's x_t / post / post_t / dpre amax may become > 0, each must match its
-torch reference, and a replay of the captured refresh must move only that slot's x_t and post_t scales.
+torch reference, and a replay of the captured refresh must move only that slot's x_t and post_t scales
+(x_t only when HADAMARD_GEMMS has dw1 and post_t only with dw2, else they must stay at init).
 """
 import os
 import pathlib

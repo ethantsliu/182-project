@@ -12,7 +12,9 @@ time, so each setting needs its own process. Each worker reports:
         state methods run inside torch.compile(fullgraph=True) and a captured CUDA graph, as in training.
         Only the target slot's x_t amax (and, when mlp.py implements the post_t contract, its post / post_t /
         dpre amaxes) may become > 0, each must match a torch reference, and a replay of the captured fp8
-        refresh must move that slot's x_t and post_t scales and nothing else
+        refresh must move that slot's x_t and post_t scales and nothing else. x_t is checked this way only
+        when HADAMARD_GEMMS has dw1 and post_t only with dw2. Without them, the amax must stay 0 and the scale
+        at its init value
   (iii) per-kernel device time of one MLP call (forward + backward at slot 0, with real dims) at each token
         count, from torch.profiler, plus the per-step weight refresh, and the projected seconds over the
         1194-step schedule (STAGES below, 11 MLP calls per step)
@@ -179,20 +181,33 @@ def _check_compiled_amax(res, full, T, slot):
         rel = abs(got - want) / max(abs(want), 1e-30)
         res[name] = [rel <= rtol, f"got {got:.5g}, want {want:.5g} (rel err {rel:.2e}, tolerance {rtol})"]
 
+    def untouched(name):
+        a = getattr(m, name)
+        return [bool((a == 0).all()), f"max {a.abs().max().item():.3g} (want 0: GEMM not in HADAMARD_GEMMS)"]
+
     q = m._hadamard_q
     xf = x.detach().float()
-    res["x_t amax only in the target slot"] = list(only_slot("_mlp_xt_amax"))
-    close("x_t amax = max|rotate(x, tokens)|", m._mlp_xt_amax[slot, 0].item(), rotate(xf, 0, q.float()).abs().max().item(), 1e-2)
+    # x_t is rotated (own amax / scale) only for dw1, post_t only for dw2; an unselected GEMM reads the
+    # record's plain operand, so its rotated amax must stay 0 and its scale at init.
+    if gpt.HADAMARD_DW1:
+        res["x_t amax only in the target slot"] = list(only_slot("_mlp_xt_amax"))
+        close("x_t amax = max|rotate(x, tokens)|", m._mlp_xt_amax[slot, 0].item(), rotate(xf, 0, q.float()).abs().max().item(), 1e-2)
+    else:
+        res["x_t amax untouched (dw1 off)"] = untouched("_mlp_xt_amax")
     if full:
         for n in ("_mlp_post_amax", "_mlp_post_t_amax", "_mlp_dpre_amax"):
+            if n == "_mlp_post_t_amax" and not gpt.HADAMARD_DW2:
+                res["post_t amax untouched (dw2 off)"] = untouched(n)
+                continue
             res[f"{n[5:]} only in the target slot"] = list(only_slot(n))
         post = torch.relu(xf @ m.mlp_bank[slot, 0].float().T).square()
         post_ref, post_t_ref = post.abs().max().item(), rotate(post, 0, q.float()).abs().max().item()
         # The fp8 forward GEMM rounds pre by a few %, so post (a square) by up to ~2x that.
         close("post amax = max|post| (unrotated: record forward numerics)", m._mlp_post_amax[slot, 0].item(), post_ref, 0.15)
-        close("post_t amax = max|rotate(post, tokens)|", m._mlp_post_t_amax[slot, 0].item(), post_t_ref, 0.15)
-        res["post vs post_t references differ enough to tell a shared amax apart"] = [
-            True, f"post_t/post reference ratio {post_t_ref / post_ref:.2f} (a check only discriminates if this is far from 1)"]
+        if gpt.HADAMARD_DW2:
+            close("post_t amax = max|rotate(post, tokens)|", m._mlp_post_t_amax[slot, 0].item(), post_t_ref, 0.15)
+            res["post vs post_t references differ enough to tell a shared amax apart"] = [
+                True, f"post_t/post reference ratio {post_t_ref / post_ref:.2f} (a check only discriminates if this is far from 1)"]
 
     before = {n: getattr(m, n).clone() for n in ("_mlp_xt_scales", "_mlp_post_t_scales", "_mlp_xt_amax", "_mlp_post_t_amax")}
     g_refresh.replay()
@@ -203,6 +218,10 @@ def _check_compiled_amax(res, full, T, slot):
         if amax_n == "_mlp_post_t_amax" and not full:
             continue
         s_new = getattr(m, scale_n)
+        if not (gpt.HADAMARD_DW1 if scale_n == "_mlp_xt_scales" else gpt.HADAMARD_DW2):
+            ok = bool((s_new == init).all())
+            res[f"captured refresh leaves {scale_n[5:]} at init (GEMM off)"] = [ok, f"all slots at {init:.4g}: {ok}"]
+            continue
         want = max(before[amax_n][slot, 0].item() * headroom / e4, 1e-6)
         others = torch.cat((s_new[:slot], s_new[slot + 1:]))
         ok = (abs(s_new[slot].item() - want) <= 1e-5 * want and s_new[slot].item() != init
@@ -216,9 +235,12 @@ def _check_compiled_amax(res, full, T, slot):
 # (i) stage cache and kernel resources
 
 def describe_stage_key(key):
+    """linear_relu_square's _lrs_stage_cache key (FORWARD, use_fp8, emit_f8, emit_t, store_pre,
+    store_post_bf, rot_row, rot_t, hb, ...) -> a short distinct label, e.g. bwd-fp8-ROT_ROW-ROT_T-HB64."""
     try:
-        fwd, fp8, emit_f8, emit_t, _, _, had = key[:7]
-        return f"{'fwd' if fwd else 'bwd'}-{'fp8' if fp8 else 'bf16'}{'-emit' if emit_f8 or emit_t else ''}{'-HAD' if had else ''}"
+        fwd, fp8, emit_f8, emit_t, _, _, rot_row, rot_t, hb = key[:9]
+        rot = ("-ROT_ROW" if rot_row else "") + ("-ROT_T" if rot_t else "") + (f"-HB{hb}" if hb else "")
+        return f"{'fwd' if fwd else 'bwd'}-{'fp8' if fp8 else 'bf16'}{'-emit' if emit_f8 or emit_t else ''}{rot}"
     except (TypeError, ValueError):
         return str(key)
 

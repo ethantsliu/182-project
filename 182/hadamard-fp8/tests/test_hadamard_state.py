@@ -72,7 +72,7 @@ def rms_x(T=512, seed=0):
 # ---- risk (a): hadamard_t_quant returns its amax; gpt.py folds it into the buffer ----
 
 def test_t_quant_returns_amax_functionally():
-    x, q = rms_x(), signed_hadamard(128, 1234)
+    x, q = rms_x(), signed_hadamard(gpt.HADAMARD_BLOCK, 1234)
     scale = torch.tensor(0.05)
     t, amax = hadamard_t_quant(x, q, scale)
     ref = rotate(x.float(), 0, q.float())
@@ -85,7 +85,7 @@ def test_t_quant_returns_amax_functionally():
 
 def test_t_quant_fake_matches_real():
     from torch._subclasses.fake_tensor import FakeTensorMode
-    x, q = rms_x(), signed_hadamard(128, 1234)
+    x, q = rms_x(), signed_hadamard(gpt.HADAMARD_BLOCK, 1234)
     with FakeTensorMode() as mode:
         t, amax = hadamard_t_quant(mode.from_tensor(x), mode.from_tensor(q), mode.from_tensor(torch.tensor(0.05)))
     assert (tuple(t.shape), t.dtype, tuple(amax.shape), amax.dtype) == ((D, 512), E4, (1,), torch.float32)
@@ -98,6 +98,9 @@ def test_xt_amax_lands_in_target_slot_only(state, compiled):
     run = torch.compile(state, fullgraph=True, dynamic=False, backend="aot_eager") if compiled else state
     x1, x2 = rms_x(seed=1), 0.25 * rms_x(seed=2).float()
     run(x1, None)
+    if not gpt.HADAMARD_DW1:  # x_t is the record's plain transpose: its rotated amax never moves
+        assert (state._mlp_xt_amax == 0).all()
+        return
     a1 = rotate(x1.float(), 0, state._hadamard_q.float()).abs().max()
     amax = state._mlp_xt_amax[:, 0]
     assert torch.allclose(amax[SLOT], a1) and amax[SLOT] > 0
@@ -114,11 +117,19 @@ def test_refresh_moves_xt_and_post_t_scales_then_clears(state):
     state.mlp_quantize_calls = gpt.FP8_EXACT_SCALE_CALLS  # the captured (delayed-scale) refresh body
     state._quantize_mlp_weights_and_scales()
     xs, ps = state._mlp_xt_scales, state._mlp_post_t_scales
-    assert xs[SLOT].item() == pytest.approx(xt_amax * gpt.FP8_XT_HEADROOM / 448, rel=1e-6)
-    assert (torch.cat((xs[:SLOT], xs[SLOT + 1:])) == gpt.FP8_MLP_X_SCALE).all()
-    assert ps[2].item() == pytest.approx(300.0 * gpt.FP8_POST_HEADROOM / 448, rel=1e-6)
-    assert (torch.cat((ps[:2], ps[3:])) == 1.0).all()
-    assert (state._mlp_xt_amax == 0).all() and (state._mlp_post_t_amax == 0).all()
+    # An unselected GEMM's rotated scale is never refreshed: it stays at its init value (by design).
+    if gpt.HADAMARD_DW1:
+        assert xs[SLOT].item() == pytest.approx(xt_amax * gpt.FP8_XT_HEADROOM / 448, rel=1e-6)
+        assert (torch.cat((xs[:SLOT], xs[SLOT + 1:])) == gpt.FP8_MLP_X_SCALE).all()
+        assert (state._mlp_xt_amax == 0).all()
+    else:
+        assert xt_amax == 0 and (xs == gpt.FP8_MLP_X_SCALE).all()
+    if gpt.HADAMARD_DW2:
+        assert ps[2].item() == pytest.approx(300.0 * gpt.FP8_POST_HEADROOM / 448, rel=1e-6)
+        assert (torch.cat((ps[:2], ps[3:])) == 1.0).all()
+        assert (state._mlp_post_t_amax == 0).all()
+    else:
+        assert (ps == 1.0).all()
     # post's own scale never sees post_t's amax
     assert (state._mlp_post_scales == 1.0).all()
 
@@ -159,7 +170,34 @@ def test_mlp_fp8_args_append_post_t(state, with_fold):
         want = buf[3]
         assert got.data_ptr() == want.data_ptr() and got.shape == want.shape, "must be a view of slot 3"
     assert args[5].shape == () and args[6].shape == (1,)
-    assert args[10].data_ptr() == state._mlp_xt_scales[SLOT].data_ptr()  # x_t scale of the input's slot
+    # Each GEMM's dequant scale pairs with its operand: rotated iff HADAMARD_GEMMS selects that GEMM.
+    want_xt = state._mlp_xt_scales[SLOT] if gpt.HADAMARD_DW1 else state._mlp_x_scale  # x_t: the input's slot
+    want_w1c = state._mlp_up_rot_scales[3] if gpt.HADAMARD_DX else state._mlp_up_scales[3]
+    assert args[10].data_ptr() == want_xt.data_ptr() and args[10].shape == want_xt.shape
+    assert args[12].data_ptr() == want_w1c.data_ptr()
+    dq = state._mlp_dq_bwd_folded if with_fold else state._mlp_dq_bwd
+    assert args[8].data_ptr() == dq[3].data_ptr()
+
+
+def test_refresh_pairs_dq_bwd_and_caches_with_selected_gemms(state):
+    """dq_bwd (dpost's dequant) follows the W2 row cache: rotated scale iff dpost; the W1 col cache holds the
+    rotated W1 iff dx, the W2 row cache the rotated W2 iff dpost, else the record's plain copies."""
+    if os.environ.get("TRITON_INTERPRET") == "1":
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import test_interp_kernels  # noqa: F401  (patches the interpreter's bf16 tl.dot, used by the rotation)
+    state.mlp_quantize_calls = 0
+    state._quantize_mlp_weights_and_scales()  # an exact-scale call
+    w1, w2 = state.mlp_bank[3, 0].detach().float(), state.mlp_bank[3, 1].detach().float()
+    q = state._hadamard_q.float()
+    w2_s = state._mlp_down_rot_scales[3] if gpt.HADAMARD_DPOST else state._mlp_down_scales[3]
+    assert torch.equal(state._mlp_dq_bwd[3], w2_s * gpt.FP8_GRAD_SCALE)
+    w2_row = state._mlp_down_f8_row[3].float() * w2_s
+    w2_want = rotate(w2, 1, q) if gpt.HADAMARD_DPOST else w2
+    assert ((w2_row - w2_want).norm() / w2_want.norm()).item() < 0.05
+    w1_s = state._mlp_up_rot_scales[3] if gpt.HADAMARD_DX else state._mlp_up_scales[3]
+    w1_col = state._mlp_up_f8_col[3].float() * w1_s
+    w1_want = rotate(w1, 0, q) if gpt.HADAMARD_DX else w1
+    assert ((w1_col - w1_want).norm() / w1_want.norm()).item() < 0.05
 
 
 def test_contract_check(monkeypatch):
@@ -213,9 +251,40 @@ def test_sat_snapshot_flags_saturated_and_stuck_slots(state):
         state._mlp_xt_scales.fill_(0.02)
         state._mlp_xt_scales[7] = gpt.FP8_MLP_X_SCALE       # slot 7 never got an amax
     names, snap = state.fp8_sat_snapshot()
-    assert names[:2] == ["post", "dpre"] and {"post_t", "x_t", "w1_rot", "w2_rot"} <= set(names)
+    # Rows only for the rotated operands HADAMARD_GEMMS selects (an unselected one sits at init by design).
+    rot = [n for n, on in (("post_t", gpt.HADAMARD_DW2), ("x_t", gpt.HADAMARD_DW1), ("w1_rot", gpt.HADAMARD_DX),
+                           ("w2_rot", gpt.HADAMARD_DPOST)) if on]
+    assert names == ["post", "dpre", "w1", "w2"] + rot
     assert snap.shape == (len(names), 3, gpt.NUM_MLP_SLOTS)
     lines = dict(zip(names, gpt.format_fp8_sat(100, names, snap)))
     assert "SAT[2]" in lines["post"] and "max_ratio:1.500" in lines["post"] and "STUCK" not in lines["post"]
-    assert "STUCK[7]" in lines["x_t"] and "SAT" not in lines["x_t"]
+    if gpt.HADAMARD_DW1:
+        assert "STUCK[7]" in lines["x_t"] and "SAT" not in lines["x_t"]
     assert all(line.startswith("fp8 sat step:100 ") for line in lines.values())
+
+
+def test_real_methods_and_function_give_accurate_grads(monkeypatch):
+    """End to end through gpt.py's own state methods (refresh, input quantize, _mlp_fp8_args) and the real
+    fp8 Function, for whatever HADAMARD_GEMMS / HADAMARD_BLOCK this process has: after a step and a delayed
+    refresh, dx / dW1 / dW2 are within fp8 error of fp64. A rotated operand dequantized with an unrotated
+    scale (or one side of a GEMM rotated alone) is off by O(1). Interpreter only (kernels, CPU)."""
+    if os.environ.get("TRITON_INTERPRET") != "1":
+        pytest.skip("runs the fp8 Function's Triton kernels in the interpreter")
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import test_interp_kernels  # noqa: F401  (interpreter patches: bf16 tl.dot, fp8 casts, device props)
+    monkeypatch.setattr(gpt, "check_mlp_takes_post_t", lambda: None)
+    torch.manual_seed(0)
+    m = gpu_sanity.make_mini_state(H, D, torch.device("cpu"), slot=SLOT, full=True)
+    for _ in range(gpt.FP8_EXACT_SCALE_CALLS):
+        m._quantize_mlp_weights_and_scales()
+    x = rms_x(T=256, seed=4)
+    r = 1e-2 * torch.randn(256, D, generator=torch.Generator().manual_seed(5))
+    for step in range(2):  # step 0 records the delayed amaxes, the refresh turns them into scales
+        xr = x.clone().requires_grad_()
+        dx, dbank = torch.autograd.grad(m(xr, r), (xr, m.mlp_bank))
+        m._quantize_mlp_weights_and_scales()
+    xd, W1, W2 = (t.detach().double().requires_grad_() for t in (x, m.mlp_bank[SLOT, 0], m.mlp_bank[SLOT, 1]))
+    (torch.relu(xd @ W1.T).square() @ W2 * r.double()).sum().backward()
+    rel = lambda a, b: ((a.double() - b).norm() / b.norm()).item()
+    errs = dict(dx=rel(dx, xd.grad), dW1=rel(dbank[SLOT, 0], W1.grad), dW2=rel(dbank[SLOT, 1], W2.grad))
+    assert all(e < 0.15 for e in errs.values()), (sorted(gpt.HADAMARD_GEMMS), errs)

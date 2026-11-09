@@ -127,3 +127,21 @@ def test_config_knobs(env, want):
 @pytest.mark.parametrize("env", [{"HADAMARD_BLOCK": "16"}, {"HADAMARD_FP8": "1", "HADAMARD_GEMMS": "dw3"}])
 def test_config_rejects_bad_values(env):
     assert _config(env).returncode != 0
+
+
+def test_gpu_sanity_stage_labels_are_distinct():
+    """gpu_sanity (i) keys its stage table by describe_stage_key: every linear_relu_square variant
+    prime_stage_cache can reach must get its own label, or a rotated variant's stage count overwrites the
+    record's (the old 7-field reading labelled the rotated forward 'fwd-fp8-emit', like the record's)."""
+    sys.path.insert(0, str(ROOT / "182" / "hadamard-fp8"))
+    import gpu_sanity
+    tail = (128, 256, 128, 8)
+    keys = [(True, False, False, False, True, True, False, False, 0) + (128, 256, 64, 8),   # bf16 forward
+            (True, True, True, True, False, False, False, False, 0) + tail,                 # fp8 forward
+            (False, True, False, False, True, True, False, False, 0) + tail]                # fp8 backward
+    for hb in (32, 64, 128):
+        keys.append((True, True, True, True, False, False, False, True, hb) + tail)
+        keys += [(False, True, False, False, True, True, rr, rt, hb) + tail for rr, rt in ((1, 1), (1, 0), (0, 1))]
+    labels = [gpu_sanity.describe_stage_key(k) for k in keys]
+    assert len(set(labels)) == len(labels), labels
+    assert labels[1] == "fwd-fp8-emit" and labels[3] == "fwd-fp8-emit-ROT_T-HB32"
