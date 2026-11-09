@@ -2,19 +2,23 @@
 and the FP8_OFF bf16 paths against autograd references.
 
     HADAMARD_FP8=1 python -m pytest 182/hadamard-fp8/tests/test_gpu_kernels.py -q -x
+    bash 182/tools/triton_cpu/run.sh python -m pytest 182/hadamard-fp8/tests/test_gpu_kernels.py -q   # CPU, interpreter
 
 (HADAMARD_FP8 / HADAMARD_GEMMS / HADAMARD_BLOCK are read at import: the Function rotates the GEMMs
 HADAMARD_GEMMS selects, with HADAMARD_BLOCK-sized Q. Run once per setting you care about.)
 Importing the record's kernels needs the CUDA toolchain (the CE kernel compiles at import).
 """
+import os
 import pathlib
 import sys
 
 import pytest
 import torch
 
-if not torch.cuda.is_available():
-    pytest.skip("needs a CUDA GPU", allow_module_level=True)
+# Under the Triton interpreter (182/tools/triton_cpu/run.sh) the same tests run on CPU tensors.
+INTERPRET = os.environ.get("TRITON_INTERPRET") == "1"
+if not torch.cuda.is_available() and not INTERPRET:
+    pytest.skip("needs a CUDA GPU (or TRITON_INTERPRET=1: 182/tools/triton_cpu/run.sh)", allow_module_level=True)
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
 
@@ -26,7 +30,7 @@ from track_1_short.perf.kernels.mlp import (  # noqa: E402
     BF16LinearReLUSquareFunction, FusedLinearReLUSquareFunction, linear_relu_square, quantize_dual_layout_fused,
     quantize_mlp_weights_dual, quantize_weights_dual_ntiles)
 
-DEV = torch.device("cuda")
+DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 E4, E5 = torch.float8_e4m3fn, torch.float8_e5m2
 Q = signed_hadamard(HADAMARD_BLOCK, seed=1234, device=DEV)
 
@@ -240,6 +244,7 @@ def test_bf16_qkv_matches_fp8_qkv():
         assert rel(a, b) < 0.1
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="cross_entropy.py compiles a CUDA C kernel via nvrtc: GPU only")
 def test_bf16_loss_close_to_fp8_kernel():
     from track_1_short.perf.bf16_loss import bf16_training_loss
     from track_1_short.perf.kernels.cross_entropy import FusedSoftcappedCrossEntropy, quantize_lm_head_dual, \
