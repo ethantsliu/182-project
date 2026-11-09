@@ -57,8 +57,7 @@ def test_hadamard_t_quant_matches_reference_and_records_amax():
     torch.manual_seed(1)
     x = torch.randn(1024, 768, device=DEV).bfloat16()
     scale = torch.tensor(2.0 ** -4, device=DEV)
-    amax = torch.zeros(1, device=DEV)
-    t = hadamard_t_quant(x, Q, scale, amax)
+    t, amax = hadamard_t_quant(x, Q, scale)
     ref = rotate(x, 0, Q)
     assert_fp8_close(t, ref_quant(ref.T.contiguous(), 2.0 ** -4, E4), 2.0 ** -4)
     assert abs(amax.item() - ref.abs().max().item()) <= 1e-3 * ref.abs().max().item()
@@ -123,7 +122,7 @@ def _fp8_mlp_args(x, W1, W2, hadamard):
         lim = 448.0
         x_row = torch.clamp(x.float() / x_scale, -lim, lim).to(e4m3)
         xt_scale = (rotate(x, 0, Q).abs().max() * 1.1 / 448).float()
-        x_t = hadamard_t_quant(x, Q, xt_scale, torch.zeros(1, device=DEV))
+        x_t, _ = hadamard_t_quant(x, Q, xt_scale)
     else:
         x_row, x_t = quantize_dual_layout_fused(x, x_scale, E4)
         xt_scale = x_scale

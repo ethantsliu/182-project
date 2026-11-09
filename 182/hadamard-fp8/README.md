@@ -32,6 +32,18 @@ The record's scales were tuned not to saturate.
 | `HADAMARD_FP8=1` (`HADAMARD_SEED`, default 1234) | Block-128 random-sign Hadamard rotation along the contraction dim for the four MLP gradient GEMMs, fused into the existing quantize paths (`perf/kernels/hadamard.py`, `mlp.py` epilogues): dW2 (post_t from the forward epilogue, g_t along tokens), dpost (g_row, W2 row cache along 768), dW1 (dpre_t from the backward epilogue, x_t along tokens), dx (dpre row, W1 col cache along hidden). The forward GEMMs are untouched. Scales: g stays static; post and dpre keep one delayed scale each, whose amax now covers the rotated layouts; the rotated weight caches get their own exact-then-delayed scales; x_t gets a new delayed scale (`FP8_XT_HEADROOM` 1.10). A token-rotated x at the static 2^-4 can saturate (see the `dW1 xt-static` row of the script). QKV and lm_head are **not** rotated (next step if MLP shows a gain). Requires per-rank tokens, 2816 and 768 to be multiples of 128 (asserted). |
 | `FP8_DUMP_DIR=dir` (`FP8_DUMP_STEPS=100,500,1000`, `FP8_DUMP_ROWS=8192`, `FP8_DUMP_SLOTS=0,5,10`) | Saves `dir/stepNNNNNN.pt` with bf16 x / g / W for those MLP slots and attention layers (`perf/fp8_dump.py`). At those steps, rank 0 runs one extra **eager** forward+backward of the uncompiled model: no gradient sinks, results dropped, every fp8 amax buffer restored. The full softmax is used even on sampled steps. The clock is paused around it (`t0` moves forward) and all ranks barrier. A dump run is an analysis run, not a timing run: every val line it prints ends in `INVALID_FOR_RECORD(fp8_dump)`. The hooks check `FP8_DUMP.active()`, which short-circuits on `torch.compiler.is_compiling()`, so compiled graphs are unchanged. |
 
+`HADAMARD_SAT_STATS=1` (analysis only; val lines get `INVALID_FOR_RECORD(sat_stats)`): at every validation,
+one `fp8 sat` line per MLP fp8 scale (post, dpre, w1, w2; with HADAMARD_FP8 also post_t, x_t, w1_rot,
+w2_rot). Each line gives the per-slot ratio of the last step's amax to its fp8 limit (max over ranks;
+`SAT[slots]` marks ratios > 1.01, i.e. clamped values), the scales, and `STUCK[slots]` for a delayed scale
+still at its init value, i.e. an amax that never arrived. Ignore STUCK at step 0.
+
+`gpu_sanity.py` (one GPU, < 3 min, `python 182/hadamard-fp8/gpu_sanity.py`): HADAMARD on vs off in two
+subprocesses. Reports (i) the stage counts from prime_stage_cache and the regs/spills/smem of every
+compiled variant, (ii) the compiled + CUDA-graph amax check, and (iii) per-kernel ms per MLP call at
+T = 16k/32k/40k/48k, projected over the 1194-step schedule. `HADAMARD_GEMMS` / `HADAMARD_BLOCK` are
+passed through.
+
 Also added: `perf/hadamard_ref.py`, the pure-torch reference and the convention for "rotate both
 operands along k". The CPU tests prove (A R)(Rᵀ B) = A B, the dW token-rotation identity, and all four
 MLP gradient GEMMs in the kernels' exact layouts. `fp8_quant_error.py` is the offline study described
@@ -87,8 +99,13 @@ for s in 0 1 2 3; do TRAIN_SEED=$s HADAMARD_FP8=1 torchrun --standalone --nproc_
   largest batch); memory per slab is about 0.8 GB per fp32 [4096, 50304] temporary. Not measured.
 - The dump's extra eager pass at batch 24 (step 1000) may need a lot of memory beside the graph pool.
   Pick earlier steps if it OOMs.
-- `hadamard_t_quant` mutates a view of `_mlp_xt_amax` through a custom op. Functionalization should
-  copy it back; check that the amax is nonzero after a step.
+- x_t amax: `hadamard_t_quant` is now functional (returns `(t, amax)`), and `GPT._quantize_mlp_input`
+  folds the amax into `_mlp_xt_amax[slot]` with aten ops. CPU-tested eager and under
+  `torch.compile(fullgraph, backend="aot_eager")` (`tests/test_hadamard_state.py`, in the triton-interp
+  image). Inductor + CUDA-graph replay is GPU-untested: `gpu_sanity.py` part (ii) / `tests/test_gpu_state.py`.
+- post_t has its own delayed scale (`_mlp_post_t_scales` / `_mlp_post_t_amax`), so the forward's e4m3 post
+  keeps the record's scale. The arg contract with `mlp.py` is the comment at `FP8_XT_HEADROOM` in
+  `model/gpt.py`. `GPT.init_mlp_fp8` asserts that `mlp.py` implements it.
 - Offline numbers model the delayed scales with the tensor's own amax, not last step's. The synthetic
   mode is a smoke test, not evidence.
 
