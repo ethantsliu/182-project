@@ -113,7 +113,8 @@ def load_ab(ab_dir: str) -> dict | None:
             with open(p, errors="replace") as f:
                 r["details"] = log_details(f.read())
     arms = [a["name"] for a in plan["arms"]]
-    return dict(plan=plan, arms=arms, baseline=plan["baseline"],
+    done = {r["idx"] for r in ab_run.final_records(ab_dir)}
+    return dict(plan=plan, arms=arms, baseline=plan["baseline"], pending=sum(1 for s in plan["runs"] if s["idx"] not in done),
                 groups={a: [r for r in recs if r["arm"] == a] for a in arms},
                 planned={a: plan["n"] for a in arms}, env={a["name"]: a.get("env", {}) for a in plan["arms"]})
 
@@ -174,12 +175,27 @@ def gate_decision(ab: dict) -> dict:
     return res
 
 
+def ab_check(ab: dict, gate: bool = False) -> tuple[int, str]:
+    """(code, reason): 0 complete and usable; 3 slots still pending (resume them); 4 complete but unusable
+    (the gate has < 2 seed pairs, or some arm has no ok run): re-plan, the slots will not be re-run."""
+    if ab["pending"]:
+        return 3, f"{ab['pending']} slot(s) pending"
+    if gate:
+        g = gate_decision(ab)
+        if g["decision"] == "NODATA":
+            return 4, g["reason"]
+    empty = [a for a in ab["arms"] if not any(r["status"] == "ok" for r in ab["groups"][a])]
+    if empty:
+        return 4, "no ok run in arm(s) " + ", ".join(empty)
+    return 0, "complete"
+
+
 def ab_table(name: str, ab: dict) -> list[str]:
     plan, groups, base = ab["plan"], ab["groups"], ab["baseline"]
     lines = [f"== {name}: baseline={base} n/arm={plan['n']} seeds={plan['seeds'] or 'none'} cache={plan['cache']} "
-             f"order={plan['order']}"]
+             f"order={plan['order']}" + (f"  [{ab['pending']} slot(s) never ran]" if ab.get("pending") else "")]
     nst = max((len(r["details"].get("stage_ms") or []) for g in groups.values() for r in g), default=0)
-    hdr = f"{'arm':<16} {'ok/n':>5} {'val_loss mean±sd':>18} {'train_s mean±sd':>16} {'step_sum_s':>11}  {'ms/step by stage':<{max(16, 7 * nst)}}  flags"
+    hdr = f"{'arm':<16} {'ok/plan':>7} {'val_loss mean±sd':>18} {'train_s mean±sd':>16} {'step_sum_s':>11}  {'ms/step by stage':<{max(16, 7 * nst)}}  flags"
     lines.append(hdr)
     for arm in ab["arms"]:
         recs = groups[arm]
@@ -191,7 +207,7 @@ def ab_table(name: str, ab: dict) -> list[str]:
             stage_cols.append(f"{sum(xs) / len(xs):6.2f}" if xs else "     -")
         flags = " ".join(f"{k}={v}" for k, v in sorted(ab["env"][arm].items()) if k not in HIDDEN_ENV) or "-"
         bad = [r["status"] for r in recs if r["status"] != "ok"]
-        lines.append(f"{arm:<16} {len(ok):>2}/{len(recs):<2} {_ms([r.get('val_loss') for r in ok], '{:.5f}'):>18} "
+        lines.append(f"{arm:<16} {len(ok):>3}/{ab['planned'][arm]:<3} {_ms([r.get('val_loss') for r in ok], '{:.5f}'):>18} "
                      f"{_ms([r.get('train_time_s') for r in ok]):>16} "
                      f"{_ms([r['details'].get('step_sum_s') for r in ok], '{:.3f}', sd=False):>11}  "
                      f"{' '.join(stage_cols) or '-':<{max(16, 7 * nst)}}  {flags}"
@@ -207,7 +223,8 @@ def ab_table(name: str, ab: dict) -> list[str]:
         mtt, _, _, _, _ = ci95(dtt)
         net = (mt + mv * SEC_PER_MNAT) if dt and dv else float("nan")
         lines.append(f"  paired {arm}-{base} (n={n}): Δval {mv:+.2f}±{sev:.2f} mnat (SE) CI[{lov:+.2f},{hiv:+.2f}] | "
-                     f"Δstep_sum {mt:+.3f}±{set_:.3f} s | Δtrain_time {mtt:+.3f} s | net {net:+.2f} s at {SEC_PER_MNAT} s/mnat")
+                     f"Δstep_sum {mt:+.3f}±{set_:.3f} s | Δtrain_time {mtt:+.3f} s | "
+                     f"net {net:+.2f} s (Δstep_sum + Δval x {SEC_PER_MNAT} s/mnat; + = {arm} slower to the same loss)")
     return lines
 
 
@@ -251,10 +268,11 @@ def t2_lines(t2_dir: str) -> list[str]:
     if r is None:
         return ["== t2: no result"]
     dv = (r["val_loss"] - T2_REF["val_loss"]) * 1000
-    dt = (r["train_time_s"] or float("nan")) - T2_REF["train_time_s"]
+    tt = r["train_time_s"] if r["train_time_s"] is not None else float("nan")
+    dt = tt - T2_REF["train_time_s"]
     ok = r["val_loss"] <= T2_REF["target"] + 0.003
     return [f"== t2 ({r['path']}): steps={r['steps']}{'' if r['completed'] else ' (INCOMPLETE)'} val_loss={r['val_loss']:.4f} "
-            f"train_time={r['train_time_s']:.1f} s step_avg={r['step_avg_ms'] or float('nan'):.2f} ms | "
+            f"train_time={tt:.1f} s step_avg={r['step_avg_ms'] or float('nan'):.2f} ms | "
             f"ref 2.8769 in 221 s (38.1 ms): Δval {dv:+.1f} mnat, Δtime {dt:+.1f} s -> "
             f"{'reproduces (≤ 2.880)' if ok else 'does NOT reproduce ~2.877'}"]
 
@@ -283,12 +301,13 @@ def summarize(root: str) -> str:
     st = statuses(root)
     if st:
         lines += ["phases: " + " | ".join(st)]
-    for phase in ("gate", "hadamard"):
+    attempts = sorted(n for n in os.listdir(root) if re.fullmatch(r"(gate|hadamard)\.attempt\d+", n))
+    for phase in attempts + ["gate", "hadamard"]:  # earlier attempts (re-planned after failing) first
         ab = load_ab(os.path.join(root, phase))
         if ab is None:
             continue
         lines += [""] + ab_table(phase, ab)
-        if phase == "gate":
+        if phase.startswith("gate"):
             lines += gate_lines(gate_decision(ab))
     if os.path.isdir(os.path.join(root, "t2")):
         lines += [""] + t2_lines(os.path.join(root, "t2"))
@@ -314,7 +333,18 @@ def main(argv=None):
     ap.add_argument("input", nargs="?", help="session bundle .tar.gz or session directory")
     ap.add_argument("--gate", help="an ab_run gate directory: print its table and decision only")
     ap.add_argument("--write-decision", help="with --gate: write GATE_* shell variables to this file")
+    ap.add_argument("--check", metavar="DIR", help="an ab_run directory: print its state; exit 0 complete and usable, "
+                    "3 slots pending, 4 complete but unusable, 2 no plan")
+    ap.add_argument("--check-gate", action="store_true", help="with --check: also require a gate decision (>= 2 pairs)")
     a = ap.parse_args(argv)
+    if a.check:
+        ab = load_ab(a.check)
+        if ab is None:
+            print(f"no plan.json in {a.check}")
+            return 2
+        code, why = ab_check(ab, a.check_gate)
+        print(why)
+        return code
     if a.gate:
         ab = load_ab(a.gate)
         if ab is None:

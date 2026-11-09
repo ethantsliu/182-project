@@ -319,6 +319,24 @@ def classify(rc: int | None, timed_out: bool, log: logparse.RunLog) -> str:
     return "ok"
 
 
+def _stop_group(proc: subprocess.Popen, grace_s: float = 30) -> None:
+    """SIGTERM the trainer's process group (torchrun and its ranks), then SIGKILL after grace_s."""
+    for sig, wait in ((signal.SIGTERM, grace_s), (signal.SIGKILL, None)):
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            proc.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
 def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
     idx, name = slot["idx"], slot["arm"]
     tag = f"{idx:03d}_{name}"
@@ -356,13 +374,13 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
                 rc = proc.wait(timeout=plan["timeout_s"])
             except subprocess.TimeoutExpired:
                 timed_out = True
-                os.killpg(proc.pid, signal.SIGTERM)
-                try:
-                    proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait()
+                _stop_group(proc)
                 rc = proc.returncode
+            except BaseException:
+                # ctrl-C / SIGTERM / SIGHUP of the harness: the trainer runs in its own session, so it would
+                # otherwise keep all GPUs busy under the next run. The slot stays "started" (re-run on resume).
+                _stop_group(proc, grace_s=10)
+                raise
         except OSError as e:
             rec["launch_error"] = str(e)
             so.write(f"launch failed: {e}\n")
@@ -392,6 +410,8 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
 def cmd_run(a) -> None:
     out = os.path.abspath(a.out)
     plan = load_plan(out)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _interrupt)
     arms = {x["name"]: x for x in plan["arms"]}
     ledger = read_ledger(out)
     done = {r["idx"] for r in ledger if r["event"] == "end"}
@@ -407,6 +427,7 @@ def cmd_run(a) -> None:
         if any(s["arm"] == name for s in todo):
             wts[name] = prepare_arm(plan, arm, a.allow_changed)
     total = len(plan["runs"])
+    streak = 0
     for k, slot in enumerate(todo):
         if k and plan["cooldown_s"]:
             time.sleep(plan["cooldown_s"])
@@ -417,6 +438,12 @@ def cmd_run(a) -> None:
         val = f"{rec['val_loss']:.4f}" if rec["val_loss"] is not None else "-"
         tt = f"{rec['train_time_s']:.3f}s" if rec["train_time_s"] is not None else "-"
         print(f" {rec['status']} val={val} train_time={tt} wall={rec['wall_s']:.0f}s")
+        streak = 0 if rec["status"] == "ok" else streak + 1
+        stop = getattr(a, "stop_after_failures", None)
+        if stop and streak >= stop and k + 1 < len(todo):
+            print(f"stopping: {streak} consecutive non-ok runs (--stop-after-failures {stop}); "
+                  f"{len(todo) - k - 1} slot(s) left pending -- fix the cause, then `run` again to resume")
+            break
     if not a.no_report:
         cmd_report(argparse.Namespace(out=out, at_step=None, quiet=False))
 
@@ -629,6 +656,9 @@ def main(argv=None):
     r.add_argument("--limit", type=int, help="run at most this many pending slots")
     r.add_argument("--allow-changed", action="store_true", help="run a path arm whose code changed since the plan")
     r.add_argument("--no-report", action="store_true")
+    r.add_argument("--stop-after-failures", type=int, metavar="K",
+                   help="stop (slots stay pending, resumable) after K consecutive non-ok runs: a systematic "
+                        "failure such as a hang or missing data should not burn the whole plan")
 
     rp = sub.add_parser("report", help="tables from a results directory")
     rp.add_argument("out")
@@ -645,7 +675,7 @@ def main(argv=None):
     if a.sub == "plan":
         out = cmd_plan(a)
         if a.go:
-            cmd_run(argparse.Namespace(out=out, limit=None, allow_changed=False, no_report=False))
+            cmd_run(argparse.Namespace(out=out, limit=None, allow_changed=False, no_report=False, stop_after_failures=None))
     elif a.sub == "run":
         cmd_run(a)
     elif a.sub == "report":

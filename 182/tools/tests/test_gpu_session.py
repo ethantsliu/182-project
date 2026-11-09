@@ -17,6 +17,8 @@ import stats
 
 FAKE_TRAINER = r'''
 import os, random, sys, uuid
+if os.environ.get("FAKE_CRASH") == "1":
+    sys.exit(3)
 seed = os.environ.get("TRAIN_SEED")
 rng = random.Random(int(seed) if seed is not None else None)
 val = 3.278 + rng.gauss(0, 0.001)              # same seed -> same noise in every arm
@@ -196,6 +198,56 @@ class TestGpuSession(SessionRepo):
         self.assertEqual(self.status("bundle"), "PASS")
         self.assertIn("failed phases: sanity", out)
 
+    def test_crashing_gate_stops_early_resumes_then_replans(self):
+        rc, out = self.run_session("gate", FAKE_CRASH="1")
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(self.status("gate").startswith("FAIL"), self.status("gate"))
+        self.assertIn("stopping: 3 consecutive non-ok runs", out)
+        self.assertEqual(len(self.ends("gate")), 3)          # 5 slots left pending, not burned
+        self.assertIn("GATE_DECISION=NODATA", (self.sd / "gate/decision.env").read_text())
+        rc, out = self.run_session("gate", FAKE_CRASH="1", STOP_AFTER_FAILURES="100")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("resuming: 5 slot(s) pending", out)
+        self.assertEqual(len(self.ends("gate")), 8)
+        # every slot finished, none usable: the next re-run sets the attempt aside and plans afresh
+        rc, out = self.run_session("gate", "bundle", FAKE_GAP="0")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("re-planning: previous attempt moved to", out)
+        self.assertEqual(self.status("gate"), "PASS")
+        self.assertIn("GATE_DECISION=STOP", (self.sd / "gate/decision.env").read_text())
+        self.assertEqual(len(self.ends("gate.attempt1")), 8)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("== gate.attempt1:", summary)
+        self.assertIn("GATE: NODATA", summary)
+        self.assertIn("-> STOP", summary)
+        # FORCE=1 re-plans a finished phase instead of silently resuming nothing
+        rc, out = self.run_session("gate", FORCE="1", GATE_SEEDS="7,8")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue((self.sd / "gate.attempt2/plan.json").exists())
+        self.assertEqual({e["seed"] for e in self.ends("gate")}, {7, 8})
+
+    def test_bad_hadamard_variant_fails_before_planning(self):
+        rc, out = self.run_session("hadamard", FORCE_HADAMARD="1", HADAMARD_VARIANTS="all@128 dx")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("HADAMARD_VARIANTS entry 'dx' is not GEMMS@BLOCK", out)
+        self.assertFalse((self.sd / "hadamard/plan.json").exists())
+
+    def test_quick_mode_phases(self):
+        env = {k: v for k, v in self.env.items() if k != "SESSION_DIR"}
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", QUICK="1"), capture_output=True, text=True, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("phases: env sanity gate bundle ", r.stdout)
+        self.assertNotIn("== tests:", r.stdout)
+        self.assertNotIn("t2 prefetch", r.stdout)
+
+    def test_hung_command_is_timed_out(self):
+        if subprocess.run(["timeout", "--foreground", "1", "true"], capture_output=True).returncode != 0:
+            self.skipTest("no coreutils timeout")
+        rc, out = self.run_session("sanity", SANITY_CMD="sleep 60", SANITY_TIMEOUT_S="1")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.status("sanity"), "FAIL rc=124")
+
     def test_t2_skips_with_reason_on_small_host(self):
         rc, out = self.run_session("t2", T2_MIN_RAM_GIB="100000")
         self.assertEqual(rc, 0, out)
@@ -252,6 +304,64 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(ss.gate_decision(ab)["decision"], "GAP")
         groups["fp8"] = groups["fp8"][:1]
         self.assertEqual(ss.gate_decision(ab)["decision"], "NODATA")
+
+    def test_real_record_logs_with_failed_runs(self):
+        """An ab_run dir as a bundle has it: real ANVIL2 logs for the fp8 arm, and a crash, a timeout and a
+        NaN (with the console stdout only, no log copy) next to one ok run in the FP8_OFF arm."""
+        src = os.path.join(REPO, "records/track_1_short/2026-08-30_ANVIL2/this_pr")
+        logs = sorted(f for f in os.listdir(src) if f.endswith(".txt"))[:4]
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "logs")); os.makedirs(os.path.join(d, "stdout"))
+            runs, recs = [], []
+            for rep in range(4):
+                for arm in ("fp8", "bf16"):
+                    idx = len(runs)
+                    runs.append(dict(idx=idx, rep=rep, arm=arm, seed=rep + 1, kind="measure"))
+                    so = os.path.join(d, "stdout", f"{idx:03d}_{arm}.out")
+                    rec = dict(event="end", idx=idx, rep=rep, arm=arm, kind="measure", seed=rep + 1,
+                               stdout="/gpu/box/" + os.path.basename(so), log=None, val_loss=None, train_time_s=None)
+                    if arm == "fp8" or rep == 3:
+                        shutil.copy(os.path.join(src, logs[rep]), os.path.join(d, "logs", f"{idx:03d}_{logs[rep]}"))
+                        from logparse import parse_file
+                        lg = parse_file(os.path.join(d, "logs", f"{idx:03d}_{logs[rep]}"))
+                        rec.update(status="ok", log="/gpu/box/" + f"{idx:03d}_{logs[rep]}", val_loss=lg.val_loss,
+                                   train_time_s=lg.train_time_s)
+                        if arm == "bf16":
+                            rec["val_loss"] -= 0.001
+                        Path(so).write_text("ok\n")
+                    else:
+                        status, text = [("failed", "Traceback (most recent call last):\nRuntimeError: CUDA error\n"),
+                                        ("timeout", "logs/x.txt\nstep:300/1194 train_time:12000ms step_avg:40.00ms\n"),
+                                        ("nan", "step:1194/1194 val_loss:nan train_time:39000ms step_avg:32ms\n")][rep]
+                        rec["status"] = status
+                        Path(so).write_text(text)
+                    recs.append(rec)
+            plan = dict(arms=[dict(name="fp8", env={}), dict(name="bf16", env={"FP8_OFF": "1"})], baseline="fp8",
+                        n=4, seeds=[1, 2, 3, 4], cache="warm", order="blocked", runs=runs)
+            Path(d, "plan.json").write_text(json.dumps(plan))
+            Path(d, "ledger.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+            ab = ss.load_ab(d)
+            text = "\n".join(ss.ab_table("gate", ab))
+            self.assertRegex(text, r"fp8 +4/4 +3\.2\d{4}±")
+            self.assertRegex(text, r"bf16 +1/4 .*FP8_OFF=1 +\[non-ok: failed,timeout,nan\]")
+            self.assertTrue(all(5 < x < 60 for x in ab["groups"]["fp8"][0]["details"]["stage_ms"]))
+            self.assertIn("paired bf16-fp8 (n=1): Δval -1.00±nan mnat", text)
+            g = ss.gate_decision(ab)
+            self.assertEqual((g["decision"], g["n"]), ("NODATA", 1))
+            self.assertEqual(ss.ab_check(ab, gate=True)[0], 4)
+            self.assertEqual(ss.ab_check(ab)[0], 0)  # each arm has an ok run: fine for a non-gate phase
+            os.remove(os.path.join(d, "ledger.jsonl"))
+            ab = ss.load_ab(d)
+            self.assertEqual(ss.ab_check(ab, gate=True), (3, "8 slot(s) pending"))
+            self.assertIn("[8 slot(s) never ran]", ss.ab_table("gate", ab)[0])
+            self.assertIn("GATE: NODATA", "\n".join(ss.gate_lines(ss.gate_decision(ab))))
+
+    def test_t2_without_train_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "stdout.txt").write_text("endpoint_result: steps=5800 val_loss=2.95\n")
+            out = "\n".join(ss.t2_lines(d))
+        self.assertIn("train_time=nan s", out)
+        self.assertIn("does NOT reproduce", out)
 
     def test_t2_vs_reference(self):
         with tempfile.TemporaryDirectory() as d:
