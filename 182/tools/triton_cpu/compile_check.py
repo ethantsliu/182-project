@@ -1,6 +1,7 @@
 """Compile the record's MLP / Hadamard Triton kernels for H100 (sm_90a) on a CPU-only machine.
 
-    TRITON_INTERPRET=0 bash 182/tools/triton_cpu/run.sh python 182/tools/triton_cpu/compile_check.py
+    bash 182/tools/triton_cpu/run.sh aot                 # every variant: errors, smem per stage, regs, spills
+    bash 182/tools/triton_cpu/run.sh aot --base <sha>    # + record-path SASS identical to <sha>'s?
 
 The real host launchers (hadamard_dual_quant, hadamard_t_quant, quantize_weights_rotated,
 quantize_mlp_weights_dual, linear_relu_square) run on CPU tensors; every `kernel[grid](...)` they issue is
@@ -10,8 +11,13 @@ dtypes and constexprs the launchers build. Nothing runs. Per variant it reports 
 num_stages (H100 opt-in limit 232448 B; linear_relu_square steps num_stages down from its default on
 OutOfResources) and ptxas registers / spills.
 
+With --base, the record (flags-off) variants are compiled from both trees through the launcher API they
+share, and their normalized SASS (cuobjdump -sass, addresses stripped) is compared: identical SASS means
+the change cannot alter the record's kernels. Adapted from rv-kern's aot_sm90.py / sass_cmp.py.
+
 Compile-tested only: no numerics (that is the interpreter's job) and no timing.
 """
+import argparse
 import os
 import re
 import subprocess
@@ -27,7 +33,14 @@ from triton.backends.compiler import GPUTarget  # noqa: E402
 from triton.runtime import driver  # noqa: E402
 from triton.runtime.jit import JITFunction  # noqa: E402
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--root", default=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")),
+                 help="tree whose track_1_short is compiled")
+_ap.add_argument("--record-only", action="store_true", help="only the flags-off variants (any tree's API)")
+_ap.add_argument("--sass-dir", help="write normalized SASS of the record variants here")
+_ap.add_argument("--base", help="a second tree (git archive of the base commit): compare record SASS")
+ARGS = _ap.parse_args()
+sys.path.insert(0, ARGS.root)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 H100_SMEM = 232448
@@ -84,6 +97,19 @@ def ptxas_stats(kernel):
             int(spill.group(2)) if spill else None)
 
 
+def sass_text(kernel):
+    cuobjdump = os.path.join(os.path.dirname(triton.__file__), "backends", "nvidia", "bin", "cuobjdump")
+    with tempfile.NamedTemporaryFile(suffix=".cubin") as f:
+        f.write(kernel.asm["cubin"])
+        f.flush()
+        out = subprocess.run([cuobjdump, "-sass", f.name], capture_output=True, text=True).stdout
+    return "\n".join(re.sub(r"/\*[0-9a-f]{4,}\*/", "", ln).strip() for ln in out.splitlines() if "/*" in ln)
+
+
+RECORD_CALLS = ("quantize_mlp_weights_dual", "linear_relu_square bf16 forward",
+                "linear_relu_square fp8 forward (record)", "linear_relu_square fp8 backward (record)")
+
+
 def run_launchers():
     """Call every launcher the way training does (shapes: one 768-wide MLP slot, 1024 tokens), for every
     rotation block (HADAMARD_BLOCK 32 / 64 / 128) and every HADAMARD_GEMMS subset the kernels distinguish."""
@@ -136,6 +162,8 @@ def run_launchers():
             calls.append((f"linear_relu_square fp8 backward ROT_ROW={int(rr)} ROT_T={int(rt)} HB={hb}",
                           lambda q=q, rr=rr, rt=rt: mlp.linear_relu_square(a, b, **bwd, hadamard_q=q, rot_row=rr,
                                                                            rot_t=rt)))
+    if ARGS.record_only:
+        calls = [c for c in calls if c[0] in RECORD_CALLS]
     results = []
     for name, fn in calls:
         n0 = len(RECORDS)
@@ -171,8 +199,45 @@ def main():
             regs, ss, sl = ptxas_stats(k)
             fits = "fits" if smem <= H100_SMEM else "EXCEEDS 227KB"
             print(f"   {kname} stages={st} {flags}: smem {smem} B ({fits}), {regs} regs, spill st/ld {ss}/{sl} B")
+    if ARGS.sass_dir:
+        os.makedirs(ARGS.sass_dir, exist_ok=True)
+        for name, recs, err in results:
+            if name not in RECORD_CALLS:
+                continue
+            for kname, key, st, k in recs:
+                if not isinstance(k, Exception):
+                    fn = re.sub(r"[^A-Za-z0-9]+", "_", f"{name} s{st}").strip("_") + ".sass"
+                    with open(os.path.join(ARGS.sass_dir, fn), "w") as f:
+                        f.write(sass_text(k))
     print("RESULT:", "FAILURES" if failed else "all variants compiled")
+    if ARGS.base:
+        failed |= compare_base()
     return 1 if failed else 0
+
+
+def compare_base():
+    """Record-variant SASS of this tree vs ARGS.base (compiled in a subprocess: the trees share module names)."""
+    d = tempfile.mkdtemp()
+    new, old = os.path.join(d, "new"), os.path.join(d, "base")
+    me = os.path.abspath(__file__)
+    for root, out in ((ARGS.root, new), (ARGS.base, old)):
+        r = subprocess.run([sys.executable, me, "--root", root, "--record-only", "--sass-dir", out],
+                           capture_output=True, text=True)
+        if r.returncode:
+            print(f"SASS compare: compiling {root} failed\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+            return True
+    names = sorted(set(os.listdir(new)) | set(os.listdir(old)))
+    diff = False
+    print("== record-path SASS vs base")
+    for n in names:
+        a = open(os.path.join(new, n)).read() if os.path.exists(os.path.join(new, n)) else None
+        b = open(os.path.join(old, n)).read() if os.path.exists(os.path.join(old, n)) else None
+        same = a is not None and a == b
+        diff |= not same
+        print(f"   {n[:-5]}: {'identical' if same else 'DIFFERS'} ({0 if a is None else a.count(chr(10)) + 1} vs "
+              f"{0 if b is None else b.count(chr(10)) + 1} instructions)")
+    print("SASS:", "record path DIFFERS from base" if diff else "record path identical to base")
+    return diff
 
 
 if __name__ == "__main__":

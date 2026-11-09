@@ -55,7 +55,7 @@ the record's `torch==2.10` installs; `TRITON_CPU_VERSION=3.5.1` for torch 2.9.1 
 
 ```bash
 bash 182/tools/triton_cpu/run.sh python -m pytest 182/tools/triton_cpu 182/hadamard-fp8/tests -q   # interpreter
-TRITON_INTERPRET=0 bash 182/tools/triton_cpu/run.sh python 182/tools/triton_cpu/compile_check.py   # sm_90a compile
+bash 182/tools/triton_cpu/run.sh aot [--base <sha>]                                               # sm_90a compile
 ```
 
 - **Interpreter** (`TRITON_INTERPRET=1`): runs the real kernels on CPU tensors. The stock interpreter is
@@ -66,9 +66,12 @@ TRITON_INTERPRET=0 bash 182/tools/triton_cpu/run.sh python 182/tools/triton_cpu/
   per program. `test_interp_probes.py` checks each fix (73 probes; `TRITON_CPU_NO_SHIM=1` shows 20 failing raw).
   Not modelled: tf32 for fp32 dots, GPU accumulation order, approximate `tl.sqrt`, races between programs.
   The GPU kernel tests fall back to CPU under the interpreter. Anything that compiles CUDA C (nvrtc) stays GPU-only.
-- **Compile check**: a fake sm_90 driver turns every launch the real host launchers issue into a JIT
-  warmup. Kernels go through the frontend, TTGIR/LLVM and the wheel's ptxas. Per variant it reports
-  shared memory for each `num_stages` (H100 limit 232448 B) and ptxas registers/spills. Nothing runs.
+- **Compile check** (`aot`, `compile_check.py`): a fake sm_90 driver turns every launch the real host
+  launchers issue into a JIT warmup, for every HADAMARD_BLOCK and rotation subset. Kernels go through the
+  frontend, TTGIR/LLVM and the wheel's ptxas. Per variant it reports shared memory for each `num_stages`
+  (H100 limit 232448 B) and ptxas registers/spills. With `--base <sha>` it also compiles the record
+  (flags-off) variants from `git archive <sha>` and diffs their normalized SASS: identical means the
+  change cannot touch the record's kernels. Nothing runs.
 
 Labels: interpreter-tested = logic and indexing; compile-tested = it builds for H100 (smem, regs). Neither
 says anything about speed, and neither replaces a GPU run.

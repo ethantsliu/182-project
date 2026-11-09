@@ -26,6 +26,7 @@ import torch
 
 if os.environ.get("TRITON_INTERPRET") != "1":
     pytest.skip("interpreter-only (182/tools/triton_cpu/run.sh)", allow_module_level=True)
+pytest.importorskip("triton")
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
