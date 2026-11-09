@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# A/B runner for the Track 2 GPU port. Run from the repo root on an 8xH100 node with the
-# fineweb10B shards in data/ (python data/cached_fineweb10B.py 25; medium trains on ~1.9B tokens).
+# A/B runner for the Track 2 GPU port, on an 8xH100 node. Runs from variants/t2-gpu-port (it cd's there
+# itself) and reads the fineweb10B shards from $DATA_PATH, default ../.. = the repo root's data/
+# (cd ../.. && python data/cached_fineweb10B.py 25; medium trains on ~1.9B tokens).
 #
 #   182/t2-gpu-port/ablate.sh <arm> <n_runs>      e.g.  182/t2-gpu-port/ablate.sh base 3
 #   python 182/t2-gpu-port/summarize.py runs/      # mean/std/p per arm
@@ -9,6 +10,9 @@
 # trainer's own log path (logs/<uuid>.txt) is printed on the first line of each .out file.
 set -euo pipefail
 arm=${1:?arm name}; n=${2:-1}
+cd "$(dirname "$0")/../.."  # variants/t2-gpu-port, where train_gpt_medium.py lives
+export DATA_PATH=${DATA_PATH:-../..}
+ls "$DATA_PATH"/data/fineweb10B/fineweb_val_*.bin > /dev/null || { echo "no val shards under DATA_PATH=$DATA_PATH"; exit 1; }
 
 case "$arm" in
   base)      envs="" ;;
@@ -18,6 +22,7 @@ case "$arm" in
   prefix_s)  envs="PREFIX_WEIGHT=0.25 PREFIX_HOLD_FRAC=0.10 PREFIX_END_FRAC=0.25" ;;  # medium's MTP ends at 1/6
   xsa)       envs="XSA=1" ;;
   xsa_nog)   envs="XSA=1 ATTN_GATE=0" ;;
+  fmlp)      envs="FUSED_MLP=1" ;;
   stack)     envs="COORD_DESCENT_TUNING=1 CANON_MASK=1 VAL_CE_CHUNKS=8 PREFIX_WEIGHT=0.25 XSA=1" ;;
   # step retune of the stack: pass NUM_SCHEDULED_ITERATIONS / NUM_EXTENSION_ITERATIONS in the environment
   stack_steps) envs="COORD_DESCENT_TUNING=1 CANON_MASK=1 VAL_CE_CHUNKS=8 PREFIX_WEIGHT=0.25 XSA=1 NUM_SCHEDULED_ITERATIONS=${NUM_SCHEDULED_ITERATIONS:-4065}" ;;

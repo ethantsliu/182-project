@@ -56,6 +56,10 @@ XSA = _env_int("XSA", 0)
 XSA_LAYERS = os.environ.get("XSA_LAYERS", "all")
 # Sparse attention gate on/off. Record #86 dropped it once XSA was in (both act as attention sinks).
 ATTN_GATE = _env_int("ATTN_GATE", 1)
+# Fused relu^2 MLP: triton_kernels.FusedLinearReLUSquareFunction (track 1 record #59 @andrewbriand
+# @jrauvola, bf16, x @ W1.T -> relu^2 epilogue in one kernel; backward fuses 2*(g @ W2.T)*relu(pre)).
+# Medium forked from track 1 before #59 and still runs the MLP as three inline ops. Same math in bf16.
+FUSED_MLP = _env_int("FUSED_MLP", 0)
 # Step count / lr retune (PR #252 left loss budget; see 182/t2-gpu-port/README.md).
 NUM_SCHEDULED_ITERATIONS = _env_int("NUM_SCHEDULED_ITERATIONS", 4125)
 NUM_EXTENSION_ITERATIONS = _env_int("NUM_EXTENSION_ITERATIONS", 25)
@@ -71,7 +75,7 @@ import triton
 import triton.language as tl
 from kernels import get_kernel
 from torch import Tensor, nn
-from triton_kernels import XXT, XTX, ba_plus_cAA, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+from triton_kernels import XXT, XTX, ba_plus_cAA, FusedSoftcappedCrossEntropy, FusedLinearReLUSquareFunction, transpose_add, transpose_copy
 from medium_extras import BackgroundCanonicalMask, build_prefix_table_bucket
 
 dynamo.config.recompile_limit = 64
@@ -1506,9 +1510,13 @@ class GPT(nn.Module):
                 x = x + attn_out
             # MLP: inline F.linear + relu().square() + F.linear
             mlp_in = norm(x)
-            mlp_h = F.linear(mlp_in, mlp_fcs[i].type_as(mlp_in))
-            mlp_h = F.relu(mlp_h).square()  # https://arxiv.org/abs/2109.08668v2
-            mlp_out = F.linear(mlp_h, mlp_projs[i].T.type_as(mlp_h))
+            if FUSED_MLP:
+                # relu(mlp_in @ c_fc.T)^2 @ c_proj; both banks are [4096, 1024] as the kernel wants
+                mlp_out = FusedLinearReLUSquareFunction.apply(mlp_in, mlp_fcs[i].type_as(mlp_in), mlp_projs[i].type_as(mlp_in))
+            else:
+                mlp_h = F.linear(mlp_in, mlp_fcs[i].type_as(mlp_in))
+                mlp_h = F.relu(mlp_h).square()  # https://arxiv.org/abs/2109.08668v2
+                mlp_out = F.linear(mlp_h, mlp_projs[i].T.type_as(mlp_h))
             if next_resid_mlp_gate is not None:
                 x = next_resid_mlp_gate * x + next_post_mlp_gate * mlp_out
                 next_resid_mlp_gate = None

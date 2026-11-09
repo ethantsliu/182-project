@@ -13,6 +13,8 @@
    tiny width with flash-attention and the fused CE replaced by plain-torch references, run forward +
    backward under each flag combination; every parameter gets a gradient, every optimizer label is
    covered, the canonical mask can only lower the eval loss, and XSA at alpha=0 is an exact no-op.
+   FUSED_MLP runs triton_kernels.FusedLinearReLUSquareFunction's real autograd code with a torch stand-in
+   for the Triton kernel and matches the inline MLP's loss and gradients up to bf16 rounding.
 """
 import glob
 import os
@@ -65,6 +67,20 @@ def test_canonical_mask():
     # BOS/EOT is never masked, as target or as context
     assert np.unpackbits(packed[:, enc.eot_token // 8], bitorder="little").reshape(VOCAB, 8)[:, enc.eot_token % 8].sum() == 0
     assert packed[enc.eot_token].sum() == 0
+    # check_canon_val.py (run on the box against the real val shard): reads a .bin shard and finds masked pairs
+    import tempfile
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from check_canon_val import count_masked_pairs, load_shard
+    p_bad, c_bad = map(int, np.argwhere(np.unpackbits(packed[:2000], axis=1, bitorder="little"))[0])
+    for extra, want in [([], 0), ([p_bad, c_bad], 1)]:
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            body = np.concatenate([toks, extra]).astype(np.uint16)
+            header = np.zeros(256, dtype=np.int32)
+            header[:3] = 20240520, 1, len(body)
+            f.write(header.tobytes() + body.tobytes())
+            f.flush()
+            hits = count_masked_pairs(packed, load_shard(f.name))
+        assert len(hits) == want and (not want or hits[0] == len(toks)), (want, hits)
     frac = np.unpackbits(packed, axis=1, bitorder="little").mean()
     print(f"  {len(toks)} corpus tokens, 0 canonical pairs masked; {100 * frac:.2f}% of all pairs masked")
 
@@ -214,6 +230,28 @@ class _FusedCERef:
         return loss - prefix_weight * torch.where(valid, pfx, torch.zeros_like(pfx))
 
 
+def _fused_mlp_class():
+    """The real FusedLinearReLUSquareFunction from triton_kernels.py (its source, exec'd), with the Triton
+    linear_relu_square kernel replaced by a torch stand-in that also checks the kernel's input contract."""
+    with open(os.path.join(ROOT, "triton_kernels.py")) as f:
+        src = f.read()
+    cls_src = src[src.index("class FusedLinearReLUSquareFunction"):src.index("# Tiled transpose copy kernel")]
+    cls_src = cls_src[:cls_src.rindex("# ---")]
+
+    def linear_relu_square(a, b, aux=None):
+        # kernel contract: 2D, contiguous bf16 operands (TMA descriptors, tl.bfloat16 epilogue), b is [N, K]
+        assert a.ndim == b.ndim == 2 and a.is_contiguous() and b.is_contiguous(), (a.shape, b.shape)
+        assert a.dtype == b.dtype == torch.bfloat16 and a.shape[1] == b.shape[1], (a.dtype, b.dtype, a.shape, b.shape)
+        c = (a.float() @ b.float().T).bfloat16()  # fp32 accumulate, bf16 out
+        if aux is None:
+            return c, torch.relu(c).square()  # pre, post = relu(pre)^2
+        return 2 * c * torch.where(aux > 0, aux, 0)  # dpre = 2 * (g @ W2.T) * relu(pre)
+
+    g = dict(torch=torch, linear_relu_square=linear_relu_square)
+    exec(compile(cls_src, "triton_kernels.py[FusedLinearReLUSquareFunction]", "exec"), g)
+    return g["FusedLinearReLUSquareFunction"]
+
+
 def _load_trainer(flags: dict):
     """Exec the model + training-manager sections of train_gpt_medium.py with CPU stand-ins."""
     import dataclasses
@@ -245,7 +283,8 @@ def _load_trainer(flags: dict):
              get_kernel=lambda name: types.SimpleNamespace(flash_attn_interface=_FlashRef),
              FusedSoftcappedCrossEntropy=_FusedCERef, NorMuonAndAdam=_Opt, _sparse_comms_active=lambda: False,
              CANON_MASK=0, VAL_CE_CHUNKS=4, PREFIX_WEIGHT=0.0, PREFIX_HOLD_FRAC=0.2854, PREFIX_END_FRAC=0.6063,
-             XSA=0, XSA_LAYERS="all", ATTN_GATE=1, MUON_LR=0.015, ADAM_LR=0.004)
+             XSA=0, XSA_LAYERS="all", ATTN_GATE=1, MUON_LR=0.015, ADAM_LR=0.004,
+             FUSED_MLP=0, FusedLinearReLUSquareFunction=_fused_mlp_class())
     g.update(flags)
     exec(compile(model_src + tm_src, "train_gpt_medium.py[model+tm]", "exec"), g)
     return g
@@ -327,9 +366,15 @@ def test_model_smoke():
     assert cz[1] == base[1] and cz[2] == base[1]
     cm = _smoke({"CANON_MASK": 1, "VAL_CE_CHUNKS": 8}, canon_fn=_random_sound_mask)
     assert abs(cm[1] - base[1]) < 1e-5 and cm[2] < cm[1], (cm[1], cm[2], base[1])
+    # fused relu^2 MLP: same math as the inline path up to bf16 rounding, in loss and in every gradient
+    fm = _smoke({"FUSED_MLP": 1})
+    assert abs(fm[0] - base[0]) < 2e-3 * abs(base[0]) and abs(fm[1] - base[1]) < 2e-3 * abs(base[1]), (fm[:2], base[:2])
+    for (n, p), (_, q) in zip(base[3].named_parameters(), fm[3].named_parameters()):
+        cos = torch.nn.functional.cosine_similarity(p.grad.float().flatten(), q.grad.float().flatten(), dim=0)
+        assert p.grad.norm() == 0 or cos > 0.995, (n, float(cos))
     # everything at once
-    _smoke({"XSA": 1, "ATTN_GATE": 0, "PREFIX_WEIGHT": 0.25, "CANON_MASK": 1}, canon_fn=_random_sound_mask)
-    print(f"  fwd/bwd OK for base, XSA, ATTN_GATE=0, PREFIX_WEIGHT, CANON_MASK and all combined; "
+    _smoke({"XSA": 1, "ATTN_GATE": 0, "PREFIX_WEIGHT": 0.25, "CANON_MASK": 1, "FUSED_MLP": 1}, canon_fn=_random_sound_mask)
+    print(f"  fwd/bwd OK for base, XSA, ATTN_GATE=0, PREFIX_WEIGHT, CANON_MASK, FUSED_MLP and all combined; "
           f"masked eval {cm[2]:.4f} < unmasked {cm[1]:.4f}")
 
 
