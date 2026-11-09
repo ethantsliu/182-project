@@ -26,7 +26,13 @@ cd variants/t1-gpu-stack && DATA_PATH=../.. torchrun --standalone --nproc_per_no
 
 ## First steps on the 8xH100 box
 
-1. `bash 182/tools/node_setup.sh --mode docker`, then `python variants/t1-cpu-ngram/182/t1-cpu-ngram/node_check.py` (RAM/CPU for the CPU-retrieval variants).
-2. `182/tools/profile_nsys.sh` on the root record, then a root-vs-root A/B to confirm the harness shows no difference.
-3. Reproduce `variants/t2-cpu-ngram` (~2.877 at 5800 steps), then cut steps.
-4. Cheap negative-result checks: `FP8_OFF=mlp,qkv,lm` and `MONARCH_MLP=1` A/Bs at the root.
+```bash
+bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/activate   # docker: --mode docker, then SESSION_DOCKER=modded-nanogpt bash 182/gpu_session.sh
+bash 182/gpu_session.sh        # ~1.5-2 h; resumable (re-run the same command); DRY_RUN=1 prints the plan
+```
+
+It runs `env tests sanity gate hadamard t2 bundle` (or just the phases you name), prints a GPU-minute estimate
+before each, and ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Send that one file.
+The gate is the `182/hadamard-fp8` decision rule (record vs `FP8_OFF=1`, 4 paired seeds); the Hadamard A/B runs
+only if its 95% CI reaches 0.5 mnat; t2 is skipped (with the reason) on a host without ~390 GiB RAM / 24 vCPU per GPU.
+Knobs are listed at the top of the script. Read a bundle with `python 182/tools/summarize_session.py <bundle>`.
