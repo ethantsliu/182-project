@@ -124,7 +124,8 @@ def test_config_knobs(env, want):
     assert res.stdout.strip() == want
 
 
-@pytest.mark.parametrize("env", [{"HADAMARD_BLOCK": "16"}, {"HADAMARD_FP8": "1", "HADAMARD_GEMMS": "dw3"}])
+@pytest.mark.parametrize("env", [{"HADAMARD_BLOCK": "16"}, {"HADAMARD_FP8": "1", "HADAMARD_GEMMS": "dw3"},
+                                 {"HADAMARD_GEMMS": "dw3"}, {"HADAMARD_GEMMS": ","}])  # validated with HADAMARD_FP8 off too
 def test_config_rejects_bad_values(env):
     assert _config(env).returncode != 0
 

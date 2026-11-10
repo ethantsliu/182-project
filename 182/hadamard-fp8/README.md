@@ -2,13 +2,16 @@
 
 Folded into `main` at the repo root, on top of upstream record #92 (ANVIL2, 39.9 s). **Nothing here has run on a GPU.**
 CPU-verified: the pure-torch Hadamard reference, the bf16 loss, the dump format and the offline script
-(`python -m pytest 182/hadamard-fp8/tests -q`: 23 pass, the GPU file skips). Every Triton change, every
-training-path change and every torch.compile / CUDA-graph interaction is **untested**.
+(`python -m pytest 182/hadamard-fp8/tests -q`; without triton the interpreter and GPU files skip, each with
+its reason). The Triton kernels are interpreter-tested and compile-tested for sm_90a
+(`bash 182/tools/triton_cpu/run.sh`, see 182/tools/README.md). Every training-path change and every
+torch.compile / CUDA-graph interaction is **untested** on a GPU.
 
 ## Decision rule
 
 Run the bf16 upper bound first. **If the bf16-vs-fp8 val-loss gap at a fixed step count is < 0.5 millinat
-(0.0005), Hadamard is pointless: drop it.** Rotation can at most recover that gap. Estimate the gap from
+(0.0005), Hadamard is pointless: drop it.** The bf16 gap is a heuristic ceiling on what rotation can
+recover (rotation shrinks fp8 rounding error rather than removing it), not a bound. Estimate the gap from
 paired runs (same `TRAIN_SEED`, fp8 vs `FP8_OFF=1`), at least 4 seeds, and report the mean paired
 difference with its standard error. Track-1 records report run-to-run std of 0.7-2 mnat, so a single
 pair can't resolve 0.5 mnat. Use the 182/tools A/B runner + t-test.
@@ -16,6 +19,9 @@ pair can't resolve 0.5 mnat. Use the 182/tools A/B runner + t-test.
 - Gap clearly above 0.5 mnat: attribute it (`FP8_OFF=mlp`, `=qkv`, `=lm`), dump tensors, run the offline
   script, and run the `HADAMARD_FP8=1` arm only if the script shows the rotated gradient GEMMs gaining
   meaningfully (output rel-MSE ratio well below ~0.9) on the part that carries the gap.
+
+`182/gpu_session.sh` automates only the first step (the paired gap, its CI and decision). It does not run the
+attribution arms, the dump or the offline script; its hadamard phase is a cheaper prescreen in their place.
 
 The prior is that it is pointless. e4m3/e5m2 are float formats, so with per-tensor scales the relative
 rounding error is about the same whatever the scale. Outliers only hurt through saturation (static
@@ -30,7 +36,7 @@ The record's scales were tuned not to saturate.
 |---|---|
 | `FP8_OFF=1` (or `all`, or a list like `mlp,qkv,lm`) | Runs those training GEMMs in bf16 with the same math otherwise. **MLP**: `BF16LinearReLUSquareFunction` (same forward kernel as validation; dW2, dpre, dW1, dx as bf16 GEMMs; post-lambda via `scale_add`, not folded). **QKV**: `PackedBF16QKV` (bf16 projection, the same fused norm/rotary/V backward kernel with a new `FP8_OUT=False` bf16 output). **lm**: `perf/bf16_loss.py`, plain-torch slabbed softcapped MTP + prefix CE with a bf16 lm_head GEMM and the CE kernel's exact gradient convention, also on sampled-softmax steps via a new `SampledLoss.candidates` view. The fp8 caches are still refreshed, just not read. Attention itself stays bf16 FA3 either way. Slower; compare val loss at fixed steps only. |
 | `HADAMARD_FP8=1` (`HADAMARD_SEED`, default 1234) | Block-128 random-sign Hadamard rotation along the contraction dim for the four MLP gradient GEMMs, fused into the existing quantize paths (`perf/kernels/hadamard.py`, `mlp.py` epilogues): dW2 (post_t from the forward epilogue, g_t along tokens), dpost (g_row, W2 row cache along 768), dW1 (dpre_t from the backward epilogue, x_t along tokens), dx (dpre row, W1 col cache along hidden). The forward GEMMs are untouched, and so are their numerics: the rotated post_t has its own delayed scale (`post_t_scale`/`post_t_amax`), the forward's post scale sees only the unrotated post. Scales: g stays static; dpre keeps one delayed scale whose amax covers both its layouts; the rotated weight caches get their own exact-then-delayed scales; x_t gets a new delayed scale (`FP8_XT_HEADROOM` 1.10). A token-rotated x at the static 2^-4 can saturate (see the `dW1 xt-static` row of the script). QKV and lm_head are **not** rotated (next step if MLP shows a gain). Requires per-rank tokens, 2816 and 768 to be multiples of 128 (asserted). |
-| `HADAMARD_GEMMS=dw1,dw2,dx,dpost` (subset; default all) | Only the listed gradient GEMMs read rotated operands; an unlisted one reads the record's operands on both sides with no extra dot, kernel or weight-cache write (dW2: forward post_t epilogue + g_t; dpost: g_row + W2 row cache; dW1: backward dpre_t epilogue + x_t; dx: backward dpre row epilogue + W1 col cache). Inert without `HADAMARD_FP8=1`. |
+| `HADAMARD_GEMMS=dw1,dw2,dx,dpost` (subset; default all) | Only the listed gradient GEMMs read rotated operands; an unlisted one gets no rotation on either operand and no extra dot, kernel or weight-cache write. That is not always the record's exact operand: with `dpost` but not `dw2`, dW2's g_t is quantized from the stored bf16 g (the record rounds the producer's fp32), and dx and dW1 share the delayed dpre scale, so rotating one layout can move the other's scale (dW2: forward post_t epilogue + g_t; dpost: g_row + W2 row cache; dW1: backward dpre_t epilogue + x_t; dx: backward dpre row epilogue + W1 col cache). Inert without `HADAMARD_FP8=1`. |
 | `HADAMARD_BLOCK=32\|64\|128` (default 128) | Rotation block. Kernels keep 128-wide tiles and rotate each block-diagonally (reshape + `[R*128/b, b] @ [b, b]` dot), so the epilogue dots cost 2b instead of 256 FLOP/element. A factored full-128 rotation (H16 ⊗ H8) was not implemented: the H8 butterflies need shared-memory layout round trips in Triton and K=8 is too small for a bf16 wgmma (see `perf/kernels/hadamard.py`). |
 | `FP8_DUMP_DIR=dir` (`FP8_DUMP_STEPS=100,500,1000`, `FP8_DUMP_ROWS=8192`, `FP8_DUMP_SLOTS=0,5,10`) | Saves `dir/stepNNNNNN.pt` with bf16 x / g / W for those MLP slots and attention layers (`perf/fp8_dump.py`). At those steps, rank 0 runs one extra **eager** forward+backward of the uncompiled model: no gradient sinks, results dropped, every fp8 amax buffer restored. The full softmax is used even on sampled steps. The clock is paused around it (`t0` moves forward) and all ranks barrier. A dump run is an analysis run, not a timing run: every val line it prints ends in `INVALID_FOR_RECORD(fp8_dump)`. The hooks check `FP8_DUMP.active()`, which short-circuits on `torch.compiler.is_compiling()`, so compiled graphs are unchanged. |
 
@@ -38,7 +44,9 @@ The record's scales were tuned not to saturate.
 one `fp8 sat` line per MLP fp8 scale (post, dpre, w1, w2; with HADAMARD_FP8 also post_t, x_t, w1_rot,
 w2_rot). Each line gives the per-slot ratio of the last step's amax to its fp8 limit (max over ranks;
 `SAT[slots]` marks ratios > 1.01, i.e. clamped values), the scales, and `STUCK[slots]` for a delayed scale
-still at its init value, i.e. an amax that never arrived. Ignore STUCK at step 0.
+still at its init value, i.e. an amax that never arrived. Ignore STUCK at step 0. Slots nothing reads print
+`-` (slot 7, which has no MLP; x_t of the parallel slot 11, which reads slot 8's; the activation scales under
+`FP8_OFF=mlp` and everything under `MONARCH_MLP`).
 
 `gpu_sanity.py` (one GPU, < 3 min, `python 182/hadamard-fp8/gpu_sanity.py`): HADAMARD on vs off in two
 subprocesses. Reports (i) the stage counts from prime_stage_cache and the regs/spills/smem of every
@@ -71,8 +79,9 @@ Not clearly supported for training, so per the brief there is no flag.
 ## Commands (8xH100, from the repo root)
 
 ```bash
-pip install pytest && python -m pytest 182/hadamard-fp8/tests -q          # GPU tests run here too
-HADAMARD_FP8=1 python -m pytest 182/hadamard-fp8/tests/test_gpu_kernels.py -q -s   # prints error tables
+pip install pytest
+python -m pytest 182/hadamard-fp8/tests -q -rs                    # what gpu_session's tests phase runs first
+HADAMARD_FP8=1 python -m pytest 182/hadamard-fp8/tests -q -rs -s  # then this: test_gpu_state, the error tables
 
 # 1. the gap: paired seeds, fp8 (record) vs bf16 upper bound, full schedule
 for s in 0 1 2 3; do
@@ -112,13 +121,12 @@ Break-even is ~0.1-0.3 s (see the decision rule), so only dpost alone, or a sing
 
 ## Still needs GPU verification / risks
 
-- Interpreter-tested (triton-interp image, `tests/test_interp_kernels.py`): every rotated kernel variant for
+- Interpreter-tested (`bash 182/tools/triton_cpu/run.sh`, `tests/test_interp_kernels.py`): every rotated kernel variant for
   blocks 32/64/128, the Function end to end for six HADAMARD_GEMMS/BLOCK settings, and byte-identical record
   kernels with the flags off. That checks arithmetic and indexing only, not layouts, smem or registers.
-- None of the Triton code has been compiled. Watch for: `tl.dot(tl.trans(tile), Q)` layout conversions
-  inside the persistent `tl.range(flatten=True)` epilogue; extra shared memory (the stage-stepping retry
-  in `prime_stage_cache` covers OutOfResources); and register spills from the four extra 128³ dots in
-  the dpre epilogue. The HADAMARD step time is unmeasured and almost certainly slower: g's row half is no
+- Compile-tested for sm_90a only (`run.sh aot`): every variant compiles and fits shared memory at the
+  record's 3 stages, but the single-rotation backward variants (only one of dx / dW1 selected) spill
+  registers (the numbers are in `mlp.py`). Nothing has run on a GPU. The HADAMARD step time is unmeasured and almost certainly slower: g's row half is no
   longer fused into its producer, the weight caches are written twice, and there are the epilogue dots.
 - `FP8_OFF` under torch.compile + CUDA graphs: the slabbed bf16 CE unrolls 4096-row slabs (≈12 at the
   largest batch); memory per slab is about 0.8 GB per fp32 [4096, 50304] temporary. Not measured.
@@ -126,8 +134,8 @@ Break-even is ~0.1-0.3 s (see the decision rule), so only dpost alone, or a sing
   Pick earlier steps if it OOMs.
 - x_t amax: `hadamard_t_quant` is now functional (returns `(t, amax)`), and `GPT._quantize_mlp_input`
   folds the amax into `_mlp_xt_amax[slot]` with aten ops. CPU-tested eager and under
-  `torch.compile(fullgraph, backend="aot_eager")` (`tests/test_hadamard_state.py`, in the triton-interp
-  image). Inductor + CUDA-graph replay is GPU-untested: `gpu_sanity.py` part (ii) / `tests/test_gpu_state.py`.
+  `torch.compile(fullgraph, backend="aot_eager")` (`tests/test_hadamard_state.py`, which runs its cases in a
+  subprocess on the interpreter). Inductor + CUDA-graph replay is GPU-untested: `gpu_sanity.py` part (ii) / `tests/test_gpu_state.py`.
 - post_t has its own delayed scale (`_mlp_post_t_scales` / `_mlp_post_t_amax`), so the forward's e4m3 post
   keeps the record's scale. The arg contract with `mlp.py` is the comment at `FP8_XT_HEADROOM` in
   `model/gpt.py`. `GPT.init_mlp_fp8` asserts that `mlp.py` implements it.

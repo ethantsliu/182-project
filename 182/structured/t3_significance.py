@@ -31,12 +31,15 @@ def final_losses(paths):
 
 
 def main(argv):
-    if not argv:
+    if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
-        return 1
+        return 0 if argv else 1
     arms = {}
     for spec in argv:
-        name, _, paths = spec.partition("=")
+        name, sep, paths = spec.partition("=")
+        if not sep or not name or not paths:
+            print(f"expected NAME=log[,log...], got {spec!r}\n{__doc__}", file=sys.stderr)
+            return 2
         arms[name] = final_losses(paths.split(","))
     base = next(iter(arms))
     print(f"{'arm':<16} {'n':>3} {'steps':>6} {'avg':>8} {'target':>8}  {'pairwise vs ' + base:>20}")

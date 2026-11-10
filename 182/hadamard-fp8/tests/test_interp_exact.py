@@ -34,6 +34,11 @@ sys.path.insert(0, str(ROOT))
 from track_1_short.perf.hadamard_ref import signed_hadamard  # noqa: E402
 from track_1_short.perf.kernels import hadamard as hd  # noqa: E402
 from track_1_short.perf.kernels import mlp  # noqa: E402
+from triton.runtime.interpreter import InterpretedFunction  # noqa: E402
+
+if not isinstance(mlp.linear_relu_square_kernel, InterpretedFunction):
+    pytest.skip("the kernels were imported compiled earlier in this session (TRITON_INTERPRET was not 1 then)",
+                allow_module_level=True)
 
 E4, E5, BF = torch.float8_e4m3fn, torch.float8_e5m2, torch.bfloat16
 LIM = {E4: 448.0, E5: 57344.0}

@@ -1,10 +1,11 @@
 """Run configuration: hyperparameters and the training-stage table.
 
 The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED, and the FP8
-experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, FP8_DUMP_* at the bottom) are read here.
-The others: torchrun's RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads
-LOCAL_RANK), PYTORCH_ALLOC_CONF (set by train_gpt.py), and CUDA_HOME (perf/kernels/cross_entropy.py,
-for the CE kernel's CUDA headers).
+experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS, FP8_DUMP_DIR /
+_STEPS / _ROWS / _SLOTS at the bottom) are read here. The others: the experiment knobs HADAMARD_SAT_STATS
+(train_gpt.py) and MONARCH_MLP / _BLOCKS / _EXPAND / _LR_MUL / _DOWN_LR_MUL (model/monarch.py); torchrun's
+RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads LOCAL_RANK), PYTORCH_ALLOC_CONF
+(set by train_gpt.py), and CUDA_HOME (perf/kernels/cross_entropy.py, for the CE kernel's CUDA headers).
 
 Provenance: the five-stage table (batch taper, batch-8 extension, seq 3072 under a 2560 attention
 cap, 52 growth steps) is record #360's.
@@ -118,15 +119,20 @@ HADAMARD_BLOCK = int(os.environ.get("HADAMARD_BLOCK", "128"))
 assert HADAMARD_BLOCK in (32, 64, 128), f"HADAMARD_BLOCK={HADAMARD_BLOCK}: use 32, 64 or 128"
 
 def _hadamard_gemms(value: str) -> frozenset[str]:
-    """HADAMARD_GEMMS: comma subset of dw1, dw2, dx, dpost (or "all", the default). A GEMM not listed reads
-    the record's unrotated operands on both sides, at the record's cost."""
+    """HADAMARD_GEMMS: comma subset of dw1, dw2, dx, dpost (or "all", the default). A GEMM not listed gets no
+    rotation on either operand. That is not always the record's exact operand path: with dpost but not dw2,
+    dW2's g_t is quantized from the stored bf16 g (one pass with the rotated g_row) where the record rounds
+    the producer's fp32; and dx / dW1 share the delayed dpre scale, whose amax covers whichever dpre layout
+    is rotated, so rotating one can move the other's scale."""
     names = {"dw1", "dw2", "dx", "dpost"}
     value = value.strip().lower()
     parts = frozenset(names if value in ("", "all") else (p.strip() for p in value.split(",") if p.strip()))
     assert parts and parts <= names, f"HADAMARD_GEMMS: unknown or empty {sorted(parts - names) or value!r}"
     return parts
 
-HADAMARD_GEMMS = _hadamard_gemms(os.environ.get("HADAMARD_GEMMS", "all")) if HADAMARD_FP8 else frozenset()
+# Validated even when HADAMARD_FP8 is off, like HADAMARD_BLOCK: a typo must not pass silently in either arm.
+_HADAMARD_GEMMS_REQUESTED = _hadamard_gemms(os.environ.get("HADAMARD_GEMMS", "all"))
+HADAMARD_GEMMS = _HADAMARD_GEMMS_REQUESTED if HADAMARD_FP8 else frozenset()
 HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX, HADAMARD_DPOST = (g in HADAMARD_GEMMS for g in ("dw1", "dw2", "dx", "dpost"))
 # FP8_DUMP_DIR: save sample MLP / QKV operands (x, dy, W) at FP8_DUMP_STEPS from rank 0, for the offline
 # quantization-error study (182/hadamard-fp8/fp8_quant_error.py). Off by default; the clock is paused

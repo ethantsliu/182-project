@@ -28,7 +28,7 @@ Nothing here has run on a GPU. Every number below is either arithmetic or from a
   It is **not** Muon applied to the composed MLP weight. Separately, orthogonalizing each attention head on its own, instead of the whole Q/K/V matrix, is known to hurt in this speedrun. So expect some of the loss hit to come from the optimizer as well as from lost capacity.
   Lr multipliers: `MONARCH_LR_MUL` (1.0) on every block, and an extra `MONARCH_DOWN_LR_MUL` (2.0) on the down blocks, mirroring c_proj's 2×. The dead slot 7 gets 0.
 - **Init.** The up projection keeps the dense `c_fc`'s output variance. Only the *last* down factor starts at zero; if both down factors were zero, neither would ever get a gradient.
-- **Precision and speed.** The Monarch MLP is plain bf16 `torch.einsum` plus transposes. It **bypasses the FP8 MLP kernel**. Attention and the lm_head stay fp8. The fp8 MLP buffers are still allocated but unused. `HADAMARD_FP8=1` together with `MONARCH_MLP=1` fails at import, because there is no fp8 MLP to rotate. `FP8_OFF=mlp` together with it is redundant but harmless.
+- **Precision and speed.** The Monarch MLP is plain bf16 `torch.einsum` plus transposes. It **bypasses the FP8 MLP kernel**. The QKV projections and the lm_head stay fp8; attention itself is bf16 FA3 either way. The fp8 MLP buffers are still allocated but unused. `HADAMARD_FP8=1` together with `MONARCH_MLP=1` fails at import, because there is no fp8 MLP to rotate. `FP8_OFF=mlp` together with it is redundant but harmless.
   So the measured step time is *not* what a tuned Monarch kernel would give. It will probably be slower than dense FP8 even though it does fewer FLOPs.
   Use the loss side as the result.
 
@@ -37,7 +37,9 @@ seed by seed (seed 0 of every arm, then seed 1, ...) so node drift does not land
 Every arm uses the root's timing, which, like upstream master, lacks #390's `dist.barrier()` before `t0`. Never mix in timings from a tree that has it.
 The script reports, against the first arm:
 - `Δloss_mnat`
-- `loss→s = Δloss_mnat × 0.164 s` (about 164 ms per millinat near the record)
+- `loss→s = Δloss_mnat × 0.164 s` (164 ms per millinat is upstream's normalization convention: the rate that makes
+  the ANVIL2 ablation table sum to its certified win; the band measured during development is ~120-250 ms/millinat,
+  records/track_1_short/2026-08-30_ANVIL2/README.md. Treat `loss→s` and `net_s` as uncertain by that factor.)
 - the measured `Δtime_s`
 - `net_s` = the sum of the two
 

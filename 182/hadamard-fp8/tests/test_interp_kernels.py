@@ -1,9 +1,8 @@
 """Triton-interpreter tests (CPU, no GPU): the HADAMARD_FP8 kernels and the fp8 MLP Function under
 HADAMARD_GEMMS / HADAMARD_BLOCK, against perf/hadamard_ref.py. Skipped unless triton is importable and
-TRITON_INTERPRET=1, e.g. in the triton-interp docker image:
+TRITON_INTERPRET=1 (set before the kernels are first imported), e.g. in the triton-cpu docker image:
 
-    docker run --rm -e TRITON_INTERPRET=1 -v $PWD:/repo -w /repo triton-interp \
-        python -m pytest 182/hadamard-fp8/tests/test_interp_kernels.py -q
+    bash 182/tools/triton_cpu/run.sh python -m pytest 182/hadamard-fp8/tests/test_interp_kernels.py -q
 
 Interpreter-tested is not GPU-tested: no layouts, shared memory, register pressure or wgmma shape rules
 are exercised, only the kernels' arithmetic and indexing. Triton 3.5.1 interpreter bugs patched here:
@@ -22,8 +21,14 @@ import types
 import pytest
 
 if os.environ.get("TRITON_INTERPRET") != "1":
-    pytest.skip("needs TRITON_INTERPRET=1 (the triton-interp docker image)", allow_module_level=True)
+    pytest.skip("needs TRITON_INTERPRET=1 (182/tools/triton_cpu/run.sh)", allow_module_level=True)
 triton = pytest.importorskip("triton")
+from triton.runtime.interpreter import InterpretedFunction  # noqa: E402
+
+_mlp_mod = sys.modules.get("track_1_short.perf.kernels.mlp")
+if _mlp_mod is not None and not isinstance(_mlp_mod.linear_relu_square_kernel, InterpretedFunction):
+    pytest.skip("the kernels were imported compiled earlier in this session (TRITON_INTERPRET was not 1 then)",
+                allow_module_level=True)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -285,9 +290,9 @@ def _function_case():
     post_amax, dpre_amax, post_t_amax = torch.zeros(1), torch.zeros(1), torch.zeros(1)
     args = [w1_row, t(s["w1"] * s["x"]).reshape(1), x_row, w2_col, t(s["w2"]), t(s["post"]), post_amax, w2_row,
             t((s["w2_row"] if "dpost" in gm else s["w2"]) * s["g"]), x_t, t(xt_s), w1_col,
-            t(s["w1_col"] if "dx" in gm else s["w1"]), t(s["g"]), t(s["dpre"]), dpre_amax, q if HADAMARD_FP8 else None]
+            t(s["w1_col"] if "dx" in gm else s["w1"]), t(s["g"]), t(s["dpre"]), dpre_amax]
     if HADAMARD_FP8:
-        args += [None, t(s["post_t"]), post_t_amax]
+        args += [None, q, t(s["post_t"]), post_t_amax]
     xr, W1r, W2r = (v.detach().clone().requires_grad_() for v in (x, W1, W2))
     out = FusedLinearReLUSquareFunction.apply(xr, W1r, W2r, *args)
     out.backward(g)

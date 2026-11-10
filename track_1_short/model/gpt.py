@@ -157,8 +157,8 @@ ReLUSqrdMLPBF16 = BF16LinearReLUSquareFunction.apply
 # HADAMARD_FP8: the rotated x_t (read by dW1 only) has its own delayed scale; see perf/kernels/hadamard.py.
 FP8_XT_HEADROOM = 1.10
 # HADAMARD_FP8 extra args of FusedLinearReLUSquareFunction, the contract with perf/kernels/mlp.py. Under
-# HADAMARD_FP8, _mlp_fp8_args appends, positionally after the 16 fp8 args and hadamard_q:
-#     p_fold (or an explicit None), post_t_scale, post_t_amax
+# HADAMARD_FP8, _mlp_fp8_args appends, positionally after the 16 fp8 args:
+#     p_fold (or an explicit None), hadamard_q, post_t_scale, post_t_amax
 # post_t_scale is the 0-d f32 view _mlp_post_t_scales[slot], post_t_amax the (1,) f32 view
 # _mlp_post_t_amax[slot] (the same layout as post_scale / post_amax). The forward epilogue quantizes the
 # unrotated e4m3 post row at post_scale and atomic-maxes only its amax into post_amax, which is the record's
@@ -176,7 +176,8 @@ def check_mlp_takes_post_t():
 
 # HADAMARD_SAT_STATS=1 (train_gpt.py, analysis only): per MLP slot, every delayed / weight fp8 scale and the
 # ratio amax / (scale * fmt_max) of the amax recorded under that scale. > 1 means values were clamped;
-# a delayed scale still at its init value after warmup means its amax never arrived.
+# a delayed scale still at its init value after warmup means its amax never arrived. Slots nothing reads
+# (_fp8_sat_dead_slots) are masked, so they never show as STUCK.
 # Rows: (name, scale buffer, amax buffer (per-slot max over dim 1), fmt max, init scale or None).
 def _fp8_sat_rows(model):
     e4, e5 = 448.0, 57344.0
@@ -193,21 +194,39 @@ def _fp8_sat_rows(model):
     return rows
 
 
+def _fp8_sat_dead_slots(name: str) -> set[int]:
+    """Slots whose row-`name` scale no forward or backward ever uses: NO_MLP_LAYERS (no MLP); for x_t also
+    PARALLEL_MLP_SLOT (the parallel MLP reads its layer's x_t); every slot when the fp8 MLP is off
+    (MONARCH_MLP, or FP8_OFF=mlp for the activation scales; the weight caches are still refreshed there)."""
+    if MONARCH_MLP or ("mlp" in FP8_OFF and name in ("post", "dpre", "post_t", "x_t")):
+        return set(range(NUM_MLP_SLOTS))
+    dead = set(NO_MLP_LAYERS)
+    if name == "x_t":
+        dead.add(PARALLEL_MLP_SLOT)
+    return dead
+
+
 # Over this ratio a slot counts as saturated: 1% slack because an exact weight scale is amax / 448 rounded
 # in bf16 (up to 0.4% low), so its ratio can sit just above 1 with nothing clamped beyond rounding.
 SAT_RATIO = 1.01
 
 
 def format_fp8_sat(step: int, names: list, snap: torch.Tensor) -> list[str]:
-    """snap [rows, 3, slots] = (scale, amax / (scale * fmt_max), is-init) from GPT.fp8_sat_snapshot, after any
-    cross-rank max. One line per row: max ratio, the slots over the limit or stuck, then per-slot values."""
+    """snap [rows, 3, slots] = (scale, amax / (scale * fmt_max), state) from GPT.fp8_sat_snapshot, after any
+    cross-rank max; state is 1 for a delayed scale still at its init value, 0 live, -1 a dead slot (printed
+    as "-", never SAT or STUCK). One line per row: max ratio, the slots over the limit or stuck, then the
+    per-slot values."""
     lines = []
-    for name, (scale, ratio, at_init) in zip(names, snap.tolist()):
-        sat = [i for i, r in enumerate(ratio) if r > SAT_RATIO]
-        stuck = [i for i, z in enumerate(at_init) if z > 0]
+    for name, (scale, ratio, state) in zip(names, snap.tolist()):
+        live = [i for i, z in enumerate(state) if z >= 0]
+        sat = [i for i in live if ratio[i] > SAT_RATIO]
+        stuck = [i for i in live if state[i] > 0]
         flags = (f" SAT{sat}" if sat else "") + (f" STUCK{stuck}" if stuck else "")
-        lines.append(f"fp8 sat step:{step} {name:<6} max_ratio:{max(ratio):.3f}{flags} "
-                     f"ratio:[{' '.join(f'{r:.2f}' for r in ratio)}] scale:[{' '.join(f'{v:.2e}' for v in scale)}]")
+        top = f"{max(ratio[i] for i in live):.3f}" if live else "-"
+        cell = lambda i, v, fmt: format(v, fmt) if state[i] >= 0 else "-"
+        lines.append(f"fp8 sat step:{step} {name:<6} max_ratio:{top}{flags} "
+                     f"ratio:[{' '.join(cell(i, r, '.2f') for i, r in enumerate(ratio))}] "
+                     f"scale:[{' '.join(cell(i, v, '.2e') for i, v in enumerate(scale))}]")
     return lines
 assert (bf16_loss.SOFTCAP_A, bf16_loss.SOFTCAP_B, bf16_loss.SOFTCAP_C) == (
     cross_entropy.SOFTCAP_A, cross_entropy.SOFTCAP_B, cross_entropy.SOFTCAP_C)
@@ -1115,10 +1134,16 @@ class GPT(nn.Module):
         owed fp8 refresh: the refresh clears the activation amaxes and moves their scales on."""
         rows = _fp8_sat_rows(self)
         out = []
-        for _, scale_name, amax_name, fmt_max, init in rows:
+        for name, scale_name, amax_name, fmt_max, init in rows:
             scale, amax = getattr(self, scale_name), getattr(self, amax_name).amax(dim=1)
             at_init = (scale == init) if init is not None else torch.zeros_like(scale, dtype=torch.bool)
-            out.append(torch.stack((scale, amax / (scale * fmt_max), at_init.float())))
+            slots = torch.arange(scale.numel(), device=scale.device)
+            dead = torch.zeros_like(at_init)
+            for s in sorted(_fp8_sat_dead_slots(name)):  # a mask from device ops: no host-to-device copy
+                dead |= slots == s
+            ratio = torch.where(dead, 0.0, amax / (scale * fmt_max))
+            state = torch.where(dead, -1.0, at_init.float())
+            out.append(torch.stack((scale, ratio, state)))
         return [r[0] for r in rows], torch.stack(out)
 
     def _attn_fp8_weights(self):
@@ -1149,8 +1174,8 @@ class GPT(nn.Module):
 
         `x_f8` is the (row, transposed) e4m3 input, quantized for MLP slot `xt_slot` (the parallel MLP shares
         its layer's). Under HADAMARD_FP8 the transposed input, the W1 column cache and the W2 row cache are
-        rotated, so dW1 and dx read their own scales and the Function gets the Hadamard Q, and p_fold (or
-        None), post_t_scale and post_t_amax ride last (the contract at FP8_XT_HEADROOM).
+        rotated, so dW1 and dx read their own scales, and p_fold (or None), the Hadamard Q, post_t_scale and
+        post_t_amax ride last (the contract at FP8_XT_HEADROOM). With the flags off the args are the record's.
         With `fold_p` (the post-lambda folded into the
         down-projection scale), the down projection's forward and dgrad dequant scales are the folded
         ones, and fold_p rides last for its gradient.
@@ -1162,12 +1187,11 @@ class GPT(nn.Module):
             down_scales, dq_bwd = self._mlp_down_scales, self._mlp_dq_bwd
         x_t_scale = self._mlp_xt_scales[xt_slot] if HADAMARD_DW1 else self._mlp_x_scale
         w1_col_scale = self._mlp_up_rot_scales[slot] if HADAMARD_DX else self._mlp_up_scales[slot]
-        hadamard_q = self._hadamard_q if HADAMARD_FP8 else None
         args = (up_f8, self._mlp_up_dequant[slot:slot+1], x_row, self._mlp_down_f8[slot], down_scales[slot],
                 self._mlp_post_scales[slot], self._mlp_post_amax[slot], self._mlp_down_f8_row[slot], dq_bwd[slot], x_t,
                 x_t_scale, self._mlp_up_f8_col[slot], w1_col_scale, self._mlp_grad_scale,
-                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot], hadamard_q)
+                self._mlp_dpre_scales[slot], self._mlp_dpre_amax[slot])
         if HADAMARD_FP8:
             # Positional, p_fold possibly None: see the contract comment at FP8_XT_HEADROOM.
-            return args + (fold_p, self._mlp_post_t_scales[slot], self._mlp_post_t_amax[slot])
-        return args + ((fold_p,) if fold_p is not None else ())
+            return args + (fold_p, self._hadamard_q, self._mlp_post_t_scales[slot], self._mlp_post_t_amax[slot])
+        return args + ((fold_p,) if fold_p is not None else ())  # the record's arg list

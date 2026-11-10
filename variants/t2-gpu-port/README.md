@@ -107,7 +107,7 @@ t-test/nsys tooling.
 
 - **FP8 MLP up/down/backward and packed FP8 QKV (#84, #89, #90).** Medium hard-disables FP8 in
   `CastedLinear` ("requires tuning of scales") and runs the MLP as inline bf16 `F.linear`. The
-  port needs master's `perf/kernels/mlp.py` (436 lines), its delayed-scaling amax, and new
+  port needs master's `perf/kernels/mlp.py`, its delayed-scaling amax, and new
   d=1024 scale constants. Master's static x scale of 2^-4 is justified by max|x| ≤ √768 < 448·2^-4 = 28
   after RMS norm. At d=1024, √1024 = 32 > 28, so it needs 2^-3 here. It is the largest likely speed win (d=1024 MLPs are more compute-bound
   than d=768), but it cannot be checked without a GPU, so it was skipped rather than shipped broken.

@@ -10,28 +10,34 @@ import logparse
 
 
 class TestRealLogs(unittest.TestCase):
-    def test_open_pr_full_logs(self):
-        # Read full, source-embedded logs directly from fetched upstream objects, without a checkout.
-        pools = [(397, "track_1_short/2026-10-31_ExactSpeedups/this_pr", 12, 30.6745833333, 3.2774333333),
-                 (381, "track_1_short/2026-10-03_ExactCountChain/this_pr", 16, 9.65275, 3.27588125),
-                 (261, "track_2_medium/2026-0427-MuddFormer/this_pr", 6, 860.4783333333, 2.9170666667)]
-        for pr, folder, n, time_mean, loss_mean in pools:
-            ref = f"refs/remotes/upstream/pr/{pr}"
-            if subprocess.run(["git", "-C", REPO, "rev-parse", "--verify", ref], capture_output=True).returncode:
-                self.skipTest(f"fetch upstream pull/{pr}/head:{ref} for full-log regression")
-            paths = subprocess.check_output(["git", "-C", REPO, "ls-tree", "-r", "--name-only", ref,
-                                             "records/" + folder], text=True).splitlines()
-            runs = []
-            for path in paths:
-                if path.endswith(".txt"):
-                    text = subprocess.check_output(["git", "-C", REPO, "show", ref + ":" + path], text=True)
-                    parsed = logparse.parse_runs(text, path)
-                    self.assertEqual(len(parsed), 1, path)
-                    self.assertTrue(parsed[0].completed, path)
-                    runs.extend(parsed)
-            self.assertEqual(len(runs), n)
-            self.assertAlmostEqual(statistics.mean(r.train_time_s for r in runs), time_mean, places=8)
-            self.assertAlmostEqual(statistics.mean(r.val_loss for r in runs), loss_mean, places=8)
+    # Full, source-embedded logs of open upstream PRs, read directly from fetched objects without a checkout.
+    # One test per PR, each skipped on its own (with the fetch command) when that ref is absent.
+    def _open_pr_full_logs(self, pr, folder, n, time_mean, loss_mean):
+        ref = f"refs/remotes/upstream/pr/{pr}"
+        if subprocess.run(["git", "-C", REPO, "rev-parse", "--verify", ref], capture_output=True).returncode:
+            self.skipTest(f"{ref} absent: git fetch upstream pull/{pr}/head:{ref} to run this regression")
+        paths = subprocess.check_output(["git", "-C", REPO, "ls-tree", "-r", "--name-only", ref,
+                                         "records/" + folder], text=True).splitlines()
+        runs = []
+        for path in paths:
+            if path.endswith(".txt"):
+                text = subprocess.check_output(["git", "-C", REPO, "show", ref + ":" + path], text=True)
+                parsed = logparse.parse_runs(text, path)
+                self.assertEqual(len(parsed), 1, path)
+                self.assertTrue(parsed[0].completed, path)
+                runs.extend(parsed)
+        self.assertEqual(len(runs), n)
+        self.assertAlmostEqual(statistics.mean(r.train_time_s for r in runs), time_mean, places=8)
+        self.assertAlmostEqual(statistics.mean(r.val_loss for r in runs), loss_mean, places=8)
+
+    def test_open_pr_397_full_logs(self):
+        self._open_pr_full_logs(397, "track_1_short/2026-10-31_ExactSpeedups/this_pr", 12, 30.6745833333, 3.2774333333)
+
+    def test_open_pr_381_full_logs(self):
+        self._open_pr_full_logs(381, "track_1_short/2026-10-03_ExactCountChain/this_pr", 16, 9.65275, 3.27588125)
+
+    def test_open_pr_261_full_logs(self):
+        self._open_pr_full_logs(261, "track_2_medium/2026-0427-MuddFormer/this_pr", 6, 860.4783333333, 2.9170666667)
 
     def test_track1_anvil2(self):
         r = logparse.parse_file(os.path.join(ANVIL2, "this_pr", "01b2f094-4536-479c-b0dd-cb14eba4844c.txt"))

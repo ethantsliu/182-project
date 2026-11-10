@@ -1,7 +1,9 @@
 # 182/tools: shared harness
 
 Tools that every workstream uses: node setup, interleaved A/B runs, speedrun statistics, and nsys
-profiling. Python is stdlib only (no numpy or scipy), so the tools run in any env. Nothing here
+profiling. The A/B runner, statistics, log parser, session summary and nsys analysis are stdlib-only Python
+(no numpy or scipy), so they run in any env; `node_check.py` needs torch (it runs under torchrun on the node),
+and `triton_cpu/` runs in its own docker image (torch + triton). Nothing here
 changes a trainer: the A/B runner and the nsys hook wrap `train_gpt.py` / `train_gpt_medium.py` /
 `train_gpt_simple.py` as they are.
 
@@ -66,12 +68,20 @@ bash 182/tools/triton_cpu/run.sh aot [--base <sha>]                             
   per program. `test_interp_probes.py` checks each fix (73 probes; `TRITON_CPU_NO_SHIM=1` shows 20 failing raw).
   Not modelled: tf32 for fp32 dots, GPU accumulation order, approximate `tl.sqrt`, races between programs.
   The GPU kernel tests fall back to CPU under the interpreter. Anything that compiles CUDA C (nvrtc) stays GPU-only.
-- **Compile check** (`aot`, `compile_check.py`): a fake sm_90 driver turns every launch the real host
-  launchers issue into a JIT warmup, for every HADAMARD_BLOCK and rotation subset. Kernels go through the
-  frontend, TTGIR/LLVM and the wheel's ptxas. Per variant it reports shared memory for each `num_stages`
-  (H100 limit 232448 B) and ptxas registers/spills. With `--base <sha>` it also compiles the record
-  (flags-off) variants from `git archive <sha>` and diffs their normalized SASS: identical means the
-  change cannot touch the record's kernels. Nothing runs.
+- **Compile check** (`aot`, `compile_check.py`): a fake sm_90 driver turns each launch into a JIT warmup.
+  Covered: the MLP kernels only (linear_relu_square bf16 / fp8 forward / fp8 backward, the weight-cache and
+  fp8-transpose quantizes, and every HADAMARD_BLOCK x rotation subset of the Hadamard kernels), called
+  through their launchers at the record's shapes (H=2816, D=768, the per-rank token counts of every
+  training stage plus the validation batch, an aligned and an unaligned per-slot scale pointer), so the
+  constexprs, integer / pointer specializations and stage choice match training. `hadamard_t_quant` is
+  called through its Python body. Kernels go through the frontend, TTGIR/LLVM and the wheel's ptxas. Per
+  kernel it reports shared memory for each `num_stages` (H100 limit 232448 B), the stage the launcher's
+  OutOfResources step-down would pick, ptxas registers/spills, and which geometries share a binary. Not
+  covered: inductor's wrapper around these kernels, cuBLAS `_scaled_mm`, kernels outside the MLP. With
+  `--base <sha>` it also compiles the record (flags-off) variants from `git archive <sha>` through the API
+  upstream has and diffs their normalized SASS and PTX (a cuobjdump failure or an empty disassembly is an
+  error, never "identical"): identical SASS means the change cannot touch the record's MLP kernels. `--only
+  REGEX` restricts the calls. Nothing runs.
 
 Labels: interpreter-tested = logic and indexing; compile-tested = it builds for H100 (smem, regs). Neither
 says anything about speed, and neither replaces a GPU run.
@@ -93,7 +103,7 @@ says anything about speed, and neither replaces a GPU run.
 
 ## Tests (CPU, no GPU)
 
-`/usr/local/bin/python3.10 -m pytest -q 182/tools/tests` (or `cd 182/tools && python -m unittest discover -s tests`). The tests run on CPU; scipy cross-checks are skipped if scipy is absent. Open-PR full-log regressions read fetched `upstream/pr/397`, `upstream/pr/381`, and `upstream/pr/261` objects and skip if those refs are absent. They are checked against real records:
+`python -m pytest -q 182/tools/tests` (or `cd 182/tools && python -m unittest discover -s tests`). The tests run on CPU; scipy cross-checks are skipped if scipy is absent. Open-PR full-log regressions read fetched `upstream/pr/397`, `upstream/pr/381`, and `upstream/pr/261` objects and skip if those refs are absent. They are checked against real records:
 
 - ANVIL2 pool: 17 shipped logs plus the README's 18th row give t=11.5, p=9.40e-10, mean 3.2773111, sd 0.00099048. Baseline: 73.889 ± 0.137 s. Win: 33.975 s.
 - Track 3 #12: n=20 parsed out of one file, 3.2790 at step 3325. Track 3 #20: 3.2790 (n=30) at step 3030.

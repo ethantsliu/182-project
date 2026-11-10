@@ -415,7 +415,7 @@ def build_optimizers(model, adam_basis: str, adam_scope: str, hidden_opt: str, h
     return [optimizer1, optimizer2]
 
 def significance(losses, target=3.28):
-    """Track 3 rule: (target - avg) * sqrt(n) >= 0.004 (one-sided z-test at sigma = 0.0013, p < .001)."""
+    """Track 3 rule: (target - avg) * sqrt(n) >= 0.004 (one-sided z-test at sigma = 0.0013, p ≈ 0.001)."""
     n = len(losses)
     avg = sum(losses) / n
     stat = (target - avg) * n ** 0.5
