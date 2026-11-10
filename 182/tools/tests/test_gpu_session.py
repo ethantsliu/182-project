@@ -17,9 +17,12 @@ import stats
 
 FAKE_TRAINER = r'''
 import os, random, sys, uuid
-if os.environ.get("FAKE_CRASH") == "1":
-    sys.exit(3)
 seed = os.environ.get("TRAIN_SEED")
+arm = "bf16" if os.environ.get("FP8_OFF") else ("had" if os.environ.get("HADAMARD_FP8") == "1" else "fp8")
+if os.environ.get("FAKE_CRASH") == "1" or f"{arm}:{seed}" in os.environ.get("FAKE_CRASH_RUNS", "").split(",") \
+        or arm in os.environ.get("FAKE_CRASH_ARMS", "").split(","):
+    print("Traceback (most recent call last):\nRuntimeError: fake crash in " + arm, flush=True)
+    sys.exit(3)
 rng = random.Random(int(seed) if seed is not None else None)
 val = 3.278 + rng.gauss(0, 0.001)              # same seed -> same noise in every arm
 t = 40.0
@@ -115,8 +118,8 @@ class TestGpuSession(SessionRepo):
         self.assertIn("node_check.py", out)
         self.assertRegex(out, r"\+ .*-m pytest 182/hadamard-fp8/tests")
         self.assertRegex(out, r"\+ .*ab_run\.py run .*/gate --no-report")
-        self.assertIn("GATE: NODATA", out)
-        self.assertIn("would skip: gate decision NODATA", out)
+        self.assertIn("GATE: INCOMPLETE", out)
+        self.assertIn("would skip: gate decision INCOMPLETE", out)
         self.assertIn("SKIP sanity: 182/hadamard-fp8/gpu_sanity.py is not in this checkout", out)
         self.assertIn("SEND THIS FILE BACK: ", out)
         self.assertFalse((self.repo / "182/results").exists(), "DRY_RUN wrote into the repo")
@@ -175,7 +178,7 @@ class TestGpuSession(SessionRepo):
     def test_hadamard_needs_gate_unless_forced(self):
         rc, out = self.run_session("hadamard")
         self.assertEqual(rc, 0, out)
-        self.assertTrue(self.status("hadamard").startswith("SKIP the gate has not produced a decision"))
+        self.assertTrue(self.status("hadamard").startswith("SKIP the gate phase did not complete (status: none)"), self.status("hadamard"))
         rc, out = self.run_session("hadamard", FORCE_HADAMARD="1", HADAMARD_SEEDS="5")
         self.assertEqual(rc, 0, out)
         self.assertIn("no HADAMARD_GEMMS/HADAMARD_BLOCK knobs", out)
@@ -184,7 +187,9 @@ class TestGpuSession(SessionRepo):
 
     def test_failed_hadamard_tests_block_hadamard(self):
         (self.sd / "gate").mkdir(parents=True)
-        (self.sd / "gate/decision.env").write_text("GATE_DECISION=GAP\nGATE_RUN_HADAMARD=1\nGATE_HI_MNAT=3\n")
+        (self.sd / "gate/decision.env").write_text("GATE_DECISION=GAP\nGATE_COMPLETE=1\nGATE_RUN_HADAMARD=1\nGATE_HI_MNAT=3\n")
+        (self.sd / "status").mkdir()
+        (self.sd / "status/gate").write_text("PASS\n")
         (self.sd / "tests").mkdir()
         (self.sd / "tests/rc_hadamard").write_text("1\n")
         rc, out = self.run_session("hadamard")
@@ -198,19 +203,37 @@ class TestGpuSession(SessionRepo):
         self.assertEqual(self.status("bundle"), "PASS")
         self.assertIn("failed phases: sanity", out)
 
-    def test_crashing_gate_stops_early_resumes_then_replans(self):
+    def test_crashing_gate_stops_early_and_is_not_replanned_until_forced(self):
         rc, out = self.run_session("gate", FAKE_CRASH="1")
         self.assertEqual(rc, 1, out)
         self.assertTrue(self.status("gate").startswith("FAIL"), self.status("gate"))
         self.assertIn("stopping: 3 consecutive non-ok runs", out)
+        self.assertIn("cause: RuntimeError: fake crash in", out)
         self.assertEqual(len(self.ends("gate")), 3)          # 5 slots left pending, not burned
-        self.assertIn("GATE_DECISION=NODATA", (self.sd / "gate/decision.env").read_text())
+        dec = (self.sd / "gate/decision.env").read_text()
+        self.assertIn("GATE_DECISION=INCOMPLETE", dec)
+        self.assertIn("GATE_RUN_HADAMARD=0", dec)
+        self.assertIn("FAIL: the gate stopped with slots pending", out)
+        self.assertNotIn("-> GAP", out)
+        # resume: the per-arm check stops after one more probe of an arm that has never succeeded
         rc, out = self.run_session("gate", FAKE_CRASH="1", STOP_AFTER_FAILURES="100")
         self.assertEqual(rc, 1, out)
         self.assertIn("resuming: 5 slot(s) pending", out)
+        self.assertIn("every finished run failed", out)
+        self.assertRegex(out, r"stopping: arm (fp8|bf16) failed all of its 2 run\(s\)")
+        self.assertEqual(len(self.ends("gate")), 4)
+        # burn the rest: every slot finished and both arms failed every run -> code 5, not re-planned
+        rc, out = self.run_session("gate", FAKE_CRASH="1", STOP_AFTER_FAILURES="100", ARM_FAILURES="0")
+        self.assertEqual(rc, 1, out)
         self.assertEqual(len(self.ends("gate")), 8)
-        # every slot finished, none usable: the next re-run sets the attempt aside and plans afresh
-        rc, out = self.run_session("gate", "bundle", FAKE_GAP="0")
+        self.assertIn("FAIL: one gate arm failed every run", out)
+        rc, out = self.run_session("gate", FAKE_GAP="0")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("NOT re-planning gate", out)
+        self.assertIn("FORCE=1 bash 182/gpu_session.sh gate", out)
+        self.assertFalse((self.sd / "gate.attempt1").exists())
+        # the cause is fixed: FORCE=1 re-plans
+        rc, out = self.run_session("gate", "bundle", FAKE_GAP="0", FORCE="1")
         self.assertEqual(rc, 0, out)
         self.assertIn("re-planning: previous attempt moved to", out)
         self.assertEqual(self.status("gate"), "PASS")
@@ -219,12 +242,51 @@ class TestGpuSession(SessionRepo):
         summary = (self.sd / "summary.txt").read_text()
         self.assertIn("== gate.attempt1:", summary)
         self.assertIn("GATE: NODATA", summary)
+        self.assertIn("fake crash in bf16", summary)       # the failure cause is in the summary
         self.assertIn("-> STOP", summary)
-        # FORCE=1 re-plans a finished phase instead of silently resuming nothing
         rc, out = self.run_session("gate", FORCE="1", GATE_SEEDS="7,8")
         self.assertEqual(rc, 0, out)
         self.assertTrue((self.sd / "gate.attempt2/plan.json").exists())
         self.assertEqual({e["seed"] for e in self.ends("gate")}, {7, 8})
+
+    def test_scattered_failures_replan_the_gate(self):
+        """fp8 crashes on seeds 1,3 and bf16 on 2,4: no complete pair, but no arm is dead -> re-plan (code 4)."""
+        crash = "fp8:1,bf16:2,fp8:3,bf16:4"
+        rc, out = self.run_session("gate", FAKE_CRASH_RUNS=crash)
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(len(self.ends("gate")), 8)
+        self.assertIn("GATE_DECISION=NODATA", (self.sd / "gate/decision.env").read_text())
+        rc, out = self.run_session("gate", FAKE_GAP="0")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("re-planning: previous attempt moved to", out)
+        self.assertIn("GATE_DECISION=STOP", (self.sd / "gate/decision.env").read_text())
+
+    def test_one_arm_always_failing_stops_after_two_of_its_runs(self):
+        rc, out = self.run_session("gate", "hadamard", "bundle", FAKE_CRASH_ARMS="bf16")
+        self.assertEqual(rc, 1, out)
+        ends = self.ends("gate")
+        self.assertEqual(sum(e["arm"] == "bf16" for e in ends), 2)
+        self.assertLessEqual(len(ends), 4)
+        self.assertIn("stopping: arm bf16 failed all of its 2 run(s)", out)
+        self.assertTrue(self.status("hadamard").startswith("SKIP the gate phase did not complete"), self.status("hadamard"))
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("GATE: INCOMPLETE", summary)
+        self.assertIn("bf16 #", summary)
+        self.assertIn("RuntimeError: fake crash in bf16", summary)
+
+    def test_dead_hadamard_variant_is_abandoned_not_replanned(self):
+        (self.repo / "track_1_short/config.py").write_text("HADAMARD_GEMMS = 'all'\nHADAMARD_BLOCK = 128\n")
+        self.git("commit", "-qam", "knobs")
+        rc, out = self.run_session("hadamard", FORCE_HADAMARD="1", FAKE_CRASH_ARMS="had", HADAMARD_VARIANTS="all@128",
+                                   HADAMARD_SEEDS="1,2,3")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("abandoned: arm h_all_b128 failed all of its first 2 run(s)", out)
+        st = [e["status"] for e in self.ends("hadamard") if e["arm"] == "h_all_b128"]
+        self.assertEqual(sorted(st), ["abandoned", "failed", "failed"])
+        self.assertEqual([e["status"] for e in self.ends("hadamard") if e["arm"] == "fp8"], ["ok"] * 3)
+        rc, out = self.run_session("hadamard", FORCE_HADAMARD="1", HADAMARD_VARIANTS="all@128", HADAMARD_SEEDS="1,2,3")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("NOT re-planning hadamard", out)
 
     def test_bad_hadamard_variant_fails_before_planning(self):
         rc, out = self.run_session("hadamard", FORCE_HADAMARD="1", HADAMARD_VARIANTS="all@128 dx")
@@ -242,8 +304,6 @@ class TestGpuSession(SessionRepo):
         self.assertNotIn("t2 prefetch", r.stdout)
 
     def test_hung_command_is_timed_out(self):
-        if subprocess.run(["timeout", "--foreground", "1", "true"], capture_output=True).returncode != 0:
-            self.skipTest("no coreutils timeout")
         rc, out = self.run_session("sanity", SANITY_CMD="sleep 60", SANITY_TIMEOUT_S="1")
         self.assertEqual(rc, 1, out)
         self.assertEqual(self.status("sanity"), "FAIL rc=124")
@@ -253,6 +313,164 @@ class TestGpuSession(SessionRepo):
         self.assertEqual(rc, 0, out)
         self.assertRegex(self.status("t2"), r"^SKIP host cannot run t2: RAM available \d+ GiB < 100000 GiB")
         self.assertFalse(self.marker.exists())
+
+
+class TestSessionFlow(SessionRepo):
+    """The session-flow fixes: docker env forwarding, read-only DRY_RUN, the stack gate, timeouts, t2 results."""
+
+    def fake_stack(self, torch="2.10.0+cu128", triton="3.6.0"):
+        pf = self.root / "pyfake"
+        for mod, ver in (("torch", torch), ("triton", triton)):
+            (pf / mod).mkdir(parents=True, exist_ok=True)
+            body = f"__version__ = {ver!r}\n"
+            if mod == "torch":
+                body += "class version:\n    cuda = '12.8'\nclass cuda:\n    @staticmethod\n    def device_count(): return 8\n"
+            (pf / mod / "__init__.py").write_text(body)
+        # torchrun as a console script of the session interpreter (what the stack check looks for)
+        (self.bin / "torchrun").write_text(f"#!{sys.executable}\nimport sys, pathlib\npathlib.Path({str(self.marker)!r}).touch()\nsys.exit(0)\n")
+        (self.bin / "torchrun").chmod(0o755)
+        self.stub("nvidia-smi", 'case "$*" in *driver_version*) echo 580.65;; -L) echo "GPU 0: NVIDIA H100";; *) echo "Driver Version: 580.65";; esac\n')
+        return {"PYTHONPATH": str(pf)}
+
+    def test_docker_forwards_only_user_set_knobs(self):
+        env = {k: v for k, v in self.env.items() if k not in ("RUN_CMD", "SANITY_CMD", "PY")}
+        self.stub("docker", "exit 0\n")
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh"), "sanity", "gate"], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", SESSION_DOCKER="img", PY=sys.executable, T2_MIN_RAM_GIB="10",
+                                    HADAMARD_MIN_GAP_MNAT="1.5"),
+                           capture_output=True, text=True, timeout=60)
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 0, out)
+        self.assertIn("--init", out)
+        self.assertIn("TINI_KILL_PROCESS_GROUP=1", out)
+        self.assertIn("T2_MIN_RAM_GIB=10", out)
+        self.assertIn("HADAMARD_MIN_GAP_MNAT=1.5", out)
+        self.assertNotIn("SANITY_CMD", out)          # the default is computed inside the container, with its python
+        self.assertNotIn("RUN_CMD", out)
+        self.assertNotIn(" PY=", out)
+        self.assertNotIn("-e PY", out)
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh"), "sanity"], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", SESSION_DOCKER="img", SANITY_CMD="python x.py"),
+                           capture_output=True, text=True, timeout=60)
+        self.assertIn("SANITY_CMD=python\\ x.py", r.stdout)
+
+    def test_default_sanity_cmd_gets_json_whatever_py_is(self):
+        (self.repo / "182/hadamard-fp8").mkdir(parents=True)
+        (self.repo / "182/hadamard-fp8/gpu_sanity.py").write_text("import sys; print('sanity args', sys.argv[1:])\n")
+        rc, out = self.run_session("sanity", PY=sys.executable)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("sanity args ['--json'", out)
+
+    def test_dry_run_with_session_dir_changes_nothing(self):
+        rc, out = self.run_session("gate", FAKE_CRASH_ARMS="bf16")
+        self.assertEqual(rc, 1, out)
+        before = {str(p.relative_to(self.sd)): p.read_bytes() for p in self.sd.rglob("*") if p.is_file() and "/work/" not in str(p)}
+        shutil.rmtree(self.repo / "182/tools/__pycache__", ignore_errors=True)
+        rc, out = self.run_session("env", "gate", "hadamard", "bundle", DRY_RUN="1", FORCE="1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("previewing a resume of", out)
+        self.assertIn("re-planning: previous attempt moved to", out)   # what FORCE=1 would do, on the copy
+        after = {str(p.relative_to(self.sd)): p.read_bytes() for p in self.sd.rglob("*") if p.is_file() and "/work/" not in str(p)}
+        self.assertEqual(before, after)
+        self.assertFalse((self.sd.parent / "sess.attempt1").exists())
+        self.assertFalse((self.repo / "node_report.txt").exists())
+        self.assertFalse(list(self.root.glob("session-*.tar.gz")))
+        self.assertFalse(list((self.repo / "182/tools").glob("__pycache__")))
+
+    def test_dry_run_shows_hadamard_env_prefix(self):
+        rc, out = self.run_session("tests", DRY_RUN="1")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"\+ tmo 1800 env HADAMARD_FP8=1 .*-m pytest 182/hadamard-fp8/tests .*-rfEs")
+
+    def test_wrong_stack_fails_env_and_skips_gpu_phases(self):
+        env = self.fake_stack(torch="2.9.1+cu126")
+        rc, out = self.run_session("env", "gate", "bundle", **env)
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(self.status("env").startswith("FAIL"), self.status("env"))
+        self.assertIn("STACK PROBLEM: torch 2.9.1+cu126 != 2.10.0+cu128", out)
+        self.assertTrue(self.status("gate").startswith("SKIP env failed"), self.status("gate"))
+        self.assertEqual(self.status("bundle"), "PASS")
+        self.assertFalse((self.sd / "gate/plan.json").exists())
+        st = json.loads((self.sd / "env/stack.json").read_text())
+        self.assertEqual(st["torch"], "2.9.1+cu126")
+        self.assertIs(st["git_dirty"], False)
+        self.assertTrue((self.sd / "env/pip_freeze.txt").stat().st_size > 0)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("!! torch 2.9.1+cu126 != 2.10.0+cu128", summary)
+        # ALLOW_STACK=1: a warning, and the session goes on
+        rc, out = self.run_session("env", **env, ALLOW_STACK="1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WARN: ALLOW_STACK=1", out)
+
+    def test_right_stack_passes_and_untracked_files_are_not_dirty(self):
+        env = self.fake_stack()
+        (self.repo / "scratch.txt").write_text("untracked\n")
+        rc, out = self.run_session("env", **env)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("STACK PROBLEM", out)
+        self.assertNotIn("modified tracked files. The gate", out)
+        st = json.loads((self.sd / "env/stack.json").read_text())
+        self.assertEqual((st["torch"], st["triton"], st["git_dirty"]), ("2.10.0+cu128", "3.6.0", False))
+        self.assertIn("?? scratch.txt", (self.sd / "env/env.txt").read_text())
+        (self.repo / "train_gpt.py").write_text(FAKE_TRAINER + "# edit\n")
+        rc, out = self.run_session("env", FORCE="1", **env)
+        self.assertIn("WARN: modified tracked files", out)
+        self.assertEqual(json.loads((self.sd / "env/stack.json").read_text())["dirty_files"], ["train_gpt.py"])
+
+    def test_torchrun_from_another_environment_fails_env(self):
+        env = self.fake_stack()
+        other = self.root / "otherpy"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(other)], check=True)
+        (self.bin / "torchrun").write_text(f"#!{other}/bin/python\nimport sys\nsys.exit(0)\n")
+        rc, out = self.run_session("env", **env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not the session interpreter", out)
+
+    def test_timeout_kills_a_term_ignoring_grandchild(self):
+        pidf = self.root / "grandchild.pid"
+        script = self.root / "hang.sh"
+        script.write_text(f"{sys.executable} -c 'import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                          f"open(\"{pidf}\", \"w\").write(str(os.getpid())); time.sleep(300)' &\nwait\n")
+        cmd = f"bash {script}"
+        rc, out = self.run_session("sanity", SANITY_CMD=cmd, SANITY_TIMEOUT_S="2")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.status("sanity"), "FAIL rc=124")
+        self.assertIn("exceeded 2 s", out)
+        pid = int(pidf.read_text())
+        import time
+        for _ in range(50):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.2)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_t2_exit_0_without_result_fails(self):
+        t2 = self.repo / "variants/t2-cpu-ngram"
+        t2.mkdir(parents=True)
+        (t2 / "exact_match.py").write_text("")
+        (t2 / "train_gpt_medium_cpu.py").write_text("print('started, then nothing')\n")
+        d = self.repo / "data/fineweb10B"
+        d.mkdir(parents=True)
+        for i in range(1, 104):
+            (d / f"fineweb_train_{i:06d}.bin").touch()
+        (d / "fineweb_val_000000.bin").touch()
+        self.stub("torchrun", 'shift 2; exec "$PY" "$@"\n')
+        (self.repo / "data/cached_fineweb10B.py").write_text("print('have them')\n")
+        rc, out = self.run_session("t2", "bundle", T2_MIN_RAM_GIB="0", T2_MIN_SHM_GIB="0", T2_MIN_CPU_PER_GPU="0")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("printed no final result", out)
+        self.assertTrue(self.status("t2").startswith("FAIL"))
+        self.assertIn("== t2: FAIL", (self.sd / "summary.txt").read_text())
+
+    def test_skipped_t2_prints_no_result_line(self):
+        rc, out = self.run_session("t2", "bundle", T2_MIN_RAM_GIB="100000")
+        self.assertEqual(rc, 0, out)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("t2: SKIP host cannot run t2", summary)
+        self.assertNotIn("== t2: no result", summary)
 
 
 class TestSummarize(unittest.TestCase):
