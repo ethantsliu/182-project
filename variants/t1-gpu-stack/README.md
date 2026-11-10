@@ -42,8 +42,10 @@ its compact n-gram scatter overlaps #396's `prescatter` and its sampled head is 
   p < 0.01 pool. The activation-scale MLP gains also add per-token elementwise passes (forward and backward) on every
   MLP layer, which #385's weight fold avoids. The step time has to be measured.
 
-## Run (8×H100, repo root, the repo README's stack: torch 2.10 cu128, `pip install -r requirements.txt`, `python data/cached_fineweb10B.py 9`)
+## Run (8×H100, the repo README's stack: torch 2.10 cu128, `pip install -r requirements.txt`, `python data/cached_fineweb10B.py 9` at the repo root)
+Every command here and in the A/B section runs from this directory, with the data at the repo root:
 ```bash
+cd variants/t1-gpu-stack && export DATA_PATH=../..          # data/fineweb10B lives at the repo root
 python 182/t1-gpu-stack/test_folds.py                       # CPU checks (the GPU box too: also compiles the n-gram hash)
 torchrun --standalone --nproc_per_node=8 train_gpt.py       # = #397 (check: "[folds] HOST_PREP=none DOC_COPY=0 ...")
 HOST_PREP=all LAYER_ROPE=1 DOC_COPY=1 COPY_MIX=1 torchrun --standalone --nproc_per_node=8 train_gpt.py   # everything
@@ -52,7 +54,7 @@ HOST_PREP=all LAYER_ROPE=1 DOC_COPY=1 COPY_MIX=1 torchrun --standalone --nproc_p
 `val_loss_no_copy / val_loss_copy / copy_gain / copy_fit_ms / lam`.
 
 ## What to A/B (one flag at a time; interleave arms on one node; ≥4 runs/arm; #397 on this node first, since nodes differ by ~0.6 s)
-Every arm is judged at equal loss against #397's own step reduction, swept over the same counts:
+From `variants/t1-gpu-stack` with `DATA_PATH=../..` exported, as above (`sweep_steps.py` passes it to every run). Every arm is judged at equal loss against #397's own step reduction, swept over the same counts:
 ```bash
 python 182/t1-gpu-stack/sweep_steps.py run --steps 951 966 981 --runs 4 --out sweeps/base --tag base   # no flags
 HOST_PREP=all python 182/t1-gpu-stack/sweep_steps.py run --steps 951 966 981 --runs 4 --out sweeps/hostprep --tag hostprep
@@ -64,8 +66,8 @@ interval. Keep an arm only if the whole interval is below zero. The order below 
    asserts), finish, and print sane losses. `COPY_MIX` must print `[copy-mix] … compiled in the warmup` and no
    recompile at the final validation.
 2. **`HOST_PREP=all` (batchplan,cands) vs none:** time only. Losses should match #397 to within run-to-run noise.
-3. **`COPY_MIX=1`:** read `copy_gain` and `copy_fit_ms` off one or two runs and decide. With `copy_gain` below about
-   0.0006, or below `copy_fit_ms` / 250 ms per millinat, it cannot pay for the fit; drop it.
+3. **`COPY_MIX=1`:** read `copy_gain` (nats) and `copy_fit_ms` off one or two runs and decide. With `copy_gain` below about
+   0.0006, or below `copy_fit_ms` / 250 ms per millinat / 1000 (the fit's cost in nats), it cannot pay for the fit; drop it.
 4. **`LAYER_ROPE=1`** (only if the smoke run's step time and its `layer_rope ... gain rms` line are sane), **then
    `DOC_COPY=1`:** each with a step sweep. Each changes the loss per step, so compare at equal loss.
    ```bash

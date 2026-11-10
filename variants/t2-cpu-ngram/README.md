@@ -16,9 +16,11 @@ the best open GPU PR (#261, @Lisennlp) is 14.34 min. We have not run anything on
 - The package changes are env knobs. **Their defaults reproduce Track 1 exactly**, so `train_gpt.py` runs as before:
   `config.py` (dims, layers, val batch, cooldown, target), `schedule.py` (`LR_FLOOR`), and `model/gpt.py`. The
   gpt.py change is @ldmberman's depth generalization: `LAST_LAYER`, layers 10–14 as plain attention+MLP layers,
-  an MLP bank of 20 slots with dead slots frozen. Every package file matches their attachment apart from
-  comments and the defaults (their `training.py` also has a `cluster_logits` branch, used only by the unported
-  heads). Note that, as in PR #380, every attention layer after layer 7 (so 8 and 10–15) reads the same input,
+  an MLP bank of 20 slots with dead slots frozen. Those files (config.py, schedule.py, model/gpt.py) match their
+  attachment apart from comments and the defaults (their `training.py` also has a `cluster_logits` branch, used
+  only by the unported heads). Not every package file does: `exact_counts.py`, `retrieval.py` and `run_log.py`
+  were changed here (fail-loudly paths, host preflight, logging), and some modules here are not in the
+  attachment at all. Note that, as in PR #380, every attention layer after layer 7 (so 8 and 10–15) reads the same input,
   norm(cache[7]).
 - `train_gpt.py`: `num_layers=MODEL_LAYERS`, `PRINT_EVERY` env, and three new log lines: the memory budget,
   `model_configuration:`, and the measured allocation after setup. It also prints one `endpoint_result:` line,

@@ -82,7 +82,10 @@ The estimated host memory needed on fineweb10B is about 396 GiB (333 GiB with th
 
 ## Run on 8xH100
 
+From this directory (`cd variants/t1-cpu-ngram`). `DATA_PATH` is the directory that holds `data/fineweb10B` (the trainer
+reads `$DATA_PATH/data/fineweb10B`; unset it means `./data`): `../..` for the repo root, or e.g. `/dev/shm` after copying there.
 ```bash
+export DATA_PATH=../..                          # or /dev/shm (see the memory table above)
 pip install ./exact_match                       # Rust toolchain; or: cd exact_match && cargo test --release --no-default-features
 python3 182/t1-cpu-ngram/node_check.py --data "$DATA_PATH"   # exit 0 = ready
 clean() { pkill -f train_gpt.py; rm -f /dev/shm/exact-match-*; }

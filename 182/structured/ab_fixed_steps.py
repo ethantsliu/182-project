@@ -7,8 +7,10 @@ the same step count, then turn the final val-loss difference into seconds.
     python 182/structured/ab_fixed_steps.py --parse base=logs/a.txt,logs/b.txt monarch=logs/c.txt  # no runs
 
 Conversion: near the record's step count, 1 millinat (0.001) of final val loss is worth ~SEC_PER_MNAT
-seconds of training (~164 ms/millinat; override with --sec-per-mnat). An arm's net cost against the
-first arm is
+seconds of training (~164 ms/millinat; override with --sec-per-mnat). 164 is upstream's normalization
+convention (the rate that makes the ANVIL2 ablation table sum to its certified win); the band measured
+during development is ~120-250 ms/millinat (records/track_1_short/2026-08-30_ANVIL2/README.md), so the
+loss-side seconds carry that uncertainty. An arm's net cost against the first arm is
 
     net_s = (train_time_arm - train_time_base) + (loss_arm - loss_base) / 0.001 * sec_per_mnat
 

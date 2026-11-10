@@ -44,13 +44,14 @@ def gpu_count():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=os.environ.get("DATA_PATH", "."), help="DATA_PATH (holds data/fineweb10B)")
-    ap.add_argument("--gpus", type=int, default=None, help="GPUs to plan for (default: detected, else 8)")
+    ap.add_argument("--gpus", type=int, default=None, help="GPUs to plan for (default: detected; 8 for the plan if none)")
     ap.add_argument("--exclude", type=int, default=2, help="leading shards the loader trains on (the run computes it; 2 at ~700 steps)")
     ap.add_argument("--shared-arena", action="store_true", default=os.environ.get("SLOT_SHARED_ARENA") == "1",
                     help="plan for SLOT_SHARED_ARENA=1")
     a = ap.parse_args()
 
-    gpus = a.gpus or gpu_count() or 8
+    detected = gpu_count()
+    gpus = a.gpus or detected or 8  # the memory plan needs a count; no detected GPU is still a FAIL below
     h = H.detect(gpus=gpus)
     print(H.describe(h))
     per_gpu = h.allowed // gpus
@@ -76,7 +77,10 @@ def main():
     kv = tuple(int(x) for x in (platform.release().split("-")[0].split(".") + ["0", "0"])[:2] if x.isdigit())
     add(platform.system() != "Linux" or kv >= (5, 14), "WARN", f"kernel >= 5.14 (MADV_POPULATE_READ/WRITE; older: page faults on the clock): {platform.release()}")
     add("[never]" not in h.thp, "WARN", f"transparent huge pages enabled or madvise: {h.thp}")
-    add(gpus == 8, "WARN", f"8 GPUs (the schedule is tuned for 8): {gpus}")
+    add(detected > 0, "FAIL", f"GPUs detected (nvidia-smi / /proc/driver/nvidia): {detected}"
+        + ("" if detected else f" (the plan above assumes {gpus})"))
+    if detected or a.gpus:
+        add(gpus == 8, "WARN", f"8 GPUs (the schedule is tuned for 8): {gpus}")
     add(h.allowed >= RECOMMENDED_THREADS, "FAIL", f">= {RECOMMENDED_THREADS} CPUs allowed: {h.allowed}")
     add(per_gpu >= RECORD_PER_GPU, "FAIL", f">= {RECORD_PER_GPU} vCPUs per GPU (the records' box; fewer: 16 build threads, not measured): {per_gpu}")
     add(per_gpu >= LARGE_PER_GPU, "WARN", f">= {LARGE_PER_GPU} vCPUs per GPU (LARGE_HOST: 64 build threads; the records ran with 16 per GPU): {per_gpu}")
