@@ -2,6 +2,7 @@
 
     bash 182/tools/triton_cpu/run.sh aot                 # every variant: errors, smem per stage, regs, spills
     bash 182/tools/triton_cpu/run.sh aot --base <sha>    # + record-path SASS / PTX identical to <sha>'s?
+    bash 182/tools/triton_cpu/run.sh aot --only 'backward ROT'   # just the calls whose name matches
 
 What it covers. The host launchers run on CPU tensors, and every `kernel[grid](...)` they issue is turned
 into a JIT warmup against a fake CUDA driver whose target is sm_90, so the kernel goes through the frontend,
@@ -55,6 +56,7 @@ _ap.add_argument("--record-only", action="store_true",
                  help="only the flags-off variants, through the API upstream has (works on a pristine upstream tree)")
 _ap.add_argument("--sass-dir", help="write normalized SASS and PTX of the record variants here")
 _ap.add_argument("--base", help="a second tree (git archive of the base commit): compare record SASS / PTX")
+_ap.add_argument("--only", help="regex: compile only the calls whose name matches (e.g. 'backward ROT')")
 ARGS = _ap.parse_args()
 sys.path.insert(0, ARGS.root)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -292,6 +294,8 @@ def run_launchers():
     calls = record_calls(H, tokens, val_tokens)
     if not ARGS.record_only:  # the Hadamard modules exist only in this tree, not in upstream
         calls += hadamard_calls(H, tokens)
+    if ARGS.only:
+        calls = [c for c in calls if re.search(ARGS.only, c[0])]
     results = {}
     for name, geo, fn in calls:
         n0 = len(RECORDS)
