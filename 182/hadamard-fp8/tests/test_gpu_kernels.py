@@ -103,7 +103,7 @@ def _torch_mlp_grads(x, W1, W2, g):
 
 
 def _fp8_mlp_args(x, W1, W2, hadamard):
-    """The Function's 17 fp8 args (+ p_fold=None, post_t_scale, post_t_amax under hadamard), built the way
+    """The Function's 16 fp8 args (+ p_fold=None, Q, post_t_scale, post_t_amax under hadamard), built the way
     GPT._mlp_fp8_args / quantize_mlp_fp8 build them for HADAMARD_GEMMS."""
     gm = HADAMARD_GEMMS if hadamard else frozenset()
     H, D = W1.shape
@@ -143,10 +143,10 @@ def _fp8_mlp_args(x, W1, W2, hadamard):
     dpre_s = torch.tensor(1e-3 * 1.25 / 57344, device=DEV)  # refined below by one priming call
     args = [up_row[0], (up_s * x_scale).reshape(1), x_row, down_col[0], down_s[0], post_s[0],
             torch.zeros(1, device=DEV), down_row[0], (w2_row_s * g_scale), x_t, xt_scale, up_col[0], w1_col_s,
-            g_scale, dpre_s, torch.zeros(1, device=DEV), Q if hadamard else None]
+            g_scale, dpre_s, torch.zeros(1, device=DEV)]
     if hadamard:
         post_t_s = (rotate(post.bfloat16(), 0, Q).abs().max() * 1.03 / 448).reshape(1)[0]
-        args += [None, post_t_s, torch.zeros(1, device=DEV)]
+        args += [None, Q, post_t_s, torch.zeros(1, device=DEV)]
     return args
 
 

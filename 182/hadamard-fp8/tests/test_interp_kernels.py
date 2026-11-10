@@ -285,9 +285,9 @@ def _function_case():
     post_amax, dpre_amax, post_t_amax = torch.zeros(1), torch.zeros(1), torch.zeros(1)
     args = [w1_row, t(s["w1"] * s["x"]).reshape(1), x_row, w2_col, t(s["w2"]), t(s["post"]), post_amax, w2_row,
             t((s["w2_row"] if "dpost" in gm else s["w2"]) * s["g"]), x_t, t(xt_s), w1_col,
-            t(s["w1_col"] if "dx" in gm else s["w1"]), t(s["g"]), t(s["dpre"]), dpre_amax, q if HADAMARD_FP8 else None]
+            t(s["w1_col"] if "dx" in gm else s["w1"]), t(s["g"]), t(s["dpre"]), dpre_amax]
     if HADAMARD_FP8:
-        args += [None, t(s["post_t"]), post_t_amax]
+        args += [None, q, t(s["post_t"]), post_t_amax]
     xr, W1r, W2r = (v.detach().clone().requires_grad_() for v in (x, W1, W2))
     out = FusedLinearReLUSquareFunction.apply(xr, W1r, W2r, *args)
     out.backward(g)

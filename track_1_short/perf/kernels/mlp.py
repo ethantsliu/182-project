@@ -392,12 +392,14 @@ def linear_relu_square(a, b, aux=None, a_f8=None, b_f8=None, dequant_scale_ptr=N
     assert use_fp8 == (dequant_scale_ptr is not None)
     assert post_scale is not None or not (FORWARD and emit_f8)
     unused_ptr = torch.empty(1, dtype=torch.float32, device=a.device)
+    dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax = [
+        unused_ptr if p is None else p
+        for p in (dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax)]
+    # The HADAMARD_FP8 pointers stay None when unused: Triton specializes a None argument as a constexpr and
+    # drops it from the compiled signature, so the flags-off kernel has the record's PTX parameter list.
+    hadamard_q_ptr = hadamard_q if hb else None
     if not (FORWARD and rot_t):
         post_t_scale = post_t_amax = None
-    dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax, hadamard_q_ptr, post_t_scale, post_t_amax = [
-        unused_ptr if p is None else p
-        for p in (dequant_scale_ptr, post_scale, post_amax, dpre_scale, dpre_amax,
-                  hadamard_q if hb else None, post_t_scale, post_t_amax)]
 
     key = (FORWARD, use_fp8, emit_f8, emit_t, store_pre, store_post_bf, rot_row, rot_t, hb,
            BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, num_warps)
@@ -555,21 +557,22 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
       x_f8 / x_f8_t       the input in e4m3 and its transpose
       dequant_scale       x_scale * w1_scale;  dq_bwd = w2_scale * g_scale
       post_scale/amax, dpre_scale/amax  the delayed activation scales and their amax slots
-      hadamard_q          HADAMARD_FP8 only (else None): the bf16 Q of perf/kernels/hadamard.py. The gradient
-                          GEMMs in HADAMARD_GEMMS then read rotated operands; the caller passes the rotated
-                          weight caches (w2_f8_row iff dpost, w1_f8_col iff dx), their scales, and the
-                          rotated x_t with its scale (iff dw1).
       p_fold              the residual post-lambda folded into the down-projection scale (w2_scale
                           and dq_bwd), or None. It rides along only so its gradient can be returned.
-      post_t_scale/amax   HADAMARD_FP8 only (gpt.py passes p_fold positionally, possibly None, then these):
-                          the rotated post_t's own delayed scale and amax slot, used iff dw2 is selected.
-                          post_scale/post_amax stay the unrotated post's, as in the record.
+      hadamard_q, post_t_scale/amax
+                          HADAMARD_FP8 only, after p_fold (gpt.py passes p_fold positionally, possibly None,
+                          then these; with the flags off the arg list is the record's). hadamard_q is the
+                          bf16 Q of perf/kernels/hadamard.py; the gradient GEMMs in HADAMARD_GEMMS then read
+                          rotated operands, and the caller passes the rotated weight caches (w2_f8_row iff
+                          dpost, w1_f8_col iff dx), their scales, and the rotated x_t with its scale (iff
+                          dw1). post_t_scale/amax: the rotated post_t's own delayed scale and amax slot, used
+                          iff dw2 is selected; post_scale/post_amax stay the unrotated post's, as in the record.
     """
     @staticmethod
     def forward(ctx, x, W1, W2, W1_f8=None, dequant_scale=None, x_f8=None, W2_f8=None, w2_scale=None,
                 post_scale=None, post_amax=None, w2_f8_row=None, dq_bwd=None, x_f8_t=None, x_scale=None,
-                w1_f8_col=None, w1_scale=None, g_scale=None, dpre_scale=None, dpre_amax=None, hadamard_q=None,
-                p_fold=None, post_t_scale=None, post_t_amax=None):
+                w1_f8_col=None, w1_scale=None, g_scale=None, dpre_scale=None, dpre_amax=None, p_fold=None,
+                hadamard_q=None, post_t_scale=None, post_t_amax=None):
         x_flat = x.view((-1, x.shape[-1]))
         if W1_f8 is None:  # validation: nothing saved, the backward below is fp8-only
             _, post, _, _ = linear_relu_square(x_flat, W1)
@@ -631,9 +634,9 @@ class FusedLinearReLUSquareFunction(torch.autograd.Function):
         dW1 = torch.ops.nanogpt.wg1_f8(dpre_t, ctx.x_f8_t, ctx.dpre_scale, ctx.x_scale)
         dx = torch.ops.nanogpt.dx_f8(dpre_f8, ctx.w1_f8_col, ctx.dpre_scale, ctx.w1_scale)
 
-        # One slot per forward input: (x, W1, W2), 16 fp8 args, hadamard_q, p_fold, post_t_scale/amax
+        # One slot per forward input: (x, W1, W2), 16 fp8 args, p_fold, hadamard_q, post_t_scale/amax
         # (autograd drops trailing None slots of inputs that were not passed).
-        return (dx.view(x.shape), dW1, dW2) + (None,) * 17 + (grad_p, None, None)
+        return (dx.view(x.shape), dW1, dW2) + (None,) * 16 + (grad_p, None, None, None)
 
 
 class BF16LinearReLUSquareFunction(torch.autograd.Function):

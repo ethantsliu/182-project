@@ -164,7 +164,7 @@ def test_mlp_fp8_args_append_post_t(state, with_fold):
     x_f8 = (torch.zeros(512, D, dtype=E4), torch.zeros(D, 512, dtype=E4))
     args = state._mlp_fp8_args(3, state._mlp_up_f8[3], x_f8, fold, xt_slot=SLOT)
     assert len(args) == 20
-    assert args[16] is state._hadamard_q and args[17] is fold
+    assert args[16] is fold and args[17] is state._hadamard_q  # the record's p_fold slot, then the extras
     for got, buf in ((args[18], state._mlp_post_t_scales), (args[19], state._mlp_post_t_amax),
                      (args[5], state._mlp_post_scales), (args[6], state._mlp_post_amax)):
         want = buf[3]
@@ -203,12 +203,12 @@ def test_refresh_pairs_dq_bwd_and_caches_with_selected_gemms(state):
 def test_contract_check(monkeypatch):
     class Old:
         @staticmethod
-        def forward(ctx, x, hadamard_q=None, p_fold=None):
+        def forward(ctx, x, p_fold=None, hadamard_q=None):
             pass
 
     class New:
         @staticmethod
-        def forward(ctx, x, hadamard_q=None, p_fold=None, post_t_scale=None, post_t_amax=None):
+        def forward(ctx, x, p_fold=None, hadamard_q=None, post_t_scale=None, post_t_amax=None):
             pass
 
     monkeypatch.setattr(gpt, "FusedLinearReLUSquareFunction", Old)
@@ -231,7 +231,7 @@ assert not any("post_t" in n or "xt" in n or "rot" in n for n in names), names
 x_f8 = m._quantize_mlp_input(gpu_sanity.rms_rows(torch.randn(256, {D})), 0)
 a = m._mlp_fp8_args(0, m._mlp_up_f8[0], x_f8, None, xt_slot=0)
 b = m._mlp_fp8_args(0, m._mlp_up_f8[0], x_f8, torch.tensor(1.0), xt_slot=0)
-assert len(a) == 17 and a[16] is None and len(b) == 18
+assert len(a) == 16 and len(b) == 17, (len(a), len(b))  # upstream's arity: 16 fp8 args (+ p_fold)
 names, snap = m.fp8_sat_snapshot()
 assert names == ["post", "dpre", "w1", "w2"], names
 print("OK")
