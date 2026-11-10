@@ -98,7 +98,7 @@ def test_parse_result_both_formats():
 
 
 def test_t_test_matches_scipy():
-    stats = pytest.importorskip("scipy.stats")
+    stats = pytest.importorskip("scipy.stats", reason="scipy not installed (optional cross-check)")
     rng = random.Random(0)
     for n in (2, 3, 6, 12):
         xs = [2.918 + rng.gauss(0, 0.0015) for _ in range(n)]

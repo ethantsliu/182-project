@@ -12,13 +12,13 @@ except ImportError:  # the tools themselves never need scipy
 
 
 class TestDistributions(unittest.TestCase):
-    @unittest.skipIf(ss is None, "scipy not installed")
+    @unittest.skipIf(ss is None, "scipy not installed (optional cross-check; the tools never need it)")
     def test_t_sf_matches_scipy(self):
         for df in [1, 2, 3, 5, 8, 17, 30, 100, 14.87]:
             for t in [-6, -2.5, -1, -0.1, 0, 0.3, 1, 2.0, 3.3, 8, 11.5]:
                 self.assertAlmostEqual(stats.t_sf(t, df), ss.t.sf(t, df), delta=1e-12 + 1e-9 * ss.t.sf(t, df))
 
-    @unittest.skipIf(ss is None, "scipy not installed")
+    @unittest.skipIf(ss is None, "scipy not installed (optional cross-check; the tools never need it)")
     def test_ppf_matches_scipy(self):
         for df in [1, 4, 17, 60]:
             for p in [0.01, 0.2, 0.5, 0.8, 0.99]:
@@ -73,7 +73,7 @@ class TestAnvil2Record(unittest.TestCase):
 
 
 class TestWelchScipy(unittest.TestCase):
-    @unittest.skipIf(ss is None, "scipy not installed")
+    @unittest.skipIf(ss is None, "scipy not installed (optional cross-check; the tools never need it)")
     def test_against_scipy(self):
         rng = random.Random(0)
         for _ in range(20):
@@ -91,7 +91,7 @@ class TestWelchScipy(unittest.TestCase):
             self.assertEqual(g["df"], len(a) - 1)
             self.assertAlmostEqual(g["t"], -ref.statistic, places=9)
 
-    @unittest.skipIf(ss is None, "scipy not installed")
+    @unittest.skipIf(ss is None, "scipy not installed (optional cross-check; the tools never need it)")
     def test_track2_gate_random_losses(self):
         rng = random.Random(182)
         for n in [2, 3, 8, 30, 100]:
