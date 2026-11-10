@@ -8,9 +8,13 @@
 Per A/B phase (gate, hadamard; each an ab_run.py results directory): per arm n ok/total, final val_loss
 mean/sd, train_time mean/sd, step-sum (train_time of the last training-progress line, i.e. the summed step
 time without the final validation), ms/step per schedule stage, and the arm's flags; then the paired
-(same-seed) deltas against the baseline arm. The gate gets the README decision rule: the paired gap
-val(fp8) - val(FP8_OFF=1) in mnat, mean +- SE, 95% t-CI against the 0.5 mnat threshold. The t2 phase
-is compared with @ldmberman's single run (2.8769 in 221 s, 38.1 ms/step).
+(same-seed) deltas against the baseline arm, and each failed run's cause. The gate gets the first step of
+182/hadamard-fp8/README.md's workflow: the paired gap val(fp8) - val(FP8_OFF=1) in mnat (one sign convention
+throughout: + = fp8 worse), mean +- SE, 95% t-CI against the 0.5 mnat threshold, and only once every gate
+slot has finished. The hadamard phase compares each variant's step-time cost with the most the rotation could
+buy back (gate gap x SEC_PER_MNAT). A header shows the stack the session ran on (git sha/dirty, torch, triton,
+CUDA, driver, FA3, SLOW GPUs) with mismatches marked. The t2 phase is compared with @ldmberman's single run
+(2.8769 in 221 s, 38.1 ms/step).
 
 Stdlib only (reuses logparse/stats/ab_run from this folder), so it runs anywhere.
 """
@@ -25,6 +29,7 @@ import re
 import sys
 import tarfile
 import tempfile
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ab_run  # noqa: E402
@@ -32,11 +37,14 @@ import logparse  # noqa: E402
 import stats  # noqa: E402
 
 THRESHOLD_MNAT = 0.5          # 182/hadamard-fp8/README.md decision rule
-SEC_PER_MNAT = 0.164          # #360 near its step count (182/structured/ab_fixed_steps.py)
-# The hadamard phase only pays if the gap can buy back its cost: the cheapest default variant (dw1,dw2@32)
-# is estimated at ~0.5-0.7 s, i.e. ~3-4 mnat at SEC_PER_MNAT, so a mean gap under ~2 mnat cannot win and
-# its ~34 GPU-node-minutes are better spent elsewhere. FORCE_HADAMARD=1 in gpu_session.sh overrides.
+SEC_PER_MNAT = 0.164          # upstream's convention (#360 near its step count; 182/structured/ab_fixed_steps.py)
+SEC_PER_MNAT_BAND = (0.120, 0.250)  # what was measured across step counts
+# A loose prescreen for the DEFAULT HADAMARD_VARIANTS (all@128, dw1,dw2@32; ~0.5-0.7 s each, i.e. ~3-4.3 mnat at
+# SEC_PER_MNAT): under a 2 mnat mean gap they cannot pay, and the phase's ~34 node-minutes go elsewhere. It does NOT
+# exclude cheaper variants: dpost@32 (~0.08 s) needs ~0.5 mnat, a single GEMM @32 ~1.5-3. FORCE_HADAMARD=1 overrides.
 HADAMARD_MIN_GAP_MNAT = float(os.environ.get("HADAMARD_MIN_GAP_MNAT", "2.0"))
+WANT_STACK = dict(torch="2.10.0+cu128", triton="3.6.0")
+MIN_DRIVER = 580
 T2_REF = dict(val_loss=2.8769, train_time_s=221.0, step_avg_ms=38.1, target=2.877)
 HIDDEN_ENV = {"DATA_PATH", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TRAIN_SEED"}
 
@@ -94,13 +102,14 @@ def log_details(text: str) -> dict:
 # ----------------------------------------------------------------------------- A/B phases
 
 def _remap(path: str | None, ab_dir: str, sub: str) -> str | None:
-    """Ledger paths are absolute on the GPU box; in a bundle the file sits in <ab_dir>/<sub>/<basename>."""
+    """Ledger paths are absolute on the GPU box; the file sits in <ab_dir>/<sub>/<basename> (in a bundle, and in a
+    re-planned <phase>.attemptN, whose absolute paths the new attempt reuses), so that copy wins."""
     if not path:
         return None
-    if os.path.isfile(path):
-        return path
     p = os.path.join(ab_dir, sub, os.path.basename(path))
-    return p if os.path.isfile(p) else None
+    if os.path.isfile(p):
+        return p
+    return path if os.path.isfile(path) else None
 
 
 def load_ab(ab_dir: str) -> dict | None:
@@ -118,7 +127,7 @@ def load_ab(ab_dir: str) -> dict | None:
                 r["details"] = log_details(f.read())
     arms = [a["name"] for a in plan["arms"]]
     done = {r["idx"] for r in ab_run.final_records(ab_dir)}
-    return dict(plan=plan, arms=arms, baseline=plan["baseline"], pending=sum(1 for s in plan["runs"] if s["idx"] not in done),
+    return dict(dir=ab_dir, plan=plan, arms=arms, baseline=plan["baseline"], pending=sum(1 for s in plan["runs"] if s["idx"] not in done),
                 groups={a: [r for r in recs if r["arm"] == a] for a in arms},
                 planned={a: plan["n"] for a in arms}, env={a["name"]: a.get("env", {}) for a in plan["arms"]})
 
@@ -165,26 +174,67 @@ def gate_decision(ab: dict) -> dict:
     m, se, lo, hi, n = ci95(diffs)
     res = dict(fp8_arm=fp8[0], bf16_arm=bf16[0], n=n, mean_mnat=m, se_mnat=se, lo_mnat=lo, hi_mnat=hi,
                threshold_mnat=THRESHOLD_MNAT, diffs_mnat=diffs)
-    if n < 2:
+    pending = ab.get("pending", 0)
+    res["complete"] = not pending
+    if pending:
+        res.update(decision="INCOMPLETE", reason=f"{pending} gate slot(s) never ran: no decision until they finish "
+                   "(re-run the same command to resume)")
+    elif n < 2:
         res.update(decision="NODATA", reason=f"{n} complete seed pair(s); need >= 2 (plan: {ab['plan']['n']})")
     elif hi < THRESHOLD_MNAT:
-        res.update(decision="STOP", reason="95% CI upper < 0.5 mnat: Hadamard is pointless, drop it")
+        res.update(decision="STOP", reason="95% CI upper < 0.5 mnat: the fp8 recipe costs no meaningful loss; drop Hadamard")
     elif lo > THRESHOLD_MNAT:
         res.update(decision="GAP", reason="95% CI lower > 0.5 mnat: attribute it (FP8_OFF=mlp/qkv/lm), dump, offline script")
     else:
-        res.update(decision="INCONCLUSIVE", reason="95% CI straddles 0.5 mnat: more seeds needed")
+        sd = se * math.sqrt(n)
+        need = pairs_needed(m, sd)
+        pin = pairs_for_halfwidth(sd, 0.25)
+        res.update(decision="INCONCLUSIVE",
+                   reason=f"95% CI straddles 0.5 mnat (paired sd {sd:.2f} mnat); "
+                   + (f"calling it either way would take n~{need} pairs if the true gap is the observed mean"
+                      if need else "the observed mean sits too close to 0.5 for any affordable n to call it")
+                   + (f"; pinning the gap to ±0.25 mnat would take n~{pin}" if pin else ""))
     res["min_gap_mnat"] = HADAMARD_MIN_GAP_MNAT
-    res["run_hadamard"] = res["decision"] in ("GAP", "INCONCLUSIVE") and m >= HADAMARD_MIN_GAP_MNAT
-    if n >= 2 and n < ab["plan"]["n"]:
-        res["reason"] += f" (only {n}/{ab['plan']['n']} seed pairs complete)"
+    res["run_hadamard"] = bool(res["complete"] and res["decision"] in ("GAP", "INCONCLUSIVE") and m >= HADAMARD_MIN_GAP_MNAT)
+    if not pending and 2 <= n < ab["plan"]["n"]:
+        res["reason"] += f" (only {n}/{ab['plan']['n']} seed pairs ok)"
     return res
+
+
+def pairs_for_halfwidth(sd: float, hw: float, cap: int = 400) -> int | None:
+    """Smallest n whose 95% t-CI half-width t*sd/sqrt(n) is below hw."""
+    if not (sd == sd and sd > 0):
+        return None
+    return next((n for n in range(2, cap + 1) if stats.t_ppf(0.975, n - 1) * sd / math.sqrt(n) < hw), None)
+
+
+def pairs_needed(mean: float, sd: float, thr: float = THRESHOLD_MNAT, cap: int = 400) -> int | None:
+    """Smallest n whose 95% t-CI (half-width t*sd/sqrt(n)) clears thr, if the true paired gap is `mean`."""
+    d = abs(mean - thr)
+    if not (sd == sd and sd > 0) or d == 0:
+        return None
+    for n in range(2, cap + 1):
+        if stats.t_ppf(0.975, n - 1) * sd / math.sqrt(n) < d:
+            return n
+    return None
+
+
+def dead_arms(ab: dict) -> list[str]:
+    """Arms that finished at least one run and none ok: a systematic failure (crash at import, hang, ...)."""
+    return [a for a in ab["arms"] if ab["groups"][a] and not any(r["status"] == "ok" for r in ab["groups"][a])]
 
 
 def ab_check(ab: dict, gate: bool = False) -> tuple[int, str]:
     """(code, reason): 0 complete and usable; 3 slots still pending (resume them); 4 complete but unusable
-    (the gate has < 2 seed pairs, or some arm has no ok run): re-plan, the slots will not be re-run."""
+    (the gate has < 2 seed pairs from scattered failures): re-plan, the slots will not be re-run; 5 complete
+    but some arm failed every run: systematic, re-planning would burn the same runs again (fix it, FORCE=1)."""
+    dead = dead_arms(ab)
     if ab["pending"]:
-        return 3, f"{ab['pending']} slot(s) pending"
+        note = f" (arm(s) {', '.join(dead)}: every finished run failed)" if dead else ""
+        return 3, f"{ab['pending']} slot(s) pending{note}"
+    if dead:
+        causes = "; ".join(f"{a}: {first_cause(ab, a)}" for a in dead)
+        return 5, f"arm(s) {', '.join(dead)} failed every run ({causes})"
     if gate:
         g = gate_decision(ab)
         if g["decision"] == "NODATA":
@@ -195,7 +245,29 @@ def ab_check(ab: dict, gate: bool = False) -> tuple[int, str]:
     return 0, "complete"
 
 
-def ab_table(name: str, ab: dict) -> list[str]:
+def first_cause(ab: dict, arm: str) -> str:
+    bad = [r for r in ab["groups"][arm] if r["status"] != "ok"]
+    return ab_run.record_cause(bad[0], ab.get("dir")) if bad else "-"
+
+
+def failure_lines(ab: dict) -> list[str]:
+    """One line per distinct failure cause per arm (the stdout tail a crash left)."""
+    lines = []
+    for arm in ab["arms"]:
+        seen = {}
+        for r in ab["groups"][arm]:
+            if r["status"] == "ok":
+                continue
+            c = ab_run.record_cause(r, ab.get("dir"))
+            seen.setdefault(c, []).append(f"#{r['idx']} {r['status']}" + (f" rc={r['returncode']}" if r.get("returncode") not in (None, 0) else ""))
+        for c, runs in seen.items():
+            lines.append(f"  {arm} {', '.join(runs)}: {c}")
+    return (["  failed runs (cause = last error line of the run's stdout):"] + lines) if lines else []
+
+
+def ab_table(name: str, ab: dict, gate: bool = False, buyback_mnat: float | None = None) -> list[str]:
+    """gate: the paired val gap is gate_lines' job (one sign convention), so only Δstep_sum is shown here.
+    buyback_mnat: the gate gap, against which each arm's step-time cost is compared (the hadamard phase)."""
     plan, groups, base = ab["plan"], ab["groups"], ab["baseline"]
     lines = [f"== {name}: baseline={base} n/arm={plan['n']} seeds={plan['seeds'] or 'none'} cache={plan['cache']} "
              f"order={plan['order']}" + (f"  [{ab['pending']} slot(s) never ran]" if ab.get("pending") else "")]
@@ -226,23 +298,128 @@ def ab_table(name: str, ab: dict) -> list[str]:
         mv, sev, lov, hiv, n = ci95(dv)
         mt, set_, _, _, _ = ci95(dt)
         mtt, _, _, _, _ = ci95(dtt)
-        net = (mt + mv * SEC_PER_MNAT) if dt and dv else float("nan")
+        if gate:
+            lines.append(f"  paired {arm}-{base} (n={n}): Δstep_sum {mt:+.3f}±{set_:.3f} s | Δtrain_time {mtt:+.3f} s "
+                         f"(the step-time cost of {arm}'s flags; the val gap is the GATE line)")
+            continue
         lines.append(f"  paired {arm}-{base} (n={n}): Δval {mv:+.2f}±{sev:.2f} mnat (SE) CI[{lov:+.2f},{hiv:+.2f}] | "
-                     f"Δstep_sum {mt:+.3f}±{set_:.3f} s | Δtrain_time {mtt:+.3f} s | "
-                     f"net {net:+.2f} s (Δstep_sum + Δval x {SEC_PER_MNAT} s/mnat; + = {arm} slower to the same loss)")
-    return lines
+                     f"Δstep_sum {mt:+.3f}±{set_:.3f} s | Δtrain_time {mtt:+.3f} s  (+ = {arm} worse/slower)")
+        if buyback_mnat is not None and dt:
+            gap = max(buyback_mnat, 0.0)
+            b, lo_b, hi_b = gap * SEC_PER_MNAT, gap * SEC_PER_MNAT_BAND[0], gap * SEC_PER_MNAT_BAND[1]
+            verdict = ("cannot pay even if it recovers the whole gap" if mt > hi_b else
+                       "pays only if it recovers most of the gap" if mt > lo_b else
+                       "could pay if it recovers a fair share of the gap")
+            lines.append(f"    buy-back bound: gate gap {gap:.2f} mnat x {SEC_PER_MNAT} s/mnat (upstream's convention; measured "
+                         f"{SEC_PER_MNAT_BAND[0] * 1000:.0f}-{SEC_PER_MNAT_BAND[1] * 1000:.0f} ms/mnat) = {b:.2f} s "
+                         f"[{lo_b:.2f}-{hi_b:.2f}] vs Δstep_sum {mt:+.3f} s -> {verdict}"
+                         + (f"; Δval at n={n} is noise-level (CI ±{(hiv - lov) / 2:.1f} mnat)" if n == n and n < 4 and hiv == hiv else ""))
+    return lines + failure_lines(ab)
 
 
 def gate_lines(g: dict) -> list[str]:
-    if g["decision"] == "NODATA":
-        return [f"GATE: NODATA -- {g['reason']}"]
-    return [f"GATE: gap val({g['fp8_arm']}) - val({g['bf16_arm']}) = {g['mean_mnat']:+.2f} ± {g['se_mnat']:.2f} mnat "
-            f"(SE, n={g['n']} seed pairs), 95% CI [{g['lo_mnat']:+.2f}, {g['hi_mnat']:+.2f}] vs {THRESHOLD_MNAT} mnat "
-            f"-> {g['decision']}: {g['reason']}",
-            "      per-seed gaps (mnat): " + " ".join(f"{d:+.1f}" for d in g["diffs_mnat"])]
+    if g["decision"] == "NODATA" or (g["decision"] == "INCOMPLETE" and g.get("n", 0) < 2) or "mean_mnat" not in g:
+        return [f"GATE: {g['decision']} -- {g['reason']}"]
+    gap = (f"gap val({g['fp8_arm']}) - val({g['bf16_arm']}) = {g['mean_mnat']:+.2f} ± {g['se_mnat']:.2f} mnat "
+           f"(SE, n={g['n']} seed pairs, + = fp8 worse), 95% CI [{g['lo_mnat']:+.2f}, {g['hi_mnat']:+.2f}]")
+    out = [f"GATE: {g['decision']} -- {g['reason']}" if g["decision"] == "INCOMPLETE" else
+           f"GATE: {gap} vs {THRESHOLD_MNAT} mnat -> {g['decision']}: {g['reason']}"]
+    if g["decision"] == "INCOMPLETE":
+        out.append(f"      provisional, not a decision: {gap}")
+    out.append("      per-seed gaps (mnat): " + " ".join(f"{d:+.1f}" for d in g["diffs_mnat"]))
+    if g["decision"] in ("GAP", "INCONCLUSIVE"):
+        if g["mean_mnat"] < g["min_gap_mnat"]:
+            out.append(f"      hadamard: mean gap {g['mean_mnat']:.2f} < {g['min_gap_mnat']:.1f} mnat, the loose prescreen for the default "
+                       f"HADAMARD_VARIANTS (~0.5-0.7 s each = ~3-4.3 mnat at {SEC_PER_MNAT} s/mnat): they cannot pay. It does not "
+                       "exclude cheaper variants (dpost@32 ~0.08 s needs ~0.5 mnat).")
+        elif g["complete"]:
+            out.append(f"      hadamard: mean gap {g['mean_mnat']:.2f} >= {g['min_gap_mnat']:.1f} mnat: the variants are worth timing")
+    return out
 
 
 # ----------------------------------------------------------------------------- t2
+
+def tests_lines(root: str) -> list[str]:
+    d = os.path.join(root, "tests")
+    out = []
+    for name, rcf, label in (("pytest.txt", "rc_plain", "plain"), ("pytest_hadamard.txt", "rc_hadamard", "HADAMARD_FP8=1")):
+        p = os.path.join(d, name)
+        if not os.path.isfile(p):
+            continue
+        rc = _read(os.path.join(d, rcf)).strip() or "?"
+        lines = _read(p).splitlines()
+        final = next((ln.strip(" =") for ln in reversed(lines) if re.search(r"\d+ (passed|failed|error|skipped)|no tests ran", ln)), "(no pytest summary line)")
+        out.append(f"== tests ({label}): rc={rc}  {final}")
+        bad = [ln for ln in lines if ln.startswith(("FAILED", "ERROR"))]
+        skips = [ln for ln in lines if ln.startswith("SKIPPED")]
+        out += ["  " + ln[:200] for ln in bad[:12]]
+        if rc not in ("0", "?") and not bad:
+            out += ["  " + ln[:200] for ln in lines[-8:]]
+        out += ["  " + ln[:200] for ln in skips[:6]] + ([f"  ... {len(skips) - 6} more SKIPPED"] if len(skips) > 6 else [])
+    return out
+
+
+def _read(p: str) -> str:
+    try:
+        with open(p, errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def stack_lines(root: str) -> list[str]:
+    """The header: what the session ran on, with every mismatch against the record's stack marked."""
+    d = os.path.join(root, "env")
+    st = {}
+    try:
+        with open(os.path.join(d, "stack.json")) as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        text = _read(os.path.join(d, "env.txt"))
+        for key, rx in (("torch", r"^torch (\S+) cuda (\S+)"), ("triton", r"^triton (\S+)"), ("git_sha", r"^git ([0-9a-f]{7,40})")):
+            if m := re.search(rx, text, re.M):
+                st[key] = m.group(1)
+                if key == "torch":
+                    st["torch_cuda"] = m.group(2)
+        if m := re.search(r"Driver Version: (\S+)", text):
+            st["driver"] = m.group(1)
+    if not st:
+        return ["STACK: unknown (no env/stack.json or env.txt in this session)"]
+    flag = []
+    dirty = st.get("git_dirty")
+    line = (f"STACK: git {str(st.get('git_sha', '?'))[:12]}{' DIRTY (' + str(len(st.get('dirty_files') or [])) + ' modified tracked file(s))' if dirty else (' clean' if dirty is False else '')}"
+            f" | torch {st.get('torch', '?')} (CUDA {st.get('torch_cuda', '?')}) | triton {st.get('triton', '?')}"
+            f" | driver {st.get('driver', '?')} | python {st.get('python', '?')}"
+            + (f" | FA3 {st['fa3']}" if st.get("fa3") else ""))
+    if "problems" not in st:  # an env.txt-only (older) session: compare here; stack.json lists its own problems
+        for k, want in WANT_STACK.items():
+            if st.get(k) and st.get(k) != want:
+                flag.append(f"{k} {st.get(k)} != {want} (the record's stack)")
+    drv = str(st.get("driver") or "")
+    if drv[:3].isdigit() and int(drv.split(".")[0]) < MIN_DRIVER:
+        flag.append(f"driver {drv} < {MIN_DRIVER}: ~35% slower (ANVIL2 README); absolute times and the Hadamard Δstep_sum are skewed")
+    if dirty:
+        flag.append("working tree has uncommitted changes to tracked files: " + " ".join((st.get("dirty_files") or [])[:6])
+                    + " (the A/B arms ran the committed HEAD)")
+    flag += list(st.get("problems") or [])
+    nc = _read(os.path.join(d, "node_check.txt"))
+    slow = [ln.strip() for ln in nc.splitlines() if "SLOW" in ln]
+    flag += [f"node_check: {ln}" for ln in slow]
+    if st.get("allow_stack"):
+        flag.append("ALLOW_STACK=1 was set: the stack check was overridden")
+    return [line] + [f"  !! {f}" for f in flag]
+
+
+def phase_tail_lines(root: str, phase: str, files: list[str], status: str) -> list[str]:
+    if not status.startswith("FAIL"):
+        return []
+    for f in files:
+        txt = _read(os.path.join(root, phase, f))
+        if txt.strip():
+            tail = [ln for ln in txt.splitlines() if ln.strip()][-4:]
+            return [f"== {phase}: {status}; tail of {phase}/{f}:"] + ["  " + ln[:200] for ln in tail]
+    return []
+
 
 def t2_result(t2_dir: str) -> dict | None:
     cands = [os.path.join(t2_dir, f) for f in sorted(os.listdir(t2_dir)) if f.endswith(".txt")] if os.path.isdir(t2_dir) else []
@@ -284,17 +461,30 @@ def t2_lines(t2_dir: str) -> list[str]:
 
 # ----------------------------------------------------------------------------- whole session
 
-def statuses(root: str) -> list[str]:
+def status_map(root: str) -> dict:
     d = os.path.join(root, "status")
     if not os.path.isdir(d):
-        return []
+        return {}
     order = ["env", "tests", "sanity", "gate", "hadamard", "t2", "bundle"]
     names = sorted(os.listdir(d), key=lambda n: (order.index(n) if n in order else 99, n))
-    out = []
-    for n in names:
-        with open(os.path.join(d, n)) as f:
-            out.append(f"{n}: {f.read().strip()}")
-    return out
+    return {n: _read(os.path.join(d, n)).strip() for n in names}
+
+
+def statuses(root: str) -> list[str]:
+    return [f"{n}: {v}" for n, v in status_map(root).items()]
+
+
+def gate_gap(root: str) -> float | None:
+    ab = load_ab(os.path.join(root, "gate"))
+    if ab is None:
+        return None
+    g = gate_decision(ab)
+    return g["mean_mnat"] if g.get("n", 0) >= 2 else None
+
+
+def hadamard_lines(root: str, name: str = "hadamard") -> list[str]:
+    ab = load_ab(os.path.join(root, name))
+    return [] if ab is None else ab_table(name, ab, buyback_mnat=gate_gap(root))
 
 
 def summarize(root: str) -> str:
@@ -303,34 +493,58 @@ def summarize(root: str) -> str:
     if os.path.isfile(meta):
         with open(meta) as f:
             lines += [ln.rstrip() for ln in f if ln.strip()]
-    st = statuses(root)
-    if st:
-        lines += ["phases: " + " | ".join(st)]
+    lines += stack_lines(root)
+    smap = status_map(root)
+    if smap:
+        lines += ["phases: " + " | ".join(f"{n}: {v}" for n, v in smap.items())]
+    if not any(ln.startswith("  !! ") for ln in lines):  # the STACK lines already say why env failed
+        lines += phase_tail_lines(root, "env", ["env.txt"], smap.get("env", ""))
+    t = tests_lines(root)
+    if t:
+        lines += [""] + t
+    lines += phase_tail_lines(root, "sanity", ["sanity.txt"], smap.get("sanity", ""))
     attempts = sorted(n for n in os.listdir(root) if re.fullmatch(r"(gate|hadamard)\.attempt\d+", n))
     for phase in attempts + ["gate", "hadamard"]:  # earlier attempts (re-planned after failing) first
-        ab = load_ab(os.path.join(root, phase))
-        if ab is None:
-            continue
-        lines += [""] + ab_table(phase, ab)
         if phase.startswith("gate"):
-            lines += gate_lines(gate_decision(ab))
-    if os.path.isdir(os.path.join(root, "t2")):
+            ab = load_ab(os.path.join(root, phase))
+            if ab is not None:
+                lines += [""] + ab_table(phase, ab, gate=True) + gate_lines(gate_decision(ab))
+        else:
+            h = hadamard_lines(root, phase)
+            lines += [""] + h if h else []
+    t2s = smap.get("t2", "")
+    if os.path.isdir(os.path.join(root, "t2")) and not t2s.startswith("SKIP"):
         lines += [""] + t2_lines(os.path.join(root, "t2"))
+        lines += phase_tail_lines(root, "t2", ["stdout.txt", "prefetch.txt"], t2s)
     return "\n".join(lines) + "\n"
 
 
-def open_input(path: str) -> tuple[str, tempfile.TemporaryDirectory | None]:
+def open_input(path: str) -> tuple[str, tempfile.TemporaryDirectory | None, str | None]:
+    """(session root, tempdir to clean up, warning). A truncated bundle (a cut-off scp) yields what it holds."""
     if os.path.isdir(path):
-        return path, None
+        return path, None, None
+    if not os.path.isfile(path):
+        raise SystemExit(f"{path}: no such bundle or directory")
     tmp = tempfile.TemporaryDirectory()
-    with tarfile.open(path) as tf:
-        members = [m for m in tf.getmembers() if (m.isfile() or m.isdir()) and not m.name.startswith("/")
-                   and ".." not in m.name.split("/") and not os.path.basename(m.name).startswith("._")]  # macOS AppleDouble
-        kw = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
-        tf.extractall(tmp.name, members=members, **kw)
+    kw = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+    n, warn = 0, None
+    try:
+        with tarfile.open(path) as tf:
+            for m in tf:
+                if (m.isfile() or m.isdir()) and not m.name.startswith("/") and ".." not in m.name.split("/") \
+                        and not os.path.basename(m.name).startswith("._"):  # macOS AppleDouble
+                    tf.extract(m, tmp.name, **kw)
+                    n += 1
+    except (EOFError, tarfile.TarError, OSError, zlib.error) as e:
+        if n == 0:
+            tmp.cleanup()
+            raise SystemExit(f"{path}: not a readable .tar.gz ({type(e).__name__}: {e}). It is probably truncated: "
+                             "copy it again (compare `sha256sum` on both ends).")
+        warn = (f"WARNING: {path} is truncated or damaged after {n} entries ({type(e).__name__}); this summary covers "
+                "only the readable part -- copy the bundle again")
     tops = [t for t in os.listdir(tmp.name) if not t.startswith("._")]
     root = os.path.join(tmp.name, tops[0]) if len(tops) == 1 and os.path.isdir(os.path.join(tmp.name, tops[0])) else tmp.name
-    return root, tmp
+    return root, tmp, warn
 
 
 def main(argv=None):
@@ -338,8 +552,9 @@ def main(argv=None):
     ap.add_argument("input", nargs="?", help="session bundle .tar.gz or session directory")
     ap.add_argument("--gate", help="an ab_run gate directory: print its table and decision only")
     ap.add_argument("--write-decision", help="with --gate: write GATE_* shell variables to this file")
+    ap.add_argument("--hadamard", metavar="SESSION_DIR", help="print the hadamard phase's table against the gate's buy-back bound")
     ap.add_argument("--check", metavar="DIR", help="an ab_run directory: print its state; exit 0 complete and usable, "
-                    "3 slots pending, 4 complete but unusable, 2 no plan")
+                    "3 slots pending, 4 complete but unusable (re-plan), 5 an arm failed every run (systematic: do not re-plan), 2 no plan")
     ap.add_argument("--check-gate", action="store_true", help="with --check: also require a gate decision (>= 2 pairs)")
     a = ap.parse_args(argv)
     if a.check:
@@ -355,20 +570,24 @@ def main(argv=None):
         if ab is None:
             raise SystemExit(f"no plan.json in {a.gate}")
         g = gate_decision(ab)
-        print("\n".join(ab_table("gate", ab) + gate_lines(g)))
+        print("\n".join(ab_table("gate", ab, gate=True) + gate_lines(g)))
         if a.write_decision:
             def num(x):
                 return "nan" if x is None or x != x else f"{x:.4f}"
             with open(a.write_decision, "w") as f:
-                f.write(f"GATE_DECISION={g['decision']}\nGATE_N={g.get('n', 0)}\nGATE_MEAN_MNAT={num(g.get('mean_mnat'))}\n"
+                f.write(f"GATE_DECISION={g['decision']}\nGATE_COMPLETE={int(bool(g.get('complete')))}\nGATE_N={g.get('n', 0)}\n"
+                        f"GATE_MEAN_MNAT={num(g.get('mean_mnat'))}\n"
                         f"GATE_SE_MNAT={num(g.get('se_mnat'))}\nGATE_LO_MNAT={num(g.get('lo_mnat'))}\n"
                         f"GATE_HI_MNAT={num(g.get('hi_mnat'))}\nGATE_RUN_HADAMARD={int(bool(g.get('run_hadamard')))}\n")
         return 0
+    if a.hadamard:
+        print("\n".join(hadamard_lines(a.hadamard)))
+        return 0
     if not a.input:
         ap.error("give a bundle/directory, or --gate DIR")
-    root, tmp = open_input(a.input)
+    root, tmp, warn = open_input(a.input)
     try:
-        sys.stdout.write(summarize(root))
+        sys.stdout.write((warn + "\n" if warn else "") + summarize(root))
     finally:
         if tmp:
             tmp.cleanup()

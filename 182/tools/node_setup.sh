@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Set up a fresh 8xH100 Linux box for the speedrun and write a node report. Run from the repo root.
 #
-#   bash 182/tools/node_setup.sh [--mode venv|docker|report] [--shards 9] [--venv .venv-run]
+#   bash 182/tools/node_setup.sh [--mode venv|docker|report] [--shards 9] [--venv .venv-run]   (DATA_TIMEOUT_S, default 3600)
 #                                [--image modded-nanogpt] [--skip-data] [--skip-fa3] [--skip-check]
 #
 #   report  only the node report (GPUs, driver, CPU cores, RAM, NUMA, disk, CUDA runtimes) -> node_report.txt
@@ -11,7 +11,7 @@
 #           FA3 prefetch, data and sanity check inside the container, with the HF cache mounted from the host
 #
 # The stack is the one records/track_1_short/2026-08-30_ANVIL2/README.md certifies: torch 2.10.0+cu128
-# (NOT a nightly), kernels==0.16.1, huggingface-hub==1.29.0, driver >= 580, libcudart.so.13 present,
+# (NOT a nightly), triton 3.6.0, kernels==0.16.1, huggingface-hub==1.29.0, driver >= 580, libcudart.so.13 present,
 # CUDA_HOME with include/cuda_bf16.h (the CE kernel compiles through nvrtc), >= 10 GB free disk.
 # Exits nonzero on a hard failure; prints WARN for the soft ones (they are in the report too).
 set -uo pipefail
@@ -94,7 +94,8 @@ node_report() {
 find_cudart13() {
   ldconfig -p 2>/dev/null | grep 'libcudart.so.13' >/dev/null && return 0
   local d libs="${LD_LIBRARY_PATH:-}"
-  for d in /usr/local/cuda-13*/targets/x86_64-linux/lib /usr/local/cuda/lib64 ${libs//:/ }; do
+  for d in ${CUDA_HOME:+$CUDA_HOME/targets/x86_64-linux/lib $CUDA_HOME/lib64} /usr/local/cuda-13*/targets/x86_64-linux/lib \
+           /usr/local/cuda/lib64 ${libs//:/ }; do
     [[ -e "$d/libcudart.so.13" ]] && { echo "$d"; return 0; }
   done
   return 1
@@ -106,7 +107,11 @@ check_cuda13() {
   if d=$(find_cudart13); then
     echo "libcudart.so.13 found ${d:+in $d}" >> "$REPORT"
     if [[ -n "$d" && ":${LD_LIBRARY_PATH:-}:" != *":$d:"* ]]; then
-      warn "libcudart.so.13 is in $d, which is not on LD_LIBRARY_PATH: export LD_LIBRARY_PATH=$d:\$LD_LIBRARY_PATH"
+      # The patched FA3 dlopens it in every trainer: put it on the path here (FA3 prefetch, stack check) and in
+      # the venv's activate script (every later shell), instead of only telling the user.
+      CUDART13_DIR=$d
+      export LD_LIBRARY_PATH="$d${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      echo "libcudart.so.13 is in $d (not on LD_LIBRARY_PATH): added for this run and to $VENV/bin/activate" | tee -a "$REPORT"
     fi
   else
     fail "no libcudart.so.13. Install: wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb && sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update && sudo apt-get install -y cuda-cudart-13-1 cuda-nvrtc-dev-13-1 cuda-cudart-dev-13-1; then put /usr/local/cuda-13.1/targets/x86_64-linux/lib on LD_LIBRARY_PATH (on a 'Signed-By conflict', delete the duplicate .list under /etc/apt/sources.list.d/). Or use --mode docker."
@@ -153,6 +158,13 @@ ok = True
 if torch.__version__ != "2.10.0+cu128":
     print("FAIL: torch must be 2.10.0+cu128 (a nightly has produced NaNs; see the ANVIL2 README)"); ok = False
 try:
+    import triton
+    print("triton", triton.__version__)
+    if triton.__version__ != "3.6.0":
+        print("FAIL: triton must be 3.6.0 (the one torch 2.10.0 pins; the kernels and the record were built on it)"); ok = False
+except Exception as e:
+    print("FAIL: triton import:", e); ok = False
+try:
     import kernels, huggingface_hub
     print("kernels", kernels.__version__, "huggingface_hub", huggingface_hub.__version__)
 except Exception as e:
@@ -186,7 +198,13 @@ data_download() {
   if [[ "$n" -ge "$SHARDS" && -f data/fineweb10B/fineweb_val_000000.bin ]]; then
     echo "data: $n train shards + val already present"
   else
-    "$@" data/cached_fineweb10B.py "$SHARDS" || fail "data download"
+    local tmo=(); timeout 5 true >/dev/null 2>&1 && tmo=(timeout -k 30 "${DATA_TIMEOUT_S:-3600}")
+    "${tmo[@]}" "$@" data/cached_fineweb10B.py "$SHARDS"; local rc=$?
+    if [[ $rc -eq 124 ]]; then
+      fail "data download did not finish in ${DATA_TIMEOUT_S:-3600}s: check the network / Hugging Face access; re-run to resume (finished shards are kept), or raise DATA_TIMEOUT_S"
+    elif [[ $rc -ne 0 ]]; then
+      fail "data download (rc $rc)"
+    fi
   fi
   # Human-readable listing only, not filename parsing.
   # shellcheck disable=SC2012
@@ -200,10 +218,26 @@ node_report
 if [[ "$MODE" == "venv" ]]; then
   check_cuda13
   PY=python3.12; command -v "$PY" >/dev/null || PY=python3
+  # A failed `python3 -m venv` (no python3-venv on a fresh Ubuntu) leaves bin/python without pip behind; a later
+  # run would then skip creation and fail in pip forever. A venv without a working pip is removed and recreated.
+  if [[ -x "$VENV/bin/python" ]] && ! "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
+    echo "$VENV exists but has no working pip (a failed earlier creation?): recreating it"
+    [[ -f "$VENV/pyvenv.cfg" ]] && rm -rf "$VENV"
+  fi
   if [[ ! -x "$VENV/bin/python" ]]; then
     if command -v uv >/dev/null; then uv venv --seed -p 3.12 "$VENV" || "$PY" -m venv "$VENV"; else "$PY" -m venv "$VENV"; fi
   fi
+  if ! "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
+    PYV=$("$PY" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo 3)
+    [[ -f "$VENV/pyvenv.cfg" ]] && rm -rf "$VENV"   # only a directory a venv attempt created
+    fail "could not create a venv with pip at $VENV using $PY. On Debian/Ubuntu: sudo apt install python${PYV}-venv (or install uv: curl -LsSf https://astral.sh/uv/install.sh | sh), then re-run"
+    echo; echo "node report: $REPORT ($FAILS failure(s))"; exit 1
+  fi
   VPY="$VENV/bin/python"
+  if [[ -n "${CUDART13_DIR:-}" ]] && ! grep -q 'node_setup.sh: libcudart.so.13' "$VENV/bin/activate" 2>/dev/null; then
+    printf '\n# added by 182/tools/node_setup.sh: libcudart.so.13 for the patched FA3\nexport LD_LIBRARY_PATH="%s${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\n' \
+      "$CUDART13_DIR" >> "$VENV/bin/activate"
+  fi
   "$VPY" -m pip install -q --upgrade pip || fail "pip bootstrap"
   "$VPY" -m pip install -q -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128 || fail "pip install -r requirements.txt"
   "$VPY" -m pip install -q torch==2.10 --index-url https://download.pytorch.org/whl/cu128 || fail "pip install torch==2.10 cu128"

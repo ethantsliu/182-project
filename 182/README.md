@@ -35,10 +35,13 @@ QUICK=1 bash 182/gpu_session.sh   # instead, if time is short: env, sanity and t
 
 It runs `env tests sanity gate hadamard t2 bundle` (or just the phases you name), prints a GPU-minute estimate
 before each, and ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Send that one file.
-The gate is the first step of the `182/hadamard-fp8` decision rule (record vs `FP8_OFF=1`, 4 paired seeds); the Hadamard
-A/B runs only if the gate decision is GAP or INCONCLUSIVE with a mean gap >= `HADAMARD_MIN_GAP_MNAT` (2.0 mnat) and the
-HADAMARD_FP8 tests and sanity check did not fail (`FORCE_HADAMARD=1` bypasses all of that); t2 is skipped (with the
-reason) on a host without ~390 GiB RAM / 24 vCPU per GPU.
+The env phase fails, and the GPU phases are skipped, unless the stack is the record's (torch 2.10.0+cu128, triton
+3.6.0, the venv's torchrun, the pinned FA3 loading); `ALLOW_STACK=1` runs anyway. The gate is the first step of
+`182/hadamard-fp8/README.md`'s workflow (record vs `FP8_OFF=1`, 4 paired seeds -> STOP / GAP / INCONCLUSIVE on the
+95% CI of the paired gap vs 0.5 mnat; no decision until every gate run finished). The Hadamard A/B runs only if the
+gate phase PASSed with decision GAP or INCONCLUSIVE and a mean gap >= `HADAMARD_MIN_GAP_MNAT` (2.0, a loose prescreen
+for the default variants), and the `HADAMARD_FP8=1` tests and the GPU sanity check did not fail; `FORCE_HADAMARD=1`
+bypasses all of that. t2 is skipped (with the reason) on a host without ~390 GiB RAM / 24 vCPU per GPU.
 After a ctrl-C, `bash 182/gpu_session.sh bundle` packs what exists. Knobs are listed at the top of the script. The
 trainer's experiment flags (`FP8_OFF`, `HADAMARD_FP8` / `_SEED` / `_BLOCK` / `_GEMMS`, `HADAMARD_SAT_STATS`, `FP8_DUMP_*`,
 `MONARCH_*`) are listed, with where each is read, in `track_1_short/config.py`. Read a bundle with `python 182/tools/summarize_session.py <bundle>`.

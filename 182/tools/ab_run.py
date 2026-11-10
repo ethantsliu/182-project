@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shlex
 import shutil
 import signal
@@ -407,6 +408,36 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
     return rec
 
 
+def failure_cause(text: str, max_len: int = 240) -> str:
+    """The most telling line of a failed run's console output: the last exception/error line, else the last
+    non-empty line (the crash cause a summary should show)."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        if re.search(r"(Error|Exception|error:|Killed|Traceback|FAILED|Assertion|CUDA|NCCL|No such file)", ln):
+            return ln[:max_len]
+    return (lines[-1] if lines else "(no output)")[:max_len]
+
+
+def record_cause(rec: dict, out: str | None = None) -> str:
+    if rec.get("status") == "abandoned":
+        return rec.get("reason", "abandoned")
+    if rec.get("status") == "timeout":
+        return f"timed out after {rec.get('wall_s', 0):.0f} s"
+    p = rec.get("stdout")
+    if p and out and os.path.isfile(os.path.join(out, "stdout", os.path.basename(p))):
+        p = os.path.join(out, "stdout", os.path.basename(p))  # this attempt's copy (a re-plan reuses the absolute path)
+    if p and os.path.isfile(p):
+        with open(p, errors="replace") as f:
+            return failure_cause(f.read())
+    return rec.get("launch_error") or "(no stdout)"
+
+
+def dead_arm(recs: list[dict], k: int) -> bool:
+    """An arm that has finished >= k runs and none of them ok: systematic (a crash at import, a hang, a missing
+    kernel), not noise. Interleaving means a global consecutive-failure count never sees it."""
+    return k > 0 and len(recs) >= k and not any(r["status"] == "ok" for r in recs)
+
+
 def cmd_run(a) -> None:
     out = os.path.abspath(a.out)
     plan = load_plan(out)
@@ -428,7 +459,14 @@ def cmd_run(a) -> None:
             wts[name] = prepare_arm(plan, arm, a.allow_changed)
     total = len(plan["runs"])
     streak = 0
+    k_arm = getattr(a, "arm_failures", None) or 0
+    by_arm = {n: [] for n in arms}
+    for r in final_records(out):
+        by_arm.setdefault(r["arm"], []).append(r)
+    abandoned = set()
     for k, slot in enumerate(todo):
+        if slot["arm"] in abandoned:
+            continue
         if k and plan["cooldown_s"]:
             time.sleep(plan["cooldown_s"])
         arm = arms[slot["arm"]]
@@ -439,10 +477,30 @@ def cmd_run(a) -> None:
         tt = f"{rec['train_time_s']:.3f}s" if rec["train_time_s"] is not None else "-"
         print(f" {rec['status']} val={val} train_time={tt} wall={rec['wall_s']:.0f}s")
         streak = 0 if rec["status"] == "ok" else streak + 1
+        by_arm[slot["arm"]].append(rec)
+        left = [s for s in todo[k + 1:] if s["arm"] not in abandoned]
+        if rec["status"] != "ok":
+            print(f"    cause: {record_cause(rec, out)}")
         stop = getattr(a, "stop_after_failures", None)
-        if stop and streak >= stop and k + 1 < len(todo):
+        if stop and streak >= stop and left:
             print(f"stopping: {streak} consecutive non-ok runs (--stop-after-failures {stop}); "
-                  f"{len(todo) - k - 1} slot(s) left pending -- fix the cause, then `run` again to resume")
+                  f"{len(left)} slot(s) left pending -- fix the cause, then `run` again to resume")
+            break
+        name = slot["arm"]
+        if dead_arm(by_arm[name], k_arm) and any(s["arm"] == name for s in left):
+            n_bad = len(by_arm[name])
+            if getattr(a, "dead_arm", "stop") == "abandon" and name != plan["baseline"]:
+                why = f"abandoned: arm {name} failed all of its first {n_bad} run(s) (--arm-failures {k_arm})"
+                for s in left:
+                    if s["arm"] == name:
+                        append_ledger(out, dict(event="end", idx=s["idx"], rep=s["rep"], arm=name, kind=s["kind"],
+                                                seed=s["seed"], status="abandoned", reason=why, time=time.time(),
+                                                val_loss=None, train_time_s=None, wall_s=0))
+                abandoned.add(name)
+                print(f"{why}; its remaining slot(s) are recorded as abandoned, the other arms continue")
+                continue
+            print(f"stopping: arm {name} failed all of its {n_bad} run(s) so far (--arm-failures {k_arm}); "
+                  f"{len(left)} slot(s) left pending -- fix the cause, then `run` again to resume")
             break
     if not a.no_report:
         cmd_report(argparse.Namespace(out=out, at_step=None, quiet=False))
@@ -659,6 +717,12 @@ def main(argv=None):
     r.add_argument("--stop-after-failures", type=int, metavar="K",
                    help="stop (slots stay pending, resumable) after K consecutive non-ok runs: a systematic "
                         "failure such as a hang or missing data should not burn the whole plan")
+    r.add_argument("--arm-failures", type=int, metavar="K",
+                   help="act once one arm has finished K runs and none was ok (a crash or hang in one arm alone: the arms "
+                        "interleave, so --stop-after-failures never sees it); see --dead-arm")
+    r.add_argument("--dead-arm", choices=["stop", "abandon"], default="stop",
+                   help="with --arm-failures: stop the plan (slots stay pending, resumable; default), or record that "
+                        "arm's remaining slots as 'abandoned' and run the other arms (a dead baseline always stops)")
 
     rp = sub.add_parser("report", help="tables from a results directory")
     rp.add_argument("out")
@@ -675,7 +739,8 @@ def main(argv=None):
     if a.sub == "plan":
         out = cmd_plan(a)
         if a.go:
-            cmd_run(argparse.Namespace(out=out, limit=None, allow_changed=False, no_report=False, stop_after_failures=None))
+            cmd_run(argparse.Namespace(out=out, limit=None, allow_changed=False, no_report=False, stop_after_failures=None,
+                                      arm_failures=None, dead_arm="stop"))
     elif a.sub == "run":
         cmd_run(a)
     elif a.sub == "report":

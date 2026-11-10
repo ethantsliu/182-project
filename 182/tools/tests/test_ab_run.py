@@ -208,6 +208,48 @@ class TestAbRun(unittest.TestCase):
         self.assertEqual(len(self.ledger_ends()), 6)
         self.assertEqual({r["status"] for r in self.ledger_ends()}, {"failed"})
 
+    def test_one_arm_failing_every_run_stops_early(self):
+        """The arms interleave, so one always-crashing arm never makes K consecutive failures: --arm-failures does."""
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--arm", "b=ref:master",
+                    "--env", "b:FAKE_FAIL=1", "--cmd", f"{PY} {{script}}", "--n", "4"])
+        out = self.quiet(["run", self.out, "--no-report", "--stop-after-failures", "3", "--arm-failures", "2"])
+        self.assertIn("stopping: arm b failed all of its 2 run(s) so far", out)
+        ends = self.ledger_ends()
+        self.assertEqual(sum(r["arm"] == "b" for r in ends), 2)
+        self.assertLessEqual(len(ends), 4)          # at least 4 slots stay pending
+        # a resume probes the dead arm once more, then stops again
+        out = self.quiet(["run", self.out, "--no-report", "--arm-failures", "2"])
+        self.assertIn("stopping: arm b failed all of its 3 run(s)", out)
+        self.assertEqual(sum(r["arm"] == "b" for r in self.ledger_ends()), 3)
+
+    def test_dead_variant_arm_is_abandoned_and_the_others_finish(self):
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--arm", "b=ref:master",
+                    "--arm", "c=ref:master", "--env", "b:FAKE_FAIL=1", "--cmd", f"{PY} {{script}}", "--n", "3"])
+        out = self.quiet(["run", self.out, "--no-report", "--arm-failures", "2", "--dead-arm", "abandon"])
+        self.assertIn("abandoned: arm b failed all of its first 2 run(s)", out)
+        ends = self.ledger_ends()
+        self.assertEqual(len(ends), 9)
+        st = {}
+        for r in ends:
+            st.setdefault(r["arm"], []).append(r["status"])
+        self.assertEqual(st["a"], ["ok"] * 3)
+        self.assertEqual(st["c"], ["ok"] * 3)
+        self.assertEqual(sorted(st["b"]), ["abandoned", "failed", "failed"])
+        self.assertIn("cause:", out)
+        self.assertIn("non-ok", self.quiet(["report", self.out]))
+
+    def test_dead_baseline_stops_even_with_abandon(self):
+        self.quiet(["plan", "--out", self.out, "--repo", self.repo, "--arm", "a=ref:master", "--arm", "b=ref:master",
+                    "--env", "a:FAKE_FAIL=1", "--cmd", f"{PY} {{script}}", "--n", "3"])
+        out = self.quiet(["run", self.out, "--no-report", "--arm-failures", "2", "--dead-arm", "abandon"])
+        self.assertIn("stopping: arm a failed all of its 2 run(s)", out)
+
+    def test_failure_cause(self):
+        self.assertEqual(ab_run.failure_cause("step 1\nTraceback (most recent call last):\n  File x\nRuntimeError: CUDA oops\n\n"),
+                         "RuntimeError: CUDA oops")
+        self.assertEqual(ab_run.failure_cause("a\nlast words\n"), "last words")
+        self.assertEqual(ab_run.failure_cause(""), "(no output)")
+
     def test_interrupting_the_harness_stops_the_trainer(self):
         import signal
         import time
