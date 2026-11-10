@@ -415,7 +415,11 @@ for d in sorted(m.distributions(), key=lambda d: (d.metadata["Name"] or "").lowe
 phase_tests() {
   local d="$SD/tests" rc1=0 rc2=0
   mkdir -p "$d"
-  "$PY" -c "import pytest" 2>/dev/null || x tmo 600 "$PY" -m pip install -q pytest
+  if ! "$PY" -c "import pytest" 2>/dev/null && ! x tmo 600 "$PY" -m pip install -q pytest; then
+    log "FAIL: pytest is not importable with $PY and \`$PY -m pip install pytest\` failed (wrong interpreter? activate the venv)" \
+      | tee "$d/pytest.txt" "$d/pytest_hadamard.txt"
+    echo 1 > "$d/rc_plain"; echo 1 > "$d/rc_hadamard"; return 1
+  fi
   # -rfEs: name every failed/errored test and every skip reason (the summary shows them)
   xlog "$d/pytest.txt" tmo "$TESTS_TIMEOUT_S" "$PY" -m pytest 182/hadamard-fp8/tests -q -rfEs -p no:cacheprovider || rc1=$?
   echo "$rc1" > "$d/rc_plain"

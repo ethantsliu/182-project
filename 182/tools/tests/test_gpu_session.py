@@ -426,6 +426,14 @@ class TestSessionFlow(SessionRepo):
         self.assertEqual(rc, 1, out)
         self.assertIn("not the session interpreter", out)
 
+    def test_tests_phase_without_pytest_says_why(self):
+        bare = self.root / "barepy"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(bare)], check=True)
+        rc, out = self.run_session("tests", "bundle", PY=str(bare / "bin/python"))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("FAIL: pytest is not importable", out)
+        self.assertIn("pytest is not importable", (self.sd / "summary.txt").read_text())
+
     def test_timeout_kills_a_term_ignoring_grandchild(self):
         pidf = self.root / "grandchild.pid"
         script = self.root / "hang.sh"
@@ -660,7 +668,7 @@ class TestSummarize(unittest.TestCase):
             os.makedirs(os.path.join(d, "env"))
             Path(d, "env/stack.json").write_text(json.dumps(dict(
                 git_sha="abc123def4567890", git_dirty=True, dirty_files=["train_gpt.py"], torch="2.9.1+cu126",
-                torch_cuda="12.6", triton="3.6.0", driver="575.57.08", python="3.12.3", fa3="ok", problems=[])))
+                torch_cuda="12.6", triton="3.6.0", driver="575.57.08", python="3.12.3", fa3="ok")))
             Path(d, "env/node_check.txt").write_text("gpu 3 H100: bf16 GEMM 600 TFLOP/s  (x)  <-- SLOW\n")
             text = "\n".join(ss.stack_lines(d))
         self.assertIn("STACK: git abc123def456 DIRTY (1 modified tracked file(s)) | torch 2.9.1+cu126", text)

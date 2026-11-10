@@ -188,15 +188,24 @@ def gate_decision(ab: dict) -> dict:
     else:
         sd = se * math.sqrt(n)
         need = pairs_needed(m, sd)
+        pin = pairs_for_halfwidth(sd, 0.25)
         res.update(decision="INCONCLUSIVE",
                    reason=f"95% CI straddles 0.5 mnat (paired sd {sd:.2f} mnat); "
                    + (f"calling it either way would take n~{need} pairs if the true gap is the observed mean"
-                      if need else "the observed mean sits so close to 0.5 that no affordable n resolves it"))
+                      if need else "the observed mean sits too close to 0.5 for any affordable n to call it")
+                   + (f"; pinning the gap to ±0.25 mnat would take n~{pin}" if pin else ""))
     res["min_gap_mnat"] = HADAMARD_MIN_GAP_MNAT
     res["run_hadamard"] = bool(res["complete"] and res["decision"] in ("GAP", "INCONCLUSIVE") and m >= HADAMARD_MIN_GAP_MNAT)
     if not pending and 2 <= n < ab["plan"]["n"]:
         res["reason"] += f" (only {n}/{ab['plan']['n']} seed pairs ok)"
     return res
+
+
+def pairs_for_halfwidth(sd: float, hw: float, cap: int = 400) -> int | None:
+    """Smallest n whose 95% t-CI half-width t*sd/sqrt(n) is below hw."""
+    if not (sd == sd and sd > 0):
+        return None
+    return next((n for n in range(2, cap + 1) if stats.t_ppf(0.975, n - 1) * sd / math.sqrt(n) < hw), None)
 
 
 def pairs_needed(mean: float, sd: float, thr: float = THRESHOLD_MNAT, cap: int = 400) -> int | None:
@@ -382,18 +391,17 @@ def stack_lines(root: str) -> list[str]:
             f" | torch {st.get('torch', '?')} (CUDA {st.get('torch_cuda', '?')}) | triton {st.get('triton', '?')}"
             f" | driver {st.get('driver', '?')} | python {st.get('python', '?')}"
             + (f" | FA3 {st['fa3']}" if st.get("fa3") else ""))
-    for k, want in WANT_STACK.items():
-        if st.get(k) and st.get(k) != want:
-            flag.append(f"{k} {st.get(k)} != {want} (the record's stack)")
+    if "problems" not in st:  # an env.txt-only (older) session: compare here; stack.json lists its own problems
+        for k, want in WANT_STACK.items():
+            if st.get(k) and st.get(k) != want:
+                flag.append(f"{k} {st.get(k)} != {want} (the record's stack)")
     drv = str(st.get("driver") or "")
     if drv[:3].isdigit() and int(drv.split(".")[0]) < MIN_DRIVER:
         flag.append(f"driver {drv} < {MIN_DRIVER}: ~35% slower (ANVIL2 README); absolute times and the Hadamard Δstep_sum are skewed")
     if dirty:
         flag.append("working tree has uncommitted changes to tracked files: " + " ".join((st.get("dirty_files") or [])[:6])
                     + " (the A/B arms ran the committed HEAD)")
-    for prob in st.get("problems") or []:
-        if prob not in " ".join(flag):
-            flag.append(prob)
+    flag += list(st.get("problems") or [])
     nc = _read(os.path.join(d, "node_check.txt"))
     slow = [ln.strip() for ln in nc.splitlines() if "SLOW" in ln]
     flag += [f"node_check: {ln}" for ln in slow]
@@ -489,7 +497,8 @@ def summarize(root: str) -> str:
     smap = status_map(root)
     if smap:
         lines += ["phases: " + " | ".join(f"{n}: {v}" for n, v in smap.items())]
-    lines += phase_tail_lines(root, "env", ["env.txt"], smap.get("env", ""))
+    if not any(ln.startswith("  !! ") for ln in lines):  # the STACK lines already say why env failed
+        lines += phase_tail_lines(root, "env", ["env.txt"], smap.get("env", ""))
     t = tests_lines(root)
     if t:
         lines += [""] + t
