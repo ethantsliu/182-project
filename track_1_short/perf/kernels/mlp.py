@@ -1,10 +1,12 @@
-"""The fused MLP, relu(x @ W1.T)^2 @ W2.T, with every GEMM in FP8 during training.
+"""The fused MLP, relu(x @ W1.T)^2 @ W2 (W1, W2 both stored [H, D]), with every GEMM in FP8 during training.
 
 What it replaces: a bf16 up-projection kernel, a bf16 `post @ W2`, and four bf16 backward GEMMs.
-Why it is faster: each GEMM runs on fp8 operands, and every fp8 operand a later GEMM needs -- in
-both the row-major and the transposed layout `torch._scaled_mm` wants -- is written by the kernel
-epilogue that already holds the tile in registers, never by a separate quantize/transpose pass
-(a standalone transpose pass, even a bandwidth-optimal one, measured +10.7 s per run).
+Why it is faster: each GEMM runs on fp8 operands, and the activations it produces (post, and dpre in
+the backward) are written in both the row-major and the transposed layout `torch._scaled_mm` wants by
+the kernel epilogue that already holds the tile in registers, never by a separate quantize/transpose
+pass (a standalone transpose pass, even a bandwidth-optimal one, measured +10.7 s per run). The MLP
+input and the incoming gradient are quantized outside the kernel (quantize_dual_layout_fused: the row
+half fused into the producer by inductor, the transposed half one fp8 transpose pass).
 Invariants: `use_fast_accum=False` on every gradient GEMM (NaN otherwise), and an explicit clamp
 before every fp8 cast (e4m3fn overflow is NaN, not inf).
 
@@ -27,7 +29,7 @@ from track_1_short.config import (HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HA
                                   HADAMARD_SEED)
 from track_1_short.perf.hadamard_ref import signed_hadamard
 from track_1_short.perf.kernels.hadamard import (HADAMARD_BLOCK, HADAMARD_TILE, _hadamard_quant_dual_kernel,
-                                                 hadamard_dual_quant, rotate_last)
+                                                 _load_q, hadamard_dual_quant, rotate_last)
 from track_1_short.perf.fp8_dump import FP8_DUMP
 from track_1_short.perf.kernels.transpose import transpose_copy
 
@@ -45,8 +47,8 @@ WEIGHT_SCALE_HEADROOM = 1.12
 
 # HADAMARD_FP8 (perf/kernels/hadamard.py): the rotated epilogues multiply each bf16 [128, 128] half tile,
 # block-diagonally in HB-blocks (rotate_last), by Q = diag(signs) @ H_HB (exact +-1) in fp32 accumulation,
-# then by 1 / sqrt(HB). Three constexprs, each off unless its GEMM is in HADAMARD_GEMMS, so an unselected
-# GEMM's operand takes the record's code exactly:
+# then by 1 / sqrt(HB). Three constexprs, each off unless its GEMM is in HADAMARD_GEMMS; an unselected
+# layout is quantized by the record's epilogue code (at the shared dpre scale in the backward, see below):
 #   forward   ROT_T    post_t rotated along tokens (dW2), at its OWN delayed scale post_t_scale, amax into
 #                      post_t_amax. post_f8 and post_amax stay the record's: the forward is never rotated.
 #   backward  ROT_ROW  dpre row rotated along features (dx);  ROT_T  dpre_t rotated along tokens (dW1).
@@ -55,26 +57,22 @@ WEIGHT_SCALE_HEADROOM = 1.12
 #
 # Register budget of the backward epilogue (8 warps, 256 threads, <= 255 regs/thread at 1 CTA/SM): the
 # [128, 256] fp32 accumulator is 128 regs/thread. c0/c1 are converted to bf16 first (32 regs each), which
-# ends the accumulator's live range; then each rotation (64 regs fp32) is quantized and stored before the
-# next one starts, in the order r0, r1 (row), t0, t1 (transposed). Peak ~ c0 + c1 + one rotation + its fp8
-# copy ~ 64 + 64 + 16 = 144 regs plus addressing, instead of r0 r1 t0 t1 all live (256 regs, spills).
+# ends the accumulator's live range; an unselected layout is stored first; then each rotation (64 regs
+# fp32) is quantized and stored before the next one starts, in the order r0, r1 (row), t0, t1 (transposed).
+# That arithmetic (~144 regs of tiles) is not what ptxas allocates: the dot-operand / reshape layout
+# conversions and the mainloop's pipelined state also hold registers. Measured (compile_check, sm_90a,
+# 3 stages; spill store/load bytes): the record backward 255 regs, 16/16; both rotations 0/0 at HB=32,
+# 4/4 at 64, 148/136 at 128; ROT_ROW only 148/148 (32), 160/160 (64), 132/132 (128); ROT_T only
+# 104/112, 124/124, 140/132. The single-rotation variants still spill; the forward ROT_T does not (<= 4/4).
 #
-# Shared-memory budget (H100: 227 KB per CTA), estimated, not measured -- prime_stage_cache resolves
-# the real stage count per variant and returns it. fp8 mainloop: one stage = A [128, 128] + B [256, 128]
-# = 16 + 32 = 48 KB; 3 stages = 144 KB (the default), 2 = 96 KB. Record epilogue: the TMA-store staging
-# of the [128, 128] fp8 boxes (16 KB each) and the backward's [128, 256] e4m3 post box (32 KB). A rotation
-# adds the wgmma B operand Q (HB^2 * 2 B: 32 KB at 128, 8 KB at 64, 2 KB at 32) and up to one bf16
-# [128, 128] dot-operand / reshape conversion buffer (<= 32 KB, independent of HB):
-#   variant            mainloop@3   rotation extra      expectation
-#   record fwd / bwd   144 KB       0                   3 stages (the record's)
-#   rot @128           144 KB       32 + <=32 KB        may exceed 227 KB -> 2 stages (round 1: ~240 KB)
-#   rot @64            144 KB        8 + <=32 KB        borderline
-#   rot @32            144 KB        2 + <=32 KB        best chance of keeping 3 stages
-
-@triton.jit
-def _hadamard_q(q_ptr, BLOCK: tl.constexpr):
-    offs = tl.arange(0, BLOCK)
-    return tl.load(q_ptr + offs[:, None] * BLOCK + offs[None, :])
+# Shared-memory budget (H100: 232448 B opt-in per CTA). fp8 mainloop: one stage = A [128, 128] + B [256, 128]
+# = 16 + 32 = 48 KB; 3 stages (the default) = 144 KB. On top: the epilogue's TMA-store staging boxes, the
+# backward's [128, 256] e4m3 post box, and for a rotation the wgmma B operand Q (HB^2 * 2 B) plus the
+# dot-operand / reshape conversion buffers. Measured at 3 stages (compile_check, sm_90a), every variant fits,
+# so every variant keeps the record's 3 stages (prime_stage_cache still resolves it on the GPU):
+#   record forward 163896 B, record backward 196648 B
+#   rotated (forward ROT_T, backward both or ROT_T only)  HB=32 198680 B, HB=64 204824 B, HB=128 229400 B
+#   backward ROT_ROW only at HB=128                       197656 B
 
 @triton.jit
 def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
@@ -152,7 +150,7 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                 if EMIT_T:
                     if ROT_T:
                         # post_t feeds dW2 (k = tokens): rotate the tile along its BLOCK_SIZE_M tokens.
-                        hq = _hadamard_q(hadamard_q_ptr, HB)
+                        hq = _load_q(hadamard_q_ptr, HB)
                         r0 = rotate_last(tl.trans(c0_post), hq, BLOCK_SIZE_N // 2, BLOCK_SIZE_M, HB)
                         rot_max = tl.max(tl.max(tl.abs(r0), axis=1), axis=0)
                         aux_t_desc.store([offs_bn, offs_am], tl.maximum(tl.minimum(r0 * inv_post_t_scale, 448.0), -448.0).to(tl.float8e4nv))
@@ -193,17 +191,27 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
             if ROT_ROW or ROT_T:
                 # dpre row feeds dx (k = hidden): rotated along each half's BLOCK_SIZE_N // 2 features.
                 # dpre_t feeds dW1 (k = tokens): rotated along the BLOCK_SIZE_M tokens, already transposed.
-                # An unselected layout is the record's plain quantize. Each rotation is quantized and
-                # stored before the next is computed (register budget above).
-                hq = _hadamard_q(hadamard_q_ptr, HB)
+                # An unselected layout is the record's plain quantize, and it is stored FIRST, half by half,
+                # so its fp32 / fp8 copies are dead before the rotation dots start: only c0 / c1 (bf16) stay
+                # live across them. Each rotation is then quantized and stored before the next is computed.
                 if ROT_ROW and ROT_T:
                     tile_max = 0.0
                 else:
                     c0f = c0.to(tl.float32)
-                    c1f = c1.to(tl.float32)
                     q0 = tl.maximum(tl.minimum(c0f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
+                    if ROT_ROW:
+                        c_t_desc.store([offs_bn, offs_am], tl.trans(q0))
+                    else:
+                        c_f8_desc.store([offs_am, offs_bn], q0)
+                    tile_max = tl.max(tl.max(tl.abs(c0f), axis=1), axis=0)
+                    c1f = c1.to(tl.float32)
                     q1 = tl.maximum(tl.minimum(c1f * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5)
-                    tile_max = tl.max(tl.max(tl.maximum(tl.abs(c0f), tl.abs(c1f)), axis=1), axis=0)
+                    if ROT_ROW:
+                        c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
+                    else:
+                        c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], q1)
+                    tile_max = tl.maximum(tile_max, tl.max(tl.max(tl.abs(c1f), axis=1), axis=0))
+                hq = _load_q(hadamard_q_ptr, HB)
                 if ROT_ROW:
                     r0 = rotate_last(c0, hq, BLOCK_SIZE_M, BLOCK_SIZE_N // 2, HB)
                     c_f8_desc.store([offs_am, offs_bn], tl.maximum(tl.minimum(r0 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
@@ -211,9 +219,6 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                     r1 = rotate_last(c1, hq, BLOCK_SIZE_M, BLOCK_SIZE_N // 2, HB)
                     c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], tl.maximum(tl.minimum(r1 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
                     tile_max = tl.maximum(tile_max, tl.max(tl.max(tl.abs(r1), axis=1), axis=0))
-                else:
-                    c_f8_desc.store([offs_am, offs_bn], q0)
-                    c_f8_desc.store([offs_am, offs_bn + BLOCK_SIZE_N // 2], q1)
                 if ROT_T:
                     t0 = rotate_last(tl.trans(c0), hq, BLOCK_SIZE_N // 2, BLOCK_SIZE_M, HB)
                     c_t_desc.store([offs_bn, offs_am], tl.maximum(tl.minimum(t0 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
@@ -221,9 +226,6 @@ def linear_relu_square_kernel(a_desc, b_desc, c_desc, aux_desc,
                     t1 = rotate_last(tl.trans(c1), hq, BLOCK_SIZE_N // 2, BLOCK_SIZE_M, HB)
                     c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.maximum(tl.minimum(t1 * inv_dpre_scale, 57344.0), -57344.0).to(tl.float8e5))
                     tile_max = tl.maximum(tile_max, tl.max(tl.max(tl.abs(t1), axis=1), axis=0))
-                else:
-                    c_t_desc.store([offs_bn, offs_am], tl.trans(q0))
-                    c_t_desc.store([offs_bn + BLOCK_SIZE_N // 2, offs_am], tl.trans(q1))
             else:
                 c0f = c0.to(tl.float32)
                 c1f = c1.to(tl.float32)
@@ -468,8 +470,11 @@ def prime_stage_cache():
 
 
 # -----------------------------------------------------------------------------
-# HADAMARD_GEMMS: which operands the Function rotates (config.py). A GEMM not selected reads the record's
-# unrotated operands on both sides: no rotation dot, no extra kernel, no extra weight-cache write.
+# HADAMARD_GEMMS: which operands the Function rotates (config.py). A GEMM not selected gets no rotation on
+# either operand: no rotation dot, no extra kernel, no extra weight-cache write. Its operands are not always
+# the record's bit for bit: under dpost without dw2, dW2's g_t is quantized from the stored bf16 g
+# (quantize_grad) where the record rounds the producer's fp32, and dx / dW1 share the delayed dpre scale,
+# whose amax covers whichever dpre layout is rotated.
 #   dW2   post_t (forward epilogue ROT_T) and g_t      dpost  g_row and the W2 row cache (gpt.py)
 #   dW1   dpre_t (backward ROT_T) and x_t (gpt.py)     dx     dpre row (backward ROT_ROW) and the W1 col cache
 

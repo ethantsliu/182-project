@@ -2,10 +2,10 @@
 
 What it adds: the activation / gradient quantizes and the weight-cache quantizes of the fp8 MLP, with
 the operand rotated along the contraction dim of the GEMM that reads it (perf/hadamard_ref.py has the
-math, the convention and the pure-torch reference these kernels must match). The rotation is a
-128 x 128 tl.dot of the bf16 tile with Q = diag(signs) @ H_128 (exactly +-1 in bf16) in fp32
-accumulation, times 1 / sqrt(128), done on the tile the quantize already holds -- one read, the same
-writes as the unrotated path.
+math, the convention and the pure-torch reference these kernels must match). The rotation is
+block-diagonal in HB = HADAMARD_BLOCK blocks (see "Block size" below): a tl.dot of the bf16 tile with
+Q = diag(signs) @ H_HB (exactly +-1 in bf16) in fp32 accumulation, times 1 / sqrt(HB), done on the tile
+the quantize already holds -- one read, the same writes as the unrotated path.
 
 Which operand is rotated along which dim (MLP: pre = x @ W1.T, post = relu(pre)^2, out = post @ W2):
   dW2  = post.T @ g     k = tokens  post_t (forward epilogue, mlp.py), g_t   (hadamard_dual_quant)
@@ -36,8 +36,6 @@ above the dense H_16 dot it saves, so only the block-diagonal variants exist.
 Invariants: token counts, the hidden size and the model dim are multiples of HADAMARD_TILE (a partial
 tile would rotate padding into dropped lanes); every cast is preceded by an explicit clamp.
 """
-import math
-
 import torch
 import triton
 import triton.language as tl
@@ -45,7 +43,6 @@ import triton.language as tl
 from track_1_short.config import HADAMARD_BLOCK  # the rotation block, Q is [HADAMARD_BLOCK, HADAMARD_BLOCK]
 
 HADAMARD_TILE = 128  # every kernel's tile edge; the rotation is block-diagonal inside it
-INV_SQRT_BLOCK = 1.0 / math.sqrt(HADAMARD_BLOCK)
 # The rotated weight caches keep the unrotated caches' one-step-delayed scale headroom (mlp.py).
 ROTATED_WEIGHT_SCALE_HEADROOM = 1.12
 
