@@ -361,7 +361,134 @@ class TestSummarize(unittest.TestCase):
             ab = ss.load_ab(d)
             self.assertEqual(ss.ab_check(ab, gate=True), (3, "8 slot(s) pending"))
             self.assertIn("[8 slot(s) never ran]", ss.ab_table("gate", ab)[0])
-            self.assertIn("GATE: NODATA", "\n".join(ss.gate_lines(ss.gate_decision(ab))))
+            g = ss.gate_decision(ab)
+            self.assertEqual((g["decision"], g["run_hadamard"]), ("INCOMPLETE", False))
+            self.assertIn("GATE: INCOMPLETE", "\n".join(ss.gate_lines(g)))
+
+    @staticmethod
+    def gate_ab(diffs, pending=0, bf16_status="ok"):
+        groups = {"fp8": [], "bf16": []}
+        for rep, dd in enumerate(diffs):
+            groups["fp8"].append(dict(idx=2 * rep, rep=rep, status="ok", val_loss=3.278 + dd / 1000, details={"step_sum_s": 40.0}))
+            groups["bf16"].append(dict(idx=2 * rep + 1, rep=rep, status=bf16_status, val_loss=3.278 if bf16_status == "ok" else None,
+                                       details={"step_sum_s": 50.0}))
+        return dict(arms=["fp8", "bf16"], baseline="fp8", env={"fp8": {}, "bf16": {"FP8_OFF": "1"}}, groups=groups,
+                    plan={"n": len(diffs) + pending, "seeds": None, "cache": "warm", "order": "blocked"}, pending=pending,
+                    planned={"fp8": 4, "bf16": 4})
+
+    def test_partial_gate_is_no_decision_and_never_runs_hadamard(self):
+        """3 of 4 pairs with a big gap, one slot pending (the gate phase FAILed): not GAP, no hadamard."""
+        g = ss.gate_decision(self.gate_ab([3.0, 3.2, 2.9], pending=2))
+        self.assertEqual(g["decision"], "INCOMPLETE")
+        self.assertFalse(g["run_hadamard"])
+        text = "\n".join(ss.gate_lines(g))
+        self.assertNotIn("-> GAP", text)
+        self.assertIn("provisional, not a decision", text)
+        self.assertTrue(ss.gate_decision(self.gate_ab([3.0, 3.2, 2.9, 3.1]))["run_hadamard"])
+
+    def test_gate_table_has_one_sign_convention(self):
+        ab = self.gate_ab([1.0, 0.2, 0.6, -0.2])
+        text = "\n".join(ss.ab_table("gate", ab, gate=True) + ss.gate_lines(ss.gate_decision(ab)))
+        self.assertNotIn("Δval", text)            # the gap appears once, as val(fp8) - val(bf16)
+        self.assertNotIn("net ", text)
+        self.assertIn("gap val(fp8) - val(bf16) = +0.40", text)
+        self.assertIn("+ = fp8 worse", text)
+        self.assertIn("Δstep_sum +10.000", text)
+
+    def test_inconclusive_states_what_is_supported(self):
+        g = ss.gate_decision(self.gate_ab([1.0, 0.2, 0.6, -0.2]))
+        self.assertEqual(g["decision"], "INCONCLUSIVE")
+        self.assertNotIn("more seeds needed", g["reason"])
+        self.assertRegex(g["reason"], r"paired sd 0\.52 mnat\); .*n~\d+ pairs")
+        text = "\n".join(ss.gate_lines(g))
+        self.assertIn("loose prescreen for the default HADAMARD_VARIANTS", text)
+        self.assertIn("does not exclude cheaper variants", text)
+        # n~ is the smallest n whose CI clears 0.5 at the observed mean and sd
+        n = ss.pairs_needed(0.4, 0.5164)
+        self.assertLess(stats.t_ppf(0.975, n - 1) * 0.5164 / math.sqrt(n), 0.1)
+        self.assertGreaterEqual(stats.t_ppf(0.975, n - 2) * 0.5164 / math.sqrt(n - 1), 0.1)
+        self.assertIsNone(ss.pairs_needed(0.5, 1.0))
+
+    def test_dead_arm_is_code_5_not_replan(self):
+        ab = self.gate_ab([0.0] * 4, bf16_status="failed")
+        code, why = ss.ab_check(ab, gate=True)
+        self.assertEqual(code, 5, why)
+        self.assertIn("bf16", why)
+        self.assertEqual(ss.ab_check(dict(ab, pending=2), gate=True)[0], 3)
+
+    def test_hadamard_buyback_line(self):
+        ab = self.gate_ab([0.0, 0.0])
+        ab["groups"]["h"] = [dict(idx=10 + r, rep=r, status="ok", val_loss=3.278, details={"step_sum_s": 40.6}) for r in range(2)]
+        ab["groups"]["bf16"] = []
+        ab.update(arms=["fp8", "h"], env={"fp8": {}, "h": {"HADAMARD_FP8": "1"}}, planned={"fp8": 2, "h": 2})
+        text = "\n".join(ss.ab_table("hadamard", ab, buyback_mnat=3.0))
+        self.assertIn("buy-back bound: gate gap 3.00 mnat x 0.164 s/mnat (upstream's convention; measured 120-250 ms/mnat) = 0.49 s", text)
+        self.assertIn("cannot pay even if it recovers the whole gap", ss.ab_table("hadamard", ab, buyback_mnat=2.0)[-1])
+        self.assertIn("could pay", "\n".join(ss.ab_table("hadamard", ab, buyback_mnat=10.0)))
+
+    def test_failed_run_causes_are_listed(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "stdout"))
+            Path(d, "stdout", "001_bf16.out").write_text("logs/x.txt\nTraceback (most recent call last):\nImportError: libcudart.so.13: cannot open\n")
+            ab = self.gate_ab([0.0, 0.0], bf16_status="failed")
+            ab["dir"] = d
+            for r in ab["groups"]["bf16"]:
+                r.update(stdout="/gpu/box/001_bf16.out", returncode=1)
+            text = "\n".join(ss.ab_table("gate", ab, gate=True))
+        self.assertIn("bf16 #1 failed rc=1, #3 failed rc=1: ImportError: libcudart.so.13: cannot open", text)
+
+    def test_stack_header_marks_mismatches(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "env"))
+            Path(d, "env/stack.json").write_text(json.dumps(dict(
+                git_sha="abc123def4567890", git_dirty=True, dirty_files=["train_gpt.py"], torch="2.9.1+cu126",
+                torch_cuda="12.6", triton="3.6.0", driver="575.57.08", python="3.12.3", fa3="ok", problems=[])))
+            Path(d, "env/node_check.txt").write_text("gpu 3 H100: bf16 GEMM 600 TFLOP/s  (x)  <-- SLOW\n")
+            text = "\n".join(ss.stack_lines(d))
+        self.assertIn("STACK: git abc123def456 DIRTY (1 modified tracked file(s)) | torch 2.9.1+cu126", text)
+        self.assertIn("!! torch 2.9.1+cu126 != 2.10.0+cu128", text)
+        self.assertNotIn("!! triton", text)
+        self.assertIn("!! driver 575.57.08 < 580", text)
+        self.assertIn("!! node_check: gpu 3 H100", text)
+        self.assertIn("train_gpt.py", text)
+
+    def test_tests_tail_names_the_failing_test(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "tests"))
+            Path(d, "tests/pytest.txt").write_text("..F.s\nFAILED 182/hadamard-fp8/tests/test_x.py::test_y - AssertionError\n"
+                                                   "SKIPPED [1] test_z.py:3: needs H100\n1 failed, 3 passed, 1 skipped in 2.0s\n")
+            Path(d, "tests/rc_plain").write_text("1\n")
+            text = "\n".join(ss.tests_lines(d))
+        self.assertIn("== tests (plain): rc=1  1 failed, 3 passed, 1 skipped in 2.0s", text)
+        self.assertIn("FAILED 182/hadamard-fp8/tests/test_x.py::test_y", text)
+        self.assertIn("SKIPPED [1] test_z.py:3: needs H100", text)
+
+    def test_truncated_bundle(self):
+        with tempfile.TemporaryDirectory() as d:
+            sd = Path(d, "session-x")
+            (sd / "status").mkdir(parents=True)
+            (sd / "status/env").write_text("PASS\n")
+            (sd / "meta.txt").write_text("session_date 2026-11-10\n")
+            (sd / "big.bin").write_bytes(os.urandom(300_000))
+            tgz = Path(d, "b.tar.gz")
+            with tarfile.open(tgz, "w:gz") as tf:
+                tf.add(sd / "meta.txt", "session-x/meta.txt")
+                tf.add(sd / "status", "session-x/status")
+                tf.add(sd / "big.bin", "session-x/big.bin")
+            data = tgz.read_bytes()
+            cut = Path(d, "cut.tar.gz")
+            cut.write_bytes(data[: len(data) // 2])
+            r = subprocess.run([sys.executable, str(Path(TOOLS) / "summarize_session.py"), str(cut)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("WARNING:", r.stdout)
+            self.assertIn("truncated", r.stdout)
+            self.assertIn("env: PASS", r.stdout)
+            Path(d, "junk.tar.gz").write_bytes(data[:20])
+            r = subprocess.run([sys.executable, str(Path(TOOLS) / "summarize_session.py"), str(Path(d, "junk.tar.gz"))],
+                               capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("probably truncated", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
 
     def test_t2_without_train_time(self):
         with tempfile.TemporaryDirectory() as d:
