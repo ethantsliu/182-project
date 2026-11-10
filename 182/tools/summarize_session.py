@@ -102,13 +102,14 @@ def log_details(text: str) -> dict:
 # ----------------------------------------------------------------------------- A/B phases
 
 def _remap(path: str | None, ab_dir: str, sub: str) -> str | None:
-    """Ledger paths are absolute on the GPU box; in a bundle the file sits in <ab_dir>/<sub>/<basename>."""
+    """Ledger paths are absolute on the GPU box; the file sits in <ab_dir>/<sub>/<basename> (in a bundle, and in a
+    re-planned <phase>.attemptN, whose absolute paths the new attempt reuses), so that copy wins."""
     if not path:
         return None
-    if os.path.isfile(path):
-        return path
     p = os.path.join(ab_dir, sub, os.path.basename(path))
-    return p if os.path.isfile(p) else None
+    if os.path.isfile(p):
+        return p
+    return path if os.path.isfile(path) else None
 
 
 def load_ab(ab_dir: str) -> dict | None:

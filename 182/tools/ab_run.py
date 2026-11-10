@@ -424,8 +424,8 @@ def record_cause(rec: dict, out: str | None = None) -> str:
     if rec.get("status") == "timeout":
         return f"timed out after {rec.get('wall_s', 0):.0f} s"
     p = rec.get("stdout")
-    if p and not os.path.isfile(p) and out:
-        p = os.path.join(out, "stdout", os.path.basename(p))
+    if p and out and os.path.isfile(os.path.join(out, "stdout", os.path.basename(p))):
+        p = os.path.join(out, "stdout", os.path.basename(p))  # this attempt's copy (a re-plan reuses the absolute path)
     if p and os.path.isfile(p):
         with open(p, errors="replace") as f:
             return failure_cause(f.read())
