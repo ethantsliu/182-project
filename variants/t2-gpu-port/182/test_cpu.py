@@ -576,8 +576,11 @@ def test_dynamo_recompiles_when_val_ce_chunks_changes():
 
 def test_inductor_keeps_masked_chunks_apart():
     """182/val_ce_memory.py: the inline masked loss holds every chunk's logit block at once, the op holds none
-    in the compiled graph. Needs Inductor's C++ toolchain; bash 182/val_ce_memory.sh runs it in docker."""
+    in the compiled graph. Opt-in (T2GPU_INDUCTOR_PROBE=1: it compiles with Inductor's C++ backend, minutes of
+    CPU); bash 182/val_ce_memory.sh runs the same measurement in docker."""
     import pytest
+    if os.environ.get("T2GPU_INDUCTOR_PROBE") != "1":
+        pytest.skip("opt-in: T2GPU_INDUCTOR_PROBE=1 (or bash 182/val_ce_memory.sh)")
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import val_ce_memory
     try:
