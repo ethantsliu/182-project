@@ -11,8 +11,8 @@ Two single runs on the friend's node, and nothing else. Neither log is in this r
 - The root record: **40.931 s, val loss 3.2780**, 1194 steps (one run). The official record it reproduces is 39.9 s.
 - `variants/t1-gpu-stack`: **30.957 s, val loss 3.276481**, 1053 steps, 981 of them scheduled (one run). Its
   author reported 30.67 s over 12 runs.
-- Not measured by us: the other three variants, every flag of ours, and the run-to-run spread of anything on that
-  node. One run cannot show that a tree meets its target: the rule is the mean under the target with p < 0.01.
+- Not measured by us: the other three variants, every flag of ours except one `HADAMARD_FP8` run (3.17 s slower than
+  the record, no log here), and the run-to-run spread of anything on that node. One run cannot show that a tree meets its target: the rule is the mean under the target with p < 0.01.
 
 The "best reported" times in the table below are the ones each tree's author reported upstream, on their nodes.
 
@@ -26,7 +26,7 @@ The "best reported" times in the table below are the ones each tree's author rep
 | `t2cpu` | `variants/t2-cpu-ngram` | Track 2 (GPT-2 Medium): that CPU retrieval chain | 221 s, one run, 5800 steps, loss 2.8769 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2cpu` |
 | `t2gpu` | `variants/t2-gpu-port` | Track 2, GPU only: open PR #261 (MUDD) plus our flags | 14.34 min (860.5 s), loss 2.9171 ± 0.0007 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2gpu` |
 | `gate` | repo root | A/B: the record vs `FP8_OFF=1` (what does fp8 cost in val loss?) | - | - | - | `bash 182/gpu_session.sh gate` |
-| `attno` | repo root | A/B: the record vs `FP8_ATTN_O=1`; skipped until that flag is in the checkout | - | - | - | `bash 182/gpu_session.sh attno` |
+| `attno` | repo root | A/B: the record vs `FP8_ATTN_O=1` (4 seed pairs; cost model expects about +0.2 s, range -0.7 to +1.3 s) | - | - | - | `bash 182/gpu_session.sh attno` |
 | `hadamard` | repo root | A/B: the record vs `HADAMARD_FP8=1` variants; runs only if the gate finds a gap | - | - | - | `bash 182/gpu_session.sh gate hadamard` |
 
 Each variant is a full, self-contained tree of an open upstream PR plus our changes, behind flags that are off by
