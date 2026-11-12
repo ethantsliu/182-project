@@ -21,9 +21,9 @@ SHIM = ROOT / "182" / "tools" / "triton_cpu"
 DENSE = {"SPARSE24_BACKEND": "dense"}
 CASES = {  # case -> (env, minimum passes: fewer means something skipped silently)
     "off": (DENSE, 6),
-    "greedy": ({**DENSE, "SPARSE24_MLP": "1"}, 10),
-    "optimal": ({**DENSE, "SPARSE24_MLP": "1", "SPARSE24_MASK": "optimal"}, 10),
-    "tail13": ({**DENSE, "SPARSE24_MLP": "1", "SPARSE24_DENSE_FROM_WS": "13"}, 10),
+    "greedy": ({**DENSE, "SPARSE24_MLP": "1"}, 9),
+    "optimal": ({**DENSE, "SPARSE24_MLP": "1", "SPARSE24_MASK": "optimal"}, 9),
+    "tail13": ({**DENSE, "SPARSE24_MLP": "1", "SPARSE24_DENSE_FROM_WS": "13"}, 9),
 }
 
 

@@ -129,7 +129,7 @@ def test_mlp_dispatch_sparse(model, training):
     W1m, W2m = model._mlp_sp24_w1[slot].float(), model._mlp_sp24_w2[slot].float()
     ref = (torch.relu(x.detach().float().view(-1, 768) @ W1m.T) ** 2 @ W2m).view(x.shape)
     assert out.dtype == torch.bfloat16
-    assert float((out.float() - ref).norm() / ref.norm()) < 2e-2
+    assert float((out.detach().float() - ref).norm() / ref.norm()) < 2e-2
     if training:
         model.mlp_bank.grad = None
         out.float().square().sum().backward()
