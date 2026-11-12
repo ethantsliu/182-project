@@ -52,6 +52,7 @@ ARMS = {
     "lropeattn":    dict(env={"LAYER_ROPE": "attn"}, exact=False, what="#385 gains on the attention sites only (weight folds)"),
     "lrope":        dict(env={"LAYER_ROPE": "1"}, exact=False, what="#385 gains on all four sites (MLP ones as activation scales)"),
     "doccopy":      dict(env={"DOC_COPY": "1"}, exact=False, what="#378 document-local copy feature"),
+    "router":       dict(env={"MOE_ROUTER_FUSED": "1"}, exact=True, what="fused MoE router kernels (182/kernel-cost; same math, not bitwise)"),
 }
 # What a millinat of val loss costs in train time on this stack, to price a loss change at a single step count:
 # #393 cut 999 -> 981 scheduled steps for about +3.0 millinats and -0.75 s. A sweep (AB_STEPS) measures it instead.
