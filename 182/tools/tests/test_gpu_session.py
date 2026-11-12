@@ -591,15 +591,24 @@ class TestSessionFlow(SessionRepo):
         self.assertNotIn("prep", self.calls("t1cpu"))     # a FAIL that prep cannot fix: no download for a host that cannot run it
         self.assertFalse([c for c in self.calls("t1cpu") if c.startswith("run")])
         self.assertIn("prep", self.calls("t2gpu"))
+        self.assertTrue(self.calls("t2gpu")[-1].endswith(" CANON_MASK=1"), self.calls("t2gpu"))   # t2gpu's default run env
+        self.assertFalse([c for c in self.calls("t1gpu") if "CANON" in c])
         summary = (self.sd / "summary.txt").read_text()
         self.assertRegex(summary, r"t1cpu: t1-cpu-ngram \(PR #381\) +\| SKIPPED +\| - ")
-        self.assertRegex(summary, r"t2gpu: t2-gpu-port \(PR #261\) +\| 1/1 ok \(ONE run\) +\| 2\.9171 +\| 860\.50 +\| 860\.5 s \(14\.34 min\) +\| 17\.35 min \(1041 s\), <= 2\.92 +\| 1/1 runs")
+        self.assertRegex(summary, r"t2gpu: t2-gpu-port \(PR #261\) \[CANON_MASK=1\] +\| 1/1 ok \(ONE run\) +\| 2\.9171 +\| 860\.50 +\| 860\.5 s \(14\.34 min\) +\| 17\.35 min \(1041 s\), <= 2\.92 +\| 1/1 runs")
         self.assertIn("  t1cpu " + want, summary)
         self.assertIn("check: WARN vcpu: 12 per GPU, 24 recommended", summary)
         self.assertNotIn("== t1cpu:", summary)
-        # FORCE_CHECK=1 runs it anyway
-        rc, out = self.run_session("t1cpu", FAKE_CHECK_FAIL="t1-cpu-ngram", T1CPU_RUNS="1", FORCE_CHECK="1")
+        self.assertIn("earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780", summary)
+        self.assertIn("  run env: CANON_MASK=1", summary)
+        # FORCE_CHECK=1 preps and runs it anyway, here with an extra run env
+        rc, out = self.run_session("t1cpu", "t2gpu", FAKE_CHECK_FAIL="t1-cpu-ngram", T1CPU_RUNS="1", FORCE_CHECK="1", FORCE="1",
+                                   T1CPU_RUN_ENV="CONFIG=380", T2GPU_RUN_ENV="")
         self.assertEqual(rc, 0, out)
+        self.assertIn("prep", self.calls("t1cpu"))
+        self.assertTrue(self.calls("t1cpu")[-1].endswith(" CONFIG=380"), self.calls("t1cpu"))
+        self.assertNotIn("CANON", self.calls("t2gpu")[-1])
+        self.assertEqual(self.result("t1cpu", "01.result")["run_env"], "CONFIG=380")
         self.assertIn("WARN: FORCE_CHECK=1, running t1-cpu-ngram despite: FAIL ram", out)
         self.assertEqual(self.status("t1cpu"), "PASS")
 
@@ -686,6 +695,7 @@ class TestSessionFlow(SessionRepo):
         self.assertIn("+ (background, nice 19) check + prep of: t1gpu t1cpu t2cpu t2gpu", out)
         self.assertIn("+ bash variants/t1-gpu-stack/182/run_node.sh prep", out)
         self.assertEqual(out.count("DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py"), 4 + 4 + 1 + 1)
+        self.assertEqual(out.count("train_gpt.py [CANON_MASK=1]"), 1)
         self.assertIn("    FAIL ram: 64 GiB available", out)          # the real check output: what this host lacks
         st = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "--ignored"], capture_output=True, text=True).stdout
         self.assertEqual(st, "")

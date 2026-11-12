@@ -24,7 +24,7 @@
 #   t2cpu     variants/t2-cpu-ngram   (Track 2, CPU retrieval; reported 221 s, one run)    T2CPU_RUNS=1
 #   t2gpu     variants/t2-gpu-port    (Track 2, GPU only; reported 14.34 min)              T2GPU_RUNS=1
 #             Each variant phase drives variants/<name>/182/run_node.sh: `check` (a FAIL line -> the phase is
-#             SKIPPED with the reasons, not a session failure; FORCE_CHECK=1 runs anyway), `prep` (data, builds;
+#             SKIPPED with the reasons, not a session failure; FORCE_CHECK=1 preps and runs anyway), `prep` (data, builds;
 #             off the clock), then `run` N times, reading the final `RESULT ...` line of each run. A FAIL line
 #             that names `prep` is treated as fixable by prep; any other FAIL line blocks prep too. The preps of
 #             all selected variants run one after another in ONE low-priority background job from the start of
@@ -54,7 +54,8 @@
 #
 # Knobs (env): PY (python), NPROC (8), CACHE (warm|cold; warm = one compile cache per arm), BASE_RUNS (2),
 # T1GPU_RUNS / T1CPU_RUNS (4; 2 under QUICK), T2CPU_RUNS / T2GPU_RUNS (1), <PHASE>_SEEDS (comma list passed as
-# SEED to run i; default unseeded), <PHASE>_TIMEOUT_S (per variant run: 1500 Track 1, 5400 Track 2),
+# SEED to run i; default unseeded; t2-gpu-port ignores SEED), <PHASE>_RUN_ENV (extra K=V for that variant's run;
+# default T2GPU_RUN_ENV=CANON_MASK=1, e.g. T1CPU_RUN_ENV=CONFIG=380 in its own SESSION_DIR), <PHASE>_TIMEOUT_S (per variant run: 1500 Track 1, 5400 Track 2),
 # VARIANT_STOP_AFTER (2), CHECK_TIMEOUT_S (300), PREP_TIMEOUT_S (14400 per variant), PREP_WAIT_S (7200),
 # PREP_BACKGROUND (1), FORCE_CHECK, GATE_SEEDS (1,2,3,4), ATTNO_SEEDS (1,2,3,4), HADAMARD_VARIANTS ("all@128
 # dw1,dw2@32"), HADAMARD_SEEDS (1,2), HADAMARD_MIN_GAP_MNAT (2.0), FORCE_HADAMARD, TIMEOUT_S (1500 per A/B run),
@@ -65,7 +66,7 @@
 # from node_setup.sh --mode docker; SESSION_DOCKER_GPUS: --gpus value, default all, none = omit). In docker mode
 # every knob above that YOU set is forwarded into the container, except PY (the image's python is used) and
 # SESSION_DIR (mapped explicitly); defaults are computed inside the container. HF_HUB_OFFLINE and HF_TOKEN are
-# forwarded too. The image must carry what a variant needs (its `check` says what is missing).
+# forwarded too, and INSTALL_RUST (lets a CPU-retrieval prep install rustup). The image must carry what a variant needs (its `check` says what is missing).
 set -euo pipefail
 
 PHASES=(env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle)
@@ -78,11 +79,11 @@ cd "$REPO"
 
 # The knobs the user set, captured before any default is applied (docker mode forwards exactly these).
 FORWARD_VARS=(QUICK NPROC CACHE BASE_RUNS T1GPU_RUNS T1CPU_RUNS T2CPU_RUNS T2GPU_RUNS T1GPU_SEEDS T1CPU_SEEDS T2CPU_SEEDS
-  T2GPU_SEEDS T1GPU_TIMEOUT_S T1CPU_TIMEOUT_S T2CPU_TIMEOUT_S T2GPU_TIMEOUT_S VARIANT_STOP_AFTER CHECK_TIMEOUT_S
+  T2GPU_SEEDS T1GPU_RUN_ENV T1CPU_RUN_ENV T2CPU_RUN_ENV T2GPU_RUN_ENV T1GPU_TIMEOUT_S T1CPU_TIMEOUT_S T2CPU_TIMEOUT_S T2GPU_TIMEOUT_S VARIANT_STOP_AFTER CHECK_TIMEOUT_S
   PREP_TIMEOUT_S PREP_WAIT_S PREP_BACKGROUND FORCE_CHECK GATE_SEEDS ATTNO_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS
   HADAMARD_MIN_GAP_MNAT FORCE_HADAMARD TIMEOUT_S STOP_AFTER_FAILURES ARM_FAILURES TESTS_TIMEOUT_S SANITY_TIMEOUT_S
   DATA_TIMEOUT_S COLD_RUN_MIN WARM_RUN_MIN T2CPU_RUN_MIN T2GPU_RUN_MIN RUN_CMD SANITY_CMD SKIP_DATA ALLOW_STACK FORCE
-  DRY_RUN HF_HUB_OFFLINE HF_TOKEN)
+  DRY_RUN HF_HUB_OFFLINE HF_TOKEN INSTALL_RUST)
 USER_ENV=()
 for v in "${FORWARD_VARS[@]}"; do [[ -n "${!v+x}" ]] && USER_ENV+=(-e "$v=${!v}"); done
 SANITY_DEFAULT=0; [[ -z "${SANITY_CMD+x}" ]] && SANITY_DEFAULT=1
@@ -101,6 +102,9 @@ T1GPU_RUNS=${T1GPU_RUNS:-4}; T1CPU_RUNS=${T1CPU_RUNS:-4}; T2CPU_RUNS=${T2CPU_RUN
 T1GPU_TIMEOUT_S=${T1GPU_TIMEOUT_S:-1500}; T1CPU_TIMEOUT_S=${T1CPU_TIMEOUT_S:-1500}
 T2CPU_TIMEOUT_S=${T2CPU_TIMEOUT_S:-5400}; T2GPU_TIMEOUT_S=${T2GPU_TIMEOUT_S:-5400}
 VARIANT_STOP_AFTER=${VARIANT_STOP_AFTER:-2}
+# Extra environment for a variant's `run` (space-separated K=V). t2gpu: its README's recommended first run is the
+# canonical mask (a CANON line above RESULT); T2GPU_RUN_ENV= (empty) runs plain PR #261.
+T2GPU_RUN_ENV=${T2GPU_RUN_ENV-CANON_MASK=1}
 CHECK_TIMEOUT_S=${CHECK_TIMEOUT_S:-300}; PREP_TIMEOUT_S=${PREP_TIMEOUT_S:-14400}; PREP_WAIT_S=${PREP_WAIT_S:-7200}
 PREP_BACKGROUND=${PREP_BACKGROUND:-1}
 HADAMARD_VARIANTS=${HADAMARD_VARIANTS:-"all@128 dw1,dw2@32"}
@@ -548,7 +552,7 @@ variant_prep() {
   mkdir -p "$d"
   [[ -f "$s" ]] || return 0
   tmo "$CHECK_TIMEOUT_S" bash "$s" check > "$d/check_pre.txt" 2>&1 || true
-  if grep -E '^FAIL ' "$d/check_pre.txt" | grep -qv 'prep'; then echo blocked > "$d/prep.rc"; return 0; fi
+  if [[ "${FORCE_CHECK:-0}" != 1 ]] && grep -E '^FAIL ' "$d/check_pre.txt" | grep -qv 'prep'; then echo blocked > "$d/prep.rc"; return 0; fi
   tmo "$PREP_TIMEOUT_S" bash "$s" prep > "$d/prep.txt" 2>&1 || rc=$?
   echo "$rc" > "$d/prep.rc"
 }
@@ -581,9 +585,9 @@ variant_wait_prep() {  # wait for the WHOLE background job: a download or a carg
 }
 
 phase_variant() {
-  local p=$PHASE d="$SD/$PHASE" vdir s name n i tag rc crc=0 reasons prc seeds seed k fails=0 consec=0 t0 wall logp
+  local p=$PHASE d="$SD/$PHASE" vdir s name n i tag rc crc=0 reasons prc seeds seed k fails=0 consec=0 t0 wall logp renv
   vdir=$(variant_dir "$p"); s="$vdir/182/run_node.sh"; name=$(basename "$vdir")
-  n=$(knob "$p" RUNS); seeds=$(knob "$p" SEEDS)
+  n=$(knob "$p" RUNS); seeds=$(knob "$p" SEEDS); renv=$(knob "$p" RUN_ENV)
   if [[ ! -f "$s" ]]; then skip "$s is not in this checkout (this variant has no node script yet)"; return 0; fi
   mkdir -p "$d"
   if [[ "$DRY_RUN" == 1 ]]; then
@@ -591,8 +595,9 @@ phase_variant() {
     tmo "$CHECK_TIMEOUT_S" bash "$s" check 2>&1 | sed 's/^/    /' || log "    (check exited non-zero: on a real run a FAIL line here skips $p)"
     log "+ bash $s prep    (data, builds; off the clock)"
     for ((i = 1; i <= n; i++)); do
-      log "+ NPROC=$NPROC LOG_DIR=$d/logs bash $s run   (run $i/$n)"
-      env NPROC="$NPROC" LOG_DIR="$d/logs" DRY_RUN=1 bash "$s" run 2>&1 | sed 's/^/    /' || true
+      log "+ NPROC=$NPROC LOG_DIR=$d/logs${renv:+ $renv} bash $s run   (run $i/$n)"
+      # shellcheck disable=SC2086  # renv is a list of K=V words
+      env NPROC="$NPROC" LOG_DIR="$d/logs" $renv DRY_RUN=1 bash "$s" run 2>&1 | sed 's/^/    /' || true
     done
     return 0
   fi
@@ -630,12 +635,13 @@ phase_variant() {
       [[ -f "$d/runs/$tag.out" ]] && mv "$d/runs/$tag.out" "$d/runs/$tag.fail$k.out"
     fi
     seed=""; [[ -n "$seeds" ]] && seed=$(printf '%s' "$seeds" | cut -d, -f"$i")
-    log "-- $p run $i/$n${seed:+ (SEED=$seed)} -- $(date '+%T')"
+    log "-- $p run $i/$n${seed:+ (SEED=$seed)}${renv:+ ($renv)} -- $(date '+%T')"
     chain_alive && echo "$p run $i ran while the background prep job was still running" >> "$SD/prep_overlap.txt"
     rc=0; t0=$(date +%s)
-    env NPROC="$NPROC" LOG_DIR="$d/logs" ${seed:+SEED="$seed"} "$PY" -c "$TMO_PY" "$(knob "$p" TIMEOUT_S)" bash "$s" run 2>&1 | tee "$d/runs/$tag.out" || rc=$?
+    # shellcheck disable=SC2086  # renv is a list of K=V words
+    env NPROC="$NPROC" LOG_DIR="$d/logs" ${seed:+SEED="$seed"} $renv "$PY" -c "$TMO_PY" "$(knob "$p" TIMEOUT_S)" bash "$s" run 2>&1 | tee "$d/runs/$tag.out" || rc=$?
     wall=$(( $(date +%s) - t0 ))
-    if "$PY" 182/tools/summarize_session.py --parse-run "$d/runs/$tag.out" --rc "$rc" --wall-s "$wall" --seed "$seed" --variant-name "$name" > "$d/runs/$tag.result"; then
+    if "$PY" 182/tools/summarize_session.py --parse-run "$d/runs/$tag.out" --rc "$rc" --wall-s "$wall" --seed "$seed" --run-env "$renv" --variant-name "$name" > "$d/runs/$tag.result"; then
       consec=0
       logp=$("$PY" 182/tools/summarize_session.py --result-field log "$d/runs/$tag.result" || true)
       [[ -n "$logp" && "$logp" != /* ]] && logp="$vdir/$logp"

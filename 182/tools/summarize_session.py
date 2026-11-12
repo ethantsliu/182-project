@@ -58,6 +58,9 @@ METHODS = {
     "t2cpu": dict(name="t2-cpu-ngram", track=2, reported="221 s, 1 run"),
     "t2gpu": dict(name="t2-gpu-port (PR #261)", track=2, reported="860.5 s (14.34 min)"),
 }
+# Single runs the friend made on the node before any session existed (logs not in the repo).
+PRIOR_NODE_RUNS = ("earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780, "
+                   "1194 steps; t1-gpu-stack 30.957 s, val_loss 3.276481, 1053 steps (981 scheduled)")
 VARIANT_PHASES = ("t1gpu", "t1cpu", "t2cpu", "t2gpu")
 PHASE_ORDER = ["env", "tests", "sanity", "base", *VARIANT_PHASES, "gate", "attno", "hadamard", "bundle"]
 RESULT_RE = re.compile(r"^RESULT (.*)$", re.M)
@@ -422,7 +425,7 @@ def parse_result(text: str) -> dict:
     return dict(out, ok=True)
 
 
-def parse_run(text: str, rc: int, wall_s=None, seed=None, variant=None) -> dict:
+def parse_run(text: str, rc: int, wall_s=None, seed=None, variant=None, run_env=None) -> dict:
     r = parse_result(text)
     if r["ok"] and rc != 0:
         r.update(ok=False, reason=f"exit code {rc} despite a RESULT line")
@@ -430,7 +433,7 @@ def parse_run(text: str, rc: int, wall_s=None, seed=None, variant=None) -> dict:
         r["reason"] = "timed out (the session's per-run limit); " + r["reason"]
     if r["ok"] and variant and r.get("variant") not in (None, variant):
         r["note"] = f"RESULT says variant={r['variant']}, expected {variant}"
-    return dict(r, rc=rc, wall_s=wall_s, seed=seed or None)
+    return dict(r, rc=rc, wall_s=wall_s, seed=seed or None, run_env=run_env or None)
 
 
 def load_variant(root: str, phase: str) -> dict:
@@ -446,7 +449,9 @@ def load_variant(root: str, phase: str) -> dict:
                 r = dict(ok=False, reason="unreadable result file (the session was killed while writing it)")
             runs.append(dict(r, run=int(n.split(".")[0])))
     planned = _read(os.path.join(root, phase, "planned")).strip()
+    envs = sorted({r.get("run_env") or "" for r in runs})
     return dict(runs=runs, planned=int(planned) if planned.isdigit() else len(runs),
+                run_env=" / ".join(e or "(none)" for e in envs) if envs not in ([], [""]) else "", mixed_env=len(envs) > 1,
                 retried=sum(bool(re.fullmatch(r"\d+\.fail\d+\.result", n)) for n in names))
 
 
@@ -455,6 +460,8 @@ def variant_lines(root: str, phase: str, status: str = "") -> list[str]:
     m = METHODS[phase]
     ok = [r for r in v["runs"] if r.get("ok")]
     out = [f"== {phase}: {m['name']}, {len(ok)}/{v['planned']} run(s) ok" + (f"  [{status}]" if status else "")]
+    if v["run_env"]:
+        out.append(f"  run env: {v['run_env']}" + ("  !! the runs did NOT all use the same env: the mean above mixes configurations" if v["mixed_env"] else ""))
     for r in v["runs"]:
         if r.get("ok"):
             out.append(f"  run {r['run']}: val_loss={r['val_loss']:.4f} train_time_s={r['train_time_s']:.3f} steps={r['steps']} "
@@ -502,6 +509,7 @@ def methods_table(root: str, smap: dict) -> list[str]:
             vals, times = [r["val_loss"] for r in ok], [r["train_time_s"] for r in ok]
             planned, present = v["planned"], bool(v["runs"])
             hits = sum(r["hit"] for r in ok)
+            m = dict(m, name=m["name"] + (f" [{v['run_env']}]" if v["run_env"] else ""))
         seen = seen or present or bool(status)
         if status.startswith("SKIP"):
             runs = "SKIPPED"
@@ -519,7 +527,8 @@ def methods_table(root: str, smap: dict) -> list[str]:
     out += ["  best reported = the best time claimed for that tree on its author's node, not measured by us; it and the",
             "  official record are other machines, so only rows of this table compare like with like. 'target hit' counts",
             "  single runs at or under the target: a record needs the MEAN under it with p < 0.01 (stats.py gate), which",
-            "  1-4 runs cannot show. One run is one run: no spread, no significance."]
+            "  1-4 runs cannot show. One run is one run: no spread, no significance.",
+            "  " + PRIOR_NODE_RUNS]
     for phase in METHODS:
         st = smap.get(phase, "")
         if st.startswith("SKIP"):
@@ -713,6 +722,7 @@ def main(argv=None):
     ap.add_argument("--rc", type=int, default=0, help="with --parse-run: the run's exit code")
     ap.add_argument("--wall-s", type=int, help="with --parse-run: wall seconds of the run")
     ap.add_argument("--seed", help="with --parse-run: the SEED the run got")
+    ap.add_argument("--run-env", help="with --parse-run: the extra K=V environment the run got")
     ap.add_argument("--variant-name", help="with --parse-run: the expected variant= value")
     ap.add_argument("--result-ok", metavar="FILE", help="a stored result (JSON): exit 0 if it is an ok run")
     ap.add_argument("--result-field", nargs=2, metavar=("FIELD", "FILE"), help="print one field of a stored result")
@@ -721,7 +731,7 @@ def main(argv=None):
     ap.add_argument("--check-gate", action="store_true", help="with --check: also require a gate decision (>= 2 pairs)")
     a = ap.parse_args(argv)
     if a.parse_run:
-        r = parse_run(_read(a.parse_run), a.rc, a.wall_s, a.seed, a.variant_name)
+        r = parse_run(_read(a.parse_run), a.rc, a.wall_s, a.seed, a.variant_name, a.run_env)
         print(json.dumps(r))
         return 0 if r["ok"] else 1
     if a.result_ok or a.result_field:

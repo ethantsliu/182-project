@@ -27,10 +27,10 @@ case "${1:-}" in
     touch "$st/prepped"; echo "prep done";;
   run)
     if [[ "${DRY_RUN:-0}" == 1 ]]; then
-      echo "+ cd $here && DATA_PATH=../.. torchrun --standalone --nproc_per_node=${NPROC:-8} train_gpt.py"; exit 0
+      echo "+ cd $here && DATA_PATH=../.. torchrun --standalone --nproc_per_node=${NPROC:-8} train_gpt.py${CANON_MASK:+ [CANON_MASK=$CANON_MASK]}"; exit 0
     fi
     n=$(( $(cat "$st/runs" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$st/runs"
-    echo "run NPROC=${NPROC:-} SEED=${SEED:-} LOG_DIR=${LOG_DIR:-}" >> "$st/calls"
+    echo "run NPROC=${NPROC:-} SEED=${SEED:-} LOG_DIR=${LOG_DIR:-}${CANON_MASK:+ CANON_MASK=$CANON_MASK}${CONFIG:+ CONFIG=$CONFIG}" >> "$st/calls"
     if has "${FAKE_RUN_FAIL:-}" "$name:$n" || has "${FAKE_RUN_FAIL:-}" "$name:all"; then
       echo "Traceback (most recent call last):"
       echo "RESULT variant=$name status=failed reason=CUDA out of memory on rank 3"; exit 1

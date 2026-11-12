@@ -6,17 +6,22 @@ a friend runs it on an 8xH100 node.
 
 ## What has been measured, and what has not
 
-- Measured, once: the root record ran on the friend's node in **40.93 s with val loss 3.2780** (one run, and the
-  log is not in this repo). The official record it reproduces is 39.9 s.
-- Not measured by us: every variant, every flag, and the spread of the root record on that node. The times in
-  the table below are the ones reported upstream by each tree's author, on their nodes.
+Two single runs on the friend's node, and nothing else. Neither log is in this repo.
+
+- The root record: **40.931 s, val loss 3.2780**, 1194 steps (one run). The official record it reproduces is 39.9 s.
+- `variants/t1-gpu-stack`: **30.957 s, val loss 3.276481**, 1053 steps, 981 of them scheduled (one run). Its
+  author reported 30.67 s over 12 runs.
+- Not measured by us: the other three variants, every flag of ours, and the run-to-run spread of anything on that
+  node. One run cannot show that a tree meets its target: the rule is the mean under the target with p < 0.01.
+
+The "best reported" times in the table below are the ones each tree's author reported upstream, on their nodes.
 
 ## Methods
 
 | Phase | Tree | What it is | Best reported time (not ours) | Target | Official record | One command |
 |---|---|---|---|---|---|---|
-| `base` | repo root | Upstream record #92 (ANVIL2), unchanged | 39.9 s (the record) | val loss <= 3.28 | 39.9 s | `bash 182/gpu_session.sh base` |
-| `t1gpu` | `variants/t1-gpu-stack` | Track 1, GPU only: open PR #397 (MoE + Gluon + exact levers) plus our flags | 30.67 s, n=12, mean loss 3.27743 | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1gpu` |
+| `base` | repo root | Upstream record #92 (ANVIL2), unchanged | 39.9 s (the record; our node, one run: 40.931 s, 3.2780) | val loss <= 3.28 | 39.9 s | `bash 182/gpu_session.sh base` |
+| `t1gpu` | `variants/t1-gpu-stack` | Track 1, GPU only: open PR #397 (MoE + Gluon + exact levers) plus our flags | 30.67 s, n=12, mean loss 3.27743 (our node, one run: 30.957 s, 3.276481) | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1gpu` |
 | `t1cpu` | `variants/t1-cpu-ngram` | Track 1, CPU retrieval: the tree of open PR #381 (exact-count chain of #380) | 9.653 s, n=16 (PR #380; #381 itself has no 8xH100 time) | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1cpu` |
 | `t2cpu` | `variants/t2-cpu-ngram` | Track 2 (GPT-2 Medium): that CPU retrieval chain | 221 s, one run, 5800 steps, loss 2.8769 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2cpu` |
 | `t2gpu` | `variants/t2-gpu-port` | Track 2, GPU only: open PR #261 (MUDD) plus our flags | 14.34 min (860.5 s), loss 2.9171 ± 0.0007 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2gpu` |
@@ -52,10 +57,14 @@ The order is `env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard 
 - `base` first (2 runs): this node's own reference and its spread, with logs, which the one earlier run did not leave.
 - Then the four variants, Track 1 before Track 2, GPU-only before CPU retrieval: 4, 4, 1 and 1 runs. For each, the
   session runs the variant's `check`; a `FAIL` line skips that variant with the reason (it is not a session
-  failure, and `FORCE_CHECK=1` runs it anyway). The CPU retrieval trees need a host with far more RAM, `/dev/shm`
+  failure, and `FORCE_CHECK=1` preps and runs it anyway). The CPU retrieval trees need a host with far more RAM, `/dev/shm`
   and vCPUs than the record does, so expect them to be skipped on a plain 8xH100 box. `prep` (data downloads,
-  extension builds) runs off the clock, for all selected variants in one low-priority background job that starts
+  extension builds; Rust needs rustc >= 1.80, and `INSTALL_RUST=1` lets prep install it) runs off the clock, for all selected variants in one low-priority background job that starts
   with the session; a variant waits for that job before it times anything.
+  The runs use each tree's default configuration, with two things to know: `t2gpu` runs with `CANON_MASK=1`, the
+  first run its README recommends (`T2GPU_RUN_ENV=` gives plain PR #261), and `t1cpu` runs configuration 381, which
+  has no published 8xH100 time; for the one that has (9.653 s), use a session directory of its own:
+  `SESSION_DIR=182/results/t1cpu-380 T1CPU_RUN_ENV=CONFIG=380 bash 182/gpu_session.sh t1cpu bundle`.
 - Then the root fp8 experiments, which need 4 seed pairs each to say anything: `gate`, `attno`, and `hadamard` last
   (one measurement on the node had it 3.17 s slower, and it needs a 3-4 millinat fp8 gap to pay).
 
