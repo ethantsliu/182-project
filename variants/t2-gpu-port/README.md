@@ -180,7 +180,7 @@ noise 0.0007 and so several runs per arm. Try them only after 1 and 2.
 
 ### Verified on CPU
 
-`python -m pytest 182 -q` from this folder (46 tests, about 130 s; the Inductor test skips where Inductor cannot compile C++, as on macOS):
+`python -m pytest 182 -q` from this folder (46 tests, about 130 s; the Inductor test is opt-in, see 6):
 
 1. Canonical mask: 0 masked adjacent pairs in about 228k tokens of real text; 2.80 % of all pairs are
    masked; EOT is never masked; the torch bit-unpack matches numpy's.
@@ -197,7 +197,8 @@ noise 0.0007 and so several runs per arm. Try them only after 1 and 2.
    `run_validation` repeats a pass that raised an out-of-memory error with twice the chunks and returns the
    same mean, and lets other errors and an out-of-memory error at 64 chunks through; under
    `torch.compile(fullgraph=True)` changing `VAL_CE_CHUNKS` recompiles the eval graph with the new count.
-   The Inductor fusion test runs `182/val_ce_memory.py` and skips where Inductor cannot compile C++.
+   The Inductor fusion test runs `182/val_ce_memory.py` only with `T2GPU_INDUCTOR_PROBE=1` (it skips
+   otherwise, and where Inductor cannot compile C++).
 7. `run_node.sh`: parsing of a real #261 record log and of truncated, NaN, timed-out, failed and
    out-of-memory runs (the trainer's report lands in the reason); the exact RESULT line with `torch=`; dry
    runs; the preflight on this machine (fails with reasons) and on fake nodes (complete, too few shards, too
