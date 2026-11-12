@@ -395,6 +395,14 @@ def gate_L(h, G, theta, W, b, n_groups):  # the weights from the hidden state, s
     return torch.sigmoid(torch.cat([theta, theta.new_full((1,), -30.0)])[G] + (h.float() @ W + b).double()) * (G < n_groups)
 
 
+def vote_base_prob(p, counts, links, hidden, gate, n_groups):
+    """The TABLE_VOTE report: the chain's probability of the target without the table's links, from `gate`, the
+    weights of a chain fit without them (`links`: the hint rows' and the document links only)."""
+    Q, G, total = components(*counts, links)
+    assert total == n_groups, f"the base chain has {total} groups, its fit {n_groups}"
+    return chain_prob(p, Q, gate_L(hidden[:len(Q)], G, *gate, n_groups))
+
+
 @triton.jit(do_not_specialize=["n", "K"])
 def _gate_chain_kernel(L_ptr, q_ptr, p_ptr, dL_ptr, n, inv_n, K, BLOCK: tl.constexpr):
     # d(-inv_n * log P) / dL_j per row, each P_{j-1} recomputed from p (a scratch store read back raced on the GPU)

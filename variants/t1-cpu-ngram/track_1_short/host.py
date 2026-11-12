@@ -1,6 +1,6 @@
 """The host the exact-match retrieval runs on: what it has (CPUs, cores, NUMA nodes, RAM, /dev/shm), what the
 retrieval's host memory needs on it, and a report of both for the run log, so a submission can disclose the CPU and
-RAM it used. Standard library only: 182/t1-cpu-ngram/node_check.py imports it on a box without torch.
+RAM it used. Standard library only: 182/node.py (the node check) imports it on a box without torch.
 
 The memory model mirrors exact_match/src (slot.rs: SLOTS, PBITS, nbits, BLOCK; stream.rs: the online index); the
 build reports its real arena and table sizes after it allocates them (SlotIndex.memory), which the report prints.
