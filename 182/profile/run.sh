@@ -22,7 +22,18 @@ TREE="$(cd "$TREE" && pwd)"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 export PROFILE_DIR="$OUT"
+rm -f "$OUT/.shim_used"
 if [[ -f "$TREE/182/run_node.sh" ]]; then
+  # A variant's run_node.sh activates <repo>/.venv-run when no venv is active, which would put the venv's torchrun
+  # ahead of the shim. Activate it here first (same rule: NODE_VENV, RUN_NODE_NO_VENV), so run_node.sh sees a
+  # venv, leaves PATH alone, and the shim stays first.
+  ACT="$(cd "$HERE/../.." && pwd)/${NODE_VENV:-.venv-run}/bin/activate"
+  if [[ -z "${VIRTUAL_ENV:-}" && -z "${RUN_NODE_NO_VENV:-}" && -f "$ACT" && "${DRY_RUN:-0}" != 1 ]]; then
+    set +u
+    # shellcheck disable=SC1090
+    source "$ACT"
+    set -u
+  fi
   CMD=(env "PATH=$HERE/shim:$PATH" "NPROC=$NPROC" "LOG_DIR=$OUT/logs" bash "$TREE/182/run_node.sh" run)
 else
   [[ -f "$TREE/train_gpt.py" ]] || { echo "FAIL profile: $TREE has neither 182/run_node.sh nor train_gpt.py"; exit 2; }
@@ -39,6 +50,11 @@ fi
 rc=${PIPESTATUS[0]}
 echo "profile: training run exited $rc"
 grep -E '^RESULT ' "$OUT/train.out" | tail -n1 | sed 's/^/profiled run (NOT a timing run): /' || true
+if [[ -f "$TREE/182/run_node.sh" && ! -f "$OUT/.shim_used" ]]; then
+  echo "FAIL profile: the trainer did not start through 182/profile/shim/torchrun (another torchrun came first on PATH,"
+  echo "  or run_node.sh failed before launching it); nothing was profiled. See $OUT/train.out"
+  exit 1
+fi
 if [[ ! -f "$OUT/trace_rank0.json.gz" ]]; then
   echo "FAIL profile: no trace_rank0.json.gz in $OUT (window opened? see the [profile] lines in $OUT/train.out)"
   "$PY" "$HERE/analyze.py" "$OUT" || true

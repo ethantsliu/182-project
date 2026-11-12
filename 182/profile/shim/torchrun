@@ -17,4 +17,5 @@ for a in "$@"; do
   args+=("$a")
 done
 [[ $hooked == 1 ]] || { echo "profile shim: no trainer script (*.py) among the arguments: $*" >&2; exit 2; }
+[[ -n "${PROFILE_DIR:-}" && -d "$PROFILE_DIR" ]] && : > "$PROFILE_DIR/.shim_used"   # run.sh checks this
 exec "$real" "${args[@]}"

@@ -331,6 +331,42 @@ class TestShimAndRunScript(unittest.TestCase):
             self.assertIn("hook.py train_gpt.py", r.stdout)
             self.assertFalse((d / "dry/train.out").exists())
 
+    def test_run_script_keeps_the_shim_first_when_run_node_would_activate_a_venv(self):
+        """A variant run_node.sh activates <repo>/.venv-run when no venv is active; run.sh activates it first so the
+        shim stays ahead of the venv's torchrun. A run that bypasses the shim is a FAIL, not a silent unprofiled run."""
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            prof = d / "repo/182/profile"
+            (prof / "shim").mkdir(parents=True)
+            for f in ("run.sh", "hook.py", "analyze.py"):
+                (prof / f).write_bytes((PROFILE / f).read_bytes())
+            (prof / "shim/torchrun").write_bytes((PROFILE / "shim/torchrun").read_bytes())
+            (prof / "shim/torchrun").chmod(0o755)
+            venv_bin = d / "repo/.venv-run/bin"
+            venv_bin.mkdir(parents=True)
+            (venv_bin / "activate").write_text(f'export VIRTUAL_ENV="{d}/repo/.venv-run"; export PATH="$VIRTUAL_ENV/bin:$PATH"\n')
+            (venv_bin / "torchrun").write_text('#!/usr/bin/env bash\necho "VENV TORCHRUN $*"\n')
+            (venv_bin / "torchrun").chmod(0o755)
+            tree = d / "repo/variants/t1"
+            (tree / "182").mkdir(parents=True)
+            (tree / "train_gpt.py").write_text(FAKE_TRAINER)
+            # the activation rule of variants/*/182/run_node.sh
+            (tree / "182/run_node.sh").write_text(
+                '#!/usr/bin/env bash\nACT="$(cd "$(dirname "$0")/../../.." && pwd)/.venv-run/bin/activate"\n'
+                '[[ -z "${VIRTUAL_ENV:-}" && -f "$ACT" ]] && source "$ACT"\n'
+                'cd "$(dirname "$0")/.." && torchrun --standalone train_gpt.py\necho "RESULT variant=t1 val_loss=3.27"\n')
+            env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+            env.update(PY=sys.executable, PROFILE_STEPS="5:3")
+            r = subprocess.run(["bash", str(prof / "run.sh"), str(tree), str(d / "o")], env=env, capture_output=True, text=True)
+            # the shim ran and exec'd the venv's torchrun (the next on PATH) with hook.py inserted
+            self.assertIn(f"VENV TORCHRUN --standalone {prof / 'hook.py'} train_gpt.py", r.stdout)
+            self.assertTrue((d / "o/.shim_used").exists())
+            # bypass: a run_node.sh that calls a torchrun by absolute path never meets the shim
+            (tree / "182/run_node.sh").write_text(f'#!/usr/bin/env bash\n"{venv_bin}/torchrun" train_gpt.py\n')
+            r = subprocess.run(["bash", str(prof / "run.sh"), str(tree), str(d / "o2")], env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("did not start through 182/profile/shim/torchrun", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
