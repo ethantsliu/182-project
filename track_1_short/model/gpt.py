@@ -181,7 +181,8 @@ class GPT(nn.Module):
         self.head_dim = head_dim
         # there are only 50257 unique GPT-2 tokens; extend to nearest multiple of 128 for efficiency.
         # suggested by @Grad62304977, originates from Karpathy's experiments.
-        self.vocab_size = next_multiple_of_n(vocab_size, n=128)
+        # 128 for the GEMM tile. Also a multiple of world_size so embed and value_embeds shard evenly.
+        self.vocab_size = next_multiple_of_n(vocab_size, n=math.lcm(128, world_size))
 
         # Prefix-token lookup table for prefix token prediction. Allocated here, but filled
         # after the clock starts (see "start the clock") so the build is charged to training
@@ -313,17 +314,25 @@ class GPT(nn.Module):
         if MONARCH_MLP:
             self.init_monarch_mlp(model_dim)
             return
-        self.mlp_bank = nn.Parameter(torch.empty(NUM_MLP_SLOTS, 2, self.mlp_hdim, model_dim))  # (12, 2, 2816, 768)
-        self.mlp_bank.reshape = (2 * NUM_MLP_SLOTS, self.mlp_hdim, model_dim)  # Shape for sharding: (24, 2816, 768)
-        # The optimizer leaves these matrices untouched: c_fc and c_proj of each NO_MLP_LAYERS slot.
-        self.mlp_bank.frozen_matrices = frozenset(2 * layer + j for layer in NO_MLP_LAYERS for j in (0, 1))
+        # 24 matrices on 8 GPUs. Pad frozen matrices so the leading axis divides the world (7 -> 28).
+        n_mat = next_multiple_of_n(2 * NUM_MLP_SLOTS, n=self.world_size)
+        n_slots = n_mat // 2
+        self.mlp_bank = nn.Parameter(torch.empty(n_slots, 2, self.mlp_hdim, model_dim))
+        self.mlp_bank.reshape = (n_mat, self.mlp_hdim, model_dim)
+        # The optimizer leaves these matrices untouched: c_fc and c_proj of each NO_MLP_LAYERS slot,
+        # plus any padding past the live 12 slots.
+        frozen = {2 * layer + j for layer in NO_MLP_LAYERS for j in (0, 1)}
+        frozen.update(range(2 * NUM_MLP_SLOTS, n_mat))
+        self.mlp_bank.frozen_matrices = frozenset(frozen)
 
         # improved init scale by @YouJiacheng and @srashedll
         std = 0.5 * model_dim ** -0.5
         bound = (3 ** 0.5) * std
         with torch.no_grad():
-            self.mlp_bank[:, 0, :, :].uniform_(-bound, bound)  # c_fc
-            self.mlp_bank[:, 1, :, :].zero_()  # c_proj - zero init suggested by @Grad62304977
+            self.mlp_bank[:NUM_MLP_SLOTS, 0, :, :].uniform_(-bound, bound)  # c_fc
+            self.mlp_bank[:NUM_MLP_SLOTS, 1, :, :].zero_()  # c_proj - zero init suggested by @Grad62304977
+            if n_slots > NUM_MLP_SLOTS:
+                self.mlp_bank[NUM_MLP_SLOTS:].zero_()
 
         self.init_mlp_fp8(model_dim)
 
@@ -652,7 +661,7 @@ class GPT(nn.Module):
         if MONARCH_MLP:
             mlp_weights = self.mlp_bank.unbind(0)  # 12 slots of [blocks_per_slot, q, p]
         else:
-            mlp_all = self.mlp_bank.flatten(0, 1).unbind(0)  # 24 tensors of [mlp_hdim, dim]
+            mlp_all = self.mlp_bank[:NUM_MLP_SLOTS].flatten(0, 1).unbind(0)  # 24 tensors of [mlp_hdim, dim]
             mlp_weights = (mlp_all[0::2], mlp_all[1::2])  # even indices: c_fc, odd: c_proj
 
         # ---- Embeddings and input preparation ----
@@ -984,7 +993,8 @@ class GPT(nn.Module):
             return
         e4m3_max = torch.finfo(torch.float8_e4m3fn).max
         e5m2_max = torch.finfo(torch.float8_e5m2).max
-        up_weights, down_weights = self.mlp_bank[:, 0], self.mlp_bank[:, 1]
+        live = self.mlp_bank[:NUM_MLP_SLOTS]
+        up_weights, down_weights = live[:, 0], live[:, 1]
         exact = self.mlp_quantize_calls < FP8_EXACT_SCALE_CALLS
         self.mlp_quantize_calls += 1
 

@@ -204,6 +204,8 @@ def copy_sink_probs(q, k, k_sink, input_seq, target_seq, seqlens, L, max_lookbac
 # (documents average a few hundred tokens vs the 2L-wide band). Needs copy dim D in {64, 128, 256}.
 
 
+# torch 2.11 Inductor passes the Python-float `scale` of a traced (non-custom_op) launch as fp64, which made the
+# loop-carried running max fp64 and failed Triton compilation; casting gives the same fp32 as the eager launch.
 @triton.jit
 def _copy_fwd_kernel(Q, K, S0, DOC, TOK, TGT, DSTART, P_OUT, A_OUT, LSE_OUT, N, L, LB, scale,
                      D: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr, NK: tl.constexpr):
@@ -225,7 +227,7 @@ def _copy_fwd_kernel(Q, K, S0, DOC, TOK, TGT, DSTART, P_OUT, A_OUT, LSE_OUT, N, 
     for n0 in range(lo, m0 + BM, BN):
         offs_n = n0 + tl.arange(0, BN)
         k = tl.load(K + offs_n[:, None] * D + offs_d[None, :])
-        s = tl.dot(q, tl.trans(k)) * scale
+        s = tl.dot(q, tl.trans(k)) * tl.cast(scale, tl.float32)
         doc_k = tl.load(DOC + offs_n)
         valid = (offs_n[None, :] < offs_m[:, None]) & (doc_k[None, :] == doc_q[:, None]) & (offs_n[None, :] >= band_lo) \
             & (offs_m[:, None] - offs_n[None, :] <= LB)
@@ -264,7 +266,7 @@ def _copy_bwd_dq_kernel(Q, K, DOC, TOK, TGT, DSTART, LSE, GP, DROW, DQ, N, L, LB
     for n0 in range(lo, m0 + BM, BN):
         offs_n = n0 + tl.arange(0, BN)
         k = tl.load(K + offs_n[:, None] * D + offs_d[None, :])
-        s = tl.dot(q, tl.trans(k)) * scale
+        s = tl.dot(q, tl.trans(k)) * tl.cast(scale, tl.float32)
         doc_k = tl.load(DOC + offs_n)
         valid = (offs_n[None, :] < offs_m[:, None]) & (doc_k[None, :] == doc_q[:, None]) & (offs_n[None, :] >= band_lo) \
             & (offs_m[:, None] - offs_n[None, :] <= LB)
@@ -278,7 +280,7 @@ def _copy_bwd_dq_kernel(Q, K, DOC, TOK, TGT, DSTART, LSE, GP, DROW, DQ, N, L, LB
             gm += tl.where(hit, gp[:, None], 0.0)
         ds = a * (gm - drow[:, None])
         dq += tl.dot(ds.to(k.dtype), k)
-    tl.store(DQ + offs_m[:, None] * D + offs_d[None, :], dq * scale)
+    tl.store(DQ + offs_m[:, None] * D + offs_d[None, :], dq * tl.cast(scale, tl.float32))
 
 
 @triton.jit
@@ -302,7 +304,7 @@ def _copy_bwd_dk_kernel(Q, K, DOC, TOK, TGT, DEND, LSE, GP, DROW, DK, N, L, LB, 
         lse = tl.load(LSE + offs_m)
         drow = tl.load(DROW + offs_m)
         band_lo = (m0 // L) * L - L
-        s = tl.dot(q, tl.trans(k)) * scale
+        s = tl.dot(q, tl.trans(k)) * tl.cast(scale, tl.float32)
         valid = (offs_n[None, :] < offs_m[:, None]) & (doc_k[None, :] == doc_q[:, None]) & (offs_n[None, :] >= band_lo) \
             & (offs_m[:, None] - offs_n[None, :] <= LB)
         a = tl.where(valid, tl.exp(s - lse[:, None]), 0.0)
@@ -315,7 +317,7 @@ def _copy_bwd_dk_kernel(Q, K, DOC, TOK, TGT, DEND, LSE, GP, DROW, DK, N, L, LB, 
             gm += tl.where(hit, gp[:, None], 0.0)
         ds = a * (gm - drow[:, None])
         dk += tl.dot(tl.trans(ds.to(q.dtype)), q)
-    tl.store(DK + offs_n[:, None] * D + offs_d[None, :], dk * scale)
+    tl.store(DK + offs_n[:, None] * D + offs_d[None, :], dk * tl.cast(scale, tl.float32))
 
 
 def _copy_tiles(D):

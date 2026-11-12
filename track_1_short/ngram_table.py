@@ -158,7 +158,6 @@ class NgramTable:
 
     def __init__(self, cache: Tensor, max_step_tokens: int, max_events: int, rank: int, world_size: int,
                  device: torch.device):
-        assert NGRAM_VOCAB_SIZE % world_size == 0
         assert cache.shape[1] == NGRAM_DIM and cache.dtype == torch.bfloat16
         # A cycle reads at most two rows per token of MAX_CYCLE_STEPS steps.
         max_cycle_rows = 2 * MAX_CYCLE_STEPS * max_step_tokens
@@ -167,7 +166,9 @@ class NgramTable:
         self.rank = rank
         self.world_size = world_size
         self.device = device
-        self.owners = RowOwners(NGRAM_VOCAB_SIZE, rank, world_size)
+        # A few unused rows on the last rank when the table does not divide the world (7 GPUs).
+        shard_rows = NGRAM_VOCAB_SIZE + (-NGRAM_VOCAB_SIZE % world_size)
+        self.owners = RowOwners(shard_rows, rank, world_size)
         self.first_row = self.owners.first_row
         rows = self.owners.rows_per_rank
         # 10.6M x 768 bf16 = 16.2 GB. Zero init, as record #360.

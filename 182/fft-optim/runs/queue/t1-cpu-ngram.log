@@ -1,0 +1,976 @@
+/home/dev_patel/venv/lib/python3.12/site-packages/exact_match/__init__.py
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 921 GiB (920 free) | THP [always] madvise never | kernel 5.10.0-34-cloud-amd64
+plan: 8 GPUs, 64 build threads, 6-token index over 101 shards (10.06B tokens): arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB
+PASS  Linux (the index uses Linux mmap/madvise/affinity): Linux
+PASS  x86-64 (the tuned paths; elsewhere scalar fallbacks): x86_64
+PASS  AVX-512 F/BW/DQ/VL (else AVX2/scalar hashing and plain stores: a slower build)
+WARN  kernel >= 5.14 (MADV_POPULATE_READ/WRITE; older: page faults on the clock): 5.10.0-34-cloud-amd64
+PASS  transparent huge pages enabled or madvise: [always] madvise never
+PASS  8 GPUs (the schedule is tuned for 8): 8
+PASS  >= 64 CPUs allowed: 208
+PASS  >= 16 vCPUs per GPU (the records' box; fewer: 16 build threads, not measured): 26
+PASS  >= 24 vCPUs per GPU (LARGE_HOST: 64 build threads; the records ran with 16 per GPU): 26
+PASS  NUMA nodes: 2 (each rank pins to the cores local to its GPU)
+PASS  /dev/shm free >= the index tables: 920 GiB free, 144 GiB needed
+PASS  RAM available >= the plan: 1815 GiB available, 395 GiB needed
+PASS  RAM >= 700 GiB (headroom; the records' box had 2 TB): 1843 GiB
+PASS  no stale index tables in /dev/shm (a killed run leaves them): 0
+PASS  103 training shards under ../../data/fineweb10B (the index asserts it): 103
+WARN  data in /dev/shm (as the records: warm reads)
+PASS  the exact_match extension is installed, or cargo can build it (pip install ./exact_match)
+READY: 0 FAIL, 2 WARN
+W1112 04:56:30.068000 12 torch/distributed/run.py:851] 
+W1112 04:56:30.068000 12 torch/distributed/run.py:851] *****************************************
+W1112 04:56:30.068000 12 torch/distributed/run.py:851] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1112 04:56:30.068000 12 torch/distributed/run.py:851] *****************************************
+logs/f39a7843-6161-46ad-afb0-b106ad4528db.txt
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1793 available) | /dev/shm 921 GiB (920 free) | THP [always] madvise never | kernel 5.10.0-34-cloud-amd64
+retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank0]:     main()
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank0]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank0]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank0]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank0]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank0]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank0]:                         ^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank0]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank0]:     return super().__call__(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank0]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank0]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank0]:     raise InductorError(e, currentframe()).with_traceback(
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank0]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank0]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank0]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank0]:     compiled_module = graph.compile_to_module()
+[rank0]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank0]:     return self._compile_to_module()
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank0]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank0]:     mod = PyCodeCache.load_by_key_path(
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank0]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank0]:     exec(code, mod.__dict__, mod.__dict__)
+[rank0]:   File "/tmp/torchinductor_dev_patel/fw/cfwdq6ur3ohvqc4awjix6cxphqaqib4c2inxlmr3rrvpuulecsk3.py", line 8582, in <module>
+[rank0]:     async_compile.wait(globals())
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank0]:     self._wait_futures(scope)
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank0]:     kernel = result.result()
+[rank0]:              ^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank0]:     return self.result_fn()
+[rank0]:            ^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank0]:     raise e.with_name(kernel_name) from e
+[rank0]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank0]: Name=_copy_fwd_kernel
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank0]:     result = job()
+[rank0]:              ^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank0]:     kernel.precompile(warm_cache_only=True)
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank0]:     self._precompile_worker()
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank0]:     compile_results.append(self._precompile_config(c))
+[rank0]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank0]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank0]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank0]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: triton.compiler.errors.CompilationError: at 18:4:
+[rank0]:     offs_d = tl.arange(0, D)
+[rank0]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank0]:     s0 = tl.load(S0 + offs_m)
+[rank0]:     doc_q = tl.load(DOC + offs_m)
+[rank0]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank0]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank0]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank0]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank0]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank0]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank0]:     col = tl.arange(0, 4)
+[rank0]:     for n0 in range(lo, m0 + BM, BN):
+[rank0]:     ^
+[rank0]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank0]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank6]:     main()
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank6]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank6]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank6]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank6]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank6]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank6]:                         ^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank6]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank6]:     return super().__call__(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank6]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank6]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank6]:     raise InductorError(e, currentframe()).with_traceback(
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank6]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank6]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank6]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank6]:     compiled_module = graph.compile_to_module()
+[rank6]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank6]:     return self._compile_to_module()
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank6]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank6]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank6]:     mod = PyCodeCache.load_by_key_path(
+[rank6]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank6]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank6]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank6]:     exec(code, mod.__dict__, mod.__dict__)
+[rank6]:   File "/tmp/torchinductor_dev_patel/uq/cuqlwwjsgx445rq2vwokuaa4pvxggv27yds55ggq63g3d75a3wrr.py", line 8582, in <module>
+[rank6]:     async_compile.wait(globals())
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank6]:     self._wait_futures(scope)
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank6]:     kernel = result.result()
+[rank6]:              ^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank6]:     return self.result_fn()
+[rank6]:            ^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank6]:     raise e.with_name(kernel_name) from e
+[rank6]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank6]: Name=_copy_fwd_kernel
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank6]:     result = job()
+[rank6]:              ^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank6]:     kernel.precompile(warm_cache_only=True)
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank6]:     self._precompile_worker()
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank6]:     compile_results.append(self._precompile_config(c))
+[rank6]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank6]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank6]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank6]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank6]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank6]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]: triton.compiler.errors.CompilationError: at 18:4:
+[rank6]:     offs_d = tl.arange(0, D)
+[rank6]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank6]:     s0 = tl.load(S0 + offs_m)
+[rank6]:     doc_q = tl.load(DOC + offs_m)
+[rank6]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank6]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank6]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank6]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank6]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank6]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank6]:     col = tl.arange(0, 4)
+[rank6]:     for n0 in range(lo, m0 + BM, BN):
+[rank6]:     ^
+[rank6]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank6]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank5]:     main()
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank5]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank5]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank5]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank5]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank5]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank5]:                         ^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank5]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank5]:     return super().__call__(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank5]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank5]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank5]:     raise InductorError(e, currentframe()).with_traceback(
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank5]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank5]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank5]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank5]:     compiled_module = graph.compile_to_module()
+[rank5]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank5]:     return self._compile_to_module()
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank5]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank5]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank5]:     mod = PyCodeCache.load_by_key_path(
+[rank5]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank5]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank5]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank5]:     exec(code, mod.__dict__, mod.__dict__)
+[rank5]:   File "/tmp/torchinductor_dev_patel/s7/cs7v5cx3nvcow4ucvusunggewbs6wgxd6xakhih5qqxyjq3wfnu4.py", line 8582, in <module>
+[rank5]:     async_compile.wait(globals())
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank5]:     self._wait_futures(scope)
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank5]:     kernel = result.result()
+[rank5]:              ^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank5]:     return self.result_fn()
+[rank5]:            ^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank5]:     raise e.with_name(kernel_name) from e
+[rank5]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank5]: Name=_copy_fwd_kernel
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank5]:     result = job()
+[rank5]:              ^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank5]:     kernel.precompile(warm_cache_only=True)
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank5]:     self._precompile_worker()
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank5]:     compile_results.append(self._precompile_config(c))
+[rank5]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank5]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank5]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank5]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank5]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank5]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]: triton.compiler.errors.CompilationError: at 18:4:
+[rank5]:     offs_d = tl.arange(0, D)
+[rank5]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank5]:     s0 = tl.load(S0 + offs_m)
+[rank5]:     doc_q = tl.load(DOC + offs_m)
+[rank5]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank5]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank5]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank5]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank5]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank5]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank5]:     col = tl.arange(0, 4)
+[rank5]:     for n0 in range(lo, m0 + BM, BN):
+[rank5]:     ^
+[rank5]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank5]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank4]:     main()
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank4]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank4]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank4]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank4]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank4]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank4]:                         ^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank4]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank4]:     return super().__call__(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank4]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank4]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank4]:     raise InductorError(e, currentframe()).with_traceback(
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank4]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank4]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank4]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank4]:     compiled_module = graph.compile_to_module()
+[rank4]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank4]:     return self._compile_to_module()
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank4]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank4]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank4]:     mod = PyCodeCache.load_by_key_path(
+[rank4]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank4]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank4]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank4]:     exec(code, mod.__dict__, mod.__dict__)
+[rank4]:   File "/tmp/torchinductor_dev_patel/d7/cd7n3gt4klouxjetpigyg6r4rptbrzhpsa5xpvecu3delhynmct5.py", line 8582, in <module>
+[rank4]:     async_compile.wait(globals())
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank4]:     self._wait_futures(scope)
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank4]:     kernel = result.result()
+[rank4]:              ^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank4]:     return self.result_fn()
+[rank4]:            ^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank4]:     raise e.with_name(kernel_name) from e
+[rank4]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank4]: Name=_copy_fwd_kernel
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank4]:     result = job()
+[rank4]:              ^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank4]:     kernel.precompile(warm_cache_only=True)
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank4]:     self._precompile_worker()
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank4]:     compile_results.append(self._precompile_config(c))
+[rank4]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank4]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank4]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank4]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank4]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank4]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]: triton.compiler.errors.CompilationError: at 18:4:
+[rank4]:     offs_d = tl.arange(0, D)
+[rank4]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank4]:     s0 = tl.load(S0 + offs_m)
+[rank4]:     doc_q = tl.load(DOC + offs_m)
+[rank4]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank4]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank4]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank4]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank4]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank4]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank4]:     col = tl.arange(0, 4)
+[rank4]:     for n0 in range(lo, m0 + BM, BN):
+[rank4]:     ^
+[rank4]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank4]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank7]:     main()
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank7]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank7]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank7]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank7]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank7]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank7]:                         ^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank7]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank7]:     return super().__call__(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank7]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank7]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank7]:     raise InductorError(e, currentframe()).with_traceback(
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank7]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank7]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank7]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank7]:     compiled_module = graph.compile_to_module()
+[rank7]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank7]:     return self._compile_to_module()
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank7]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank7]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank7]:     mod = PyCodeCache.load_by_key_path(
+[rank7]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank7]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank7]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank7]:     exec(code, mod.__dict__, mod.__dict__)
+[rank7]:   File "/tmp/torchinductor_dev_patel/s2/cs2lcti6gpsej4wihsq4msi3ivbowb5kvmfyw2umhvrcrhls3iu6.py", line 8582, in <module>
+[rank7]:     async_compile.wait(globals())
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank7]:     self._wait_futures(scope)
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank7]:     kernel = result.result()
+[rank7]:              ^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank7]:     return self.result_fn()
+[rank7]:            ^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank7]:     raise e.with_name(kernel_name) from e
+[rank7]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank7]: Name=_copy_fwd_kernel
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank7]:     result = job()
+[rank7]:              ^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank7]:     kernel.precompile(warm_cache_only=True)
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank7]:     self._precompile_worker()
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank7]:     compile_results.append(self._precompile_config(c))
+[rank7]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank7]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank7]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank7]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank7]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank7]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: triton.compiler.errors.CompilationError: at 18:4:
+[rank7]:     offs_d = tl.arange(0, D)
+[rank7]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank7]:     s0 = tl.load(S0 + offs_m)
+[rank7]:     doc_q = tl.load(DOC + offs_m)
+[rank7]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank7]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank7]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank7]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank7]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank7]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank7]:     col = tl.arange(0, 4)
+[rank7]:     for n0 in range(lo, m0 + BM, BN):
+[rank7]:     ^
+[rank7]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank7]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank1]:     main()
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank1]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank1]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank1]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank1]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank1]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank1]:                         ^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank1]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank1]:     return super().__call__(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank1]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank1]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank1]:     raise InductorError(e, currentframe()).with_traceback(
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank1]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank1]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank1]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank1]:     compiled_module = graph.compile_to_module()
+[rank1]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank1]:     return self._compile_to_module()
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank1]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank1]:     mod = PyCodeCache.load_by_key_path(
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank1]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank1]:     exec(code, mod.__dict__, mod.__dict__)
+[rank1]:   File "/tmp/torchinductor_dev_patel/j3/cj3xbcnhxa4x7r5gngh6p7gismrwfxc3u2qlgjhjetmfkjc2tqwh.py", line 8582, in <module>
+[rank1]:     async_compile.wait(globals())
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank1]:     self._wait_futures(scope)
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank1]:     kernel = result.result()
+[rank1]:              ^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank1]:     return self.result_fn()
+[rank1]:            ^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank1]:     raise e.with_name(kernel_name) from e
+[rank1]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank1]: Name=_copy_fwd_kernel
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank1]:     result = job()
+[rank1]:              ^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank1]:     kernel.precompile(warm_cache_only=True)
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank1]:     self._precompile_worker()
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank1]:     compile_results.append(self._precompile_config(c))
+[rank1]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank1]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank1]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank1]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: triton.compiler.errors.CompilationError: at 18:4:
+[rank1]:     offs_d = tl.arange(0, D)
+[rank1]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank1]:     s0 = tl.load(S0 + offs_m)
+[rank1]:     doc_q = tl.load(DOC + offs_m)
+[rank1]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank1]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank1]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank1]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank1]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank1]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank1]:     col = tl.arange(0, 4)
+[rank1]:     for n0 in range(lo, m0 + BM, BN):
+[rank1]:     ^
+[rank1]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank1]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank2]:     main()
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank2]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank2]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank2]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank2]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank2]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank2]:                         ^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank2]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank2]:     return super().__call__(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank2]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank2]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank2]:     raise InductorError(e, currentframe()).with_traceback(
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank2]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank2]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank2]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank2]:     compiled_module = graph.compile_to_module()
+[rank2]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank2]:     return self._compile_to_module()
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank2]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank2]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank2]:     mod = PyCodeCache.load_by_key_path(
+[rank2]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank2]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank2]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank2]:     exec(code, mod.__dict__, mod.__dict__)
+[rank2]:   File "/tmp/torchinductor_dev_patel/n4/cn4ph5s5w3m7kze34363vqqnfrto24mk6xoucuv5wajxru3sd7cv.py", line 8582, in <module>
+[rank2]:     async_compile.wait(globals())
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank2]:     self._wait_futures(scope)
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank2]:     kernel = result.result()
+[rank2]:              ^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank2]:     return self.result_fn()
+[rank2]:            ^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank2]:     raise e.with_name(kernel_name) from e
+[rank2]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank2]: Name=_copy_fwd_kernel
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank2]:     result = job()
+[rank2]:              ^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank2]:     kernel.precompile(warm_cache_only=True)
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank2]:     self._precompile_worker()
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank2]:     compile_results.append(self._precompile_config(c))
+[rank2]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank2]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank2]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank2]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank2]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank2]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: triton.compiler.errors.CompilationError: at 18:4:
+[rank2]:     offs_d = tl.arange(0, D)
+[rank2]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank2]:     s0 = tl.load(S0 + offs_m)
+[rank2]:     doc_q = tl.load(DOC + offs_m)
+[rank2]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank2]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank2]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank2]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank2]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank2]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank2]:     col = tl.arange(0, 4)
+[rank2]:     for n0 in range(lo, m0 + BM, BN):
+[rank2]:     ^
+[rank2]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank2]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 569, in <module>
+[rank3]:     main()
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 311, in main
+[rank3]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/train_gpt.py", line 109, in train_step
+[rank3]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss),
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 161, in forward
+[rank3]:     cs = self._capture(key, batch, ngram_slots, cfg, ret)
+[rank3]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 220, in _capture
+[rank3]:     torch.autograd.grad(self._loss(cs).sum(), leaves, allow_unused=True)
+[rank3]:                         ^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/182-project/variants/t1-cpu-ngram/track_1_short/perf/cuda_graphs/step_graphs.py", line 144, in _loss
+[rank3]:     return self.model(s.inputs, s.targets, s.cum_seqlens, s.ngram_slots, cs.cfg, ngram_sink=cs.ngram_sink,
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank3]:     return super().__call__(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1038, in compile_wrapper
+[rank3]:     raise e.remove_dynamo_frames() from None  # see TORCHDYNAMO_VERBOSE=1
+[rank3]:     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1053, in _compile_fx_inner
+[rank3]:     raise InductorError(e, currentframe()).with_traceback(
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1037, in _compile_fx_inner
+[rank3]:     mb_compiled_graph = fx_codegen_and_compile(
+[rank3]:                         ^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1798, in fx_codegen_and_compile
+[rank3]:     return scheme.codegen_and_compile(gm, example_inputs, inputs_to_check, graph_kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_fx.py", line 1570, in codegen_and_compile
+[rank3]:     compiled_module = graph.compile_to_module()
+[rank3]:                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2499, in compile_to_module
+[rank3]:     return self._compile_to_module()
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2509, in _compile_to_module
+[rank3]:     mod = self._compile_to_module_lines(wrapper_code)
+[rank3]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/graph.py", line 2584, in _compile_to_module_lines
+[rank3]:     mod = PyCodeCache.load_by_key_path(
+[rank3]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 3764, in load_by_key_path
+[rank3]:     mod = _reload_python_module(key, path, set_sys_modules=in_toplevel)
+[rank3]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 35, in _reload_python_module
+[rank3]:     exec(code, mod.__dict__, mod.__dict__)
+[rank3]:   File "/tmp/torchinductor_dev_patel/7l/c7loj7w3j6nouc7onbydajqz7fsoiy3seg5eeabbqvc4z4zuhaf5.py", line 8582, in <module>
+[rank3]:     async_compile.wait(globals())
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 699, in wait
+[rank3]:     self._wait_futures(scope)
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 719, in _wait_futures
+[rank3]:     kernel = result.result()
+[rank3]:              ^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/codecache.py", line 4361, in result
+[rank3]:     return self.result_fn()
+[rank3]:            ^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/async_compile.py", line 444, in get_result
+[rank3]:     raise e.with_name(kernel_name) from e
+[rank3]: torch._inductor.exc.InductorError: SubprocException: An exception occurred in a subprocess:
+
+[rank3]: Name=_copy_fwd_kernel
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/compile_worker/subproc_pool.py", line 457, in do_job
+[rank3]:     result = job()
+[rank3]:              ^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/compile_tasks.py", line 68, in _worker_compile_triton
+[rank3]:     kernel.precompile(warm_cache_only=True)
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 491, in precompile
+[rank3]:     self._precompile_worker()
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 522, in _precompile_worker
+[rank3]:     compile_results.append(self._precompile_config(c))
+[rank3]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 872, in _precompile_config
+[rank3]:     binary = triton.compile(*compile_args, **compile_kwargs)
+[rank3]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 304, in compile
+[rank3]:     module = src.make_ir(target, options, codegen_fns, module_map, context)
+[rank3]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/triton/compiler/compiler.py", line 80, in make_ir
+[rank3]:     return ast_to_ttir(self.fn, self, context=context, options=options, codegen_fns=codegen_fns,
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: triton.compiler.errors.CompilationError: at 18:4:
+[rank3]:     offs_d = tl.arange(0, D)
+[rank3]:     q = tl.load(Q + offs_m[:, None] * D + offs_d[None, :])
+[rank3]:     s0 = tl.load(S0 + offs_m)
+[rank3]:     doc_q = tl.load(DOC + offs_m)
+[rank3]:     band_lo = (m0 // L) * L - L  # all queries of the tile share an L-block (BM divides L)
+[rank3]:     lo = tl.maximum(tl.maximum(tl.load(DSTART + m0), band_lo), m0 - LB)
+[rank3]:     lo = (tl.maximum(lo, 0) // BN) * BN
+[rank3]:     m_i = s0  # the sink is the running max's starting point, so rows without sources are well defined
+[rank3]:     l_i = tl.full([BM], 1.0, tl.float32)
+[rank3]:     acc = tl.zeros([BM, 4], tl.float32)
+[rank3]:     col = tl.arange(0, 4)
+[rank3]:     for n0 in range(lo, m0 + BM, BN):
+[rank3]:     ^
+[rank3]: AssertionError("Loop-carried variable m_i has initial type <['64'], fp32> but is re-assigned to <['64'], fp64> in loop! Please make sure that the type stays consistent.")
+
+
+[rank3]: Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace (please do this especially if you're reporting a bug to PyTorch). For even more developer context, set TORCH_LOGS="+dynamo"
+
+[rank0]:[W1112 04:58:38.613817497 ProcessGroupNCCL.cpp:1575] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W1112 04:58:42.290000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 80 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 81 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 83 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 84 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 85 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 86 closing signal SIGTERM
+W1112 04:58:42.291000 12 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 87 closing signal SIGTERM
+E1112 04:58:51.127000 12 torch/distributed/elastic/multiprocessing/api.py:986] failed (exitcode: 1) local_rank: 2 (pid: 82) of binary: /home/dev_patel/venv/bin/python3
+Traceback (most recent call last):
+  File "/home/dev_patel/venv/bin/torchrun", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 990, in main
+    run(args)
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 981, in run
+    elastic_launch(
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train_gpt.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 80)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 81)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[3]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 83)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[4]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 4 (local_rank: 4)
+  exitcode  : 1 (pid: 84)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[5]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 5 (local_rank: 5)
+  exitcode  : 1 (pid: 85)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[6]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 6 (local_rank: 6)
+  exitcode  : 1 (pid: 86)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[7]:
+  time      : 2026-11-12_04:58:51
+  host      : 9f14d6c9ef17
+  rank      : 7 (local_rank: 7)
+  exitcode  : 1 (pid: 87)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-12_04:58:42
+  host      : 9f14d6c9ef17
+  rank      : 2 (local_rank: 2)
+  exitcode  : 1 (pid: 82)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

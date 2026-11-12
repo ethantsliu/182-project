@@ -1,0 +1,23 @@
+### Experiment 4: rescale mode (Adam in a fixed basis), 30M GPT, 300M tokens
+
+target for steps-to-target = worst arm's median final val loss = 4.169
+
+| arm | best lr | final val loss (mean ± std, n) | median | steps-to-target (median) | ms/step | opt state MB |
+|---|---|---|---|---|---|---|
+| identity | 0.002 | 4.169 ± 0.0076 (3) | 4.169 | 4538.5 | 40.6 | 81.0 |
+| dct | 0.002 | 4.174 ± 0.064 (3) | 4.149 | 4500.0 | 41.9 | 81.0 |
+| random | 0.002 | 4.183 ± 0.045 (3) | 4.159 | 4500.0 | 41.5 | 81.0 |
+
+LR grids (seed 0): identity: 0.000667->4.211, 0.002->4.169, 0.006->6.57; dct: 0.000667->4.203, 0.002->4.149, 0.006->6.575; random: 0.000667->4.217, 0.002->4.159, 0.006->6.366
+
+DCT - random: mean -0.0092 nats, Welch t = -0.20 (|t| < 2.78 = within noise at n=3+3)
+
+**Finding: DCT and random are within seed noise.**
+
+### Truncate mode (top 25% of columns of G Q by norm), at each basis's rescale-best LR
+
+| basis | final val loss (mean ± std, n) | ms/step |
+|---|---|---|
+| identity | 4.4337 ± 0.2006 (3) | 43.5 |
+| dct | 4.2946 ± 0.0044 (3) | 44.2 |
+| random | 4.3285 ± 0.0195 (3) | 44.2 |

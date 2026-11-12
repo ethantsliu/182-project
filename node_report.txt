@@ -1,0 +1,156 @@
+# node report instance-20260127-6 2026-11-09T21:08:13+00:00
+repo b532127 (main)
+
+## OS
+$ uname -a
+Linux instance-20260127-6 5.10.0-34-cloud-amd64 #1 SMP Debian 5.10.234-1 (2025-02-24) x86_64 GNU/Linux
+$ grep -E ^(PRETTY_NAME|VERSION_ID)= /etc/os-release
+PRETTY_NAME="Debian GNU/Linux 11 (bullseye)"
+VERSION_ID="11"
+
+## GPUs
+$ nvidia-smi -L
+GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-82f2ee82-3067-e268-be5e-e05e2a1de5d6)
+GPU 1: NVIDIA H100 80GB HBM3 (UUID: GPU-728841c4-8b97-d816-2ae1-d463b3cf6c95)
+GPU 2: NVIDIA H100 80GB HBM3 (UUID: GPU-340d7f67-cb5f-7d24-ff3b-a1e7845871eb)
+GPU 3: NVIDIA H100 80GB HBM3 (UUID: GPU-c16d6f58-8cd7-729e-e678-2214967089d8)
+GPU 4: NVIDIA H100 80GB HBM3 (UUID: GPU-7a7f505a-7bcd-30b5-70e4-2e0c8880b0a9)
+GPU 5: NVIDIA H100 80GB HBM3 (UUID: GPU-3224dec2-2102-f26c-3c62-07146b276cac)
+GPU 6: NVIDIA H100 80GB HBM3 (UUID: GPU-5c0038b8-83f3-a447-eebb-92f3e9e475c9)
+GPU 7: NVIDIA H100 80GB HBM3 (UUID: GPU-d7e735b7-9eef-496f-43fe-71ab4ba22ac4)
+$ nvidia-smi --query-gpu=index,name,memory.total,pcie.link.gen.current,pcie.link.width.current,clocks.max.sm,clocks.max.mem,power.limit,persistence_mode,ecc.mode.current,temperature.gpu --format=csv
+index, name, memory.total [MiB], pcie.link.gen.current, pcie.link.width.current, clocks.max.sm [MHz], clocks.max.memory [MHz], power.limit [W], persistence_mode, ecc.mode.current, temperature.gpu
+0, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 36
+1, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 35
+2, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 37
+3, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 35
+4, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 38
+5, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 37
+6, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 39
+7, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Enabled, Enabled, 41
+$ nvidia-smi topo -m
+	[4mGPU0	GPU1	GPU2	GPU3	GPU4	GPU5	GPU6	GPU7	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU1	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU2	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU3	NV18	NV18	NV18	 X 	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU4	NV18	NV18	NV18	NV18	 X 	NV18	NV18	NV18	52-103,156-207	1		N/A
+GPU5	NV18	NV18	NV18	NV18	NV18	 X 	NV18	NV18	52-103,156-207	1		N/A
+GPU6	NV18	NV18	NV18	NV18	NV18	NV18	 X 	NV18	52-103,156-207	1		N/A
+GPU7	NV18	NV18	NV18	NV18	NV18	NV18	NV18	 X 	52-103,156-207	1		N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+$ nvidia-smi nvlink -s -i 0
+GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-82f2ee82-3067-e268-be5e-e05e2a1de5d6)
+	 Link 0: 26.562 GB/s
+	 Link 1: 26.562 GB/s
+	 Link 2: 26.562 GB/s
+	 Link 3: 26.562 GB/s
+	 Link 4: 26.562 GB/s
+	 Link 5: 26.562 GB/s
+	 Link 6: 26.562 GB/s
+	 Link 7: 26.562 GB/s
+	 Link 8: 26.562 GB/s
+	 Link 9: 26.562 GB/s
+	 Link 10: 26.562 GB/s
+	 Link 11: 26.562 GB/s
+	 Link 12: 26.562 GB/s
+	 Link 13: 26.562 GB/s
+	 Link 14: 26.562 GB/s
+	 Link 15: 26.562 GB/s
+	 Link 16: 26.562 GB/s
+	 Link 17: 26.562 GB/s
+driver 550.90.07, 8 GPU(s), CUDA (driver API) 12.4
+WARN: driver 550.90.07 < 580: the ANVIL2 README measured a silent ~35% uniform slowdown below 580
+
+## CPU
+$ lscpu
+Architecture:                         x86_64
+CPU op-mode(s):                       32-bit, 64-bit
+Byte Order:                           Little Endian
+Address sizes:                        52 bits physical, 57 bits virtual
+CPU(s):                               208
+On-line CPU(s) list:                  0-207
+Thread(s) per core:                   2
+Core(s) per socket:                   52
+Socket(s):                            2
+NUMA node(s):                         2
+Vendor ID:                            GenuineIntel
+CPU family:                           6
+Model:                                143
+Model name:                           Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz
+Stepping:                             8
+CPU MHz:                              2699.998
+BogoMIPS:                             5399.99
+Hypervisor vendor:                    KVM
+Virtualization type:                  full
+L1d cache:                            4.9 MiB
+L1i cache:                            3.3 MiB
+L2 cache:                             208 MiB
+L3 cache:                             210 MiB
+NUMA node0 CPU(s):                    0-51,104-155
+NUMA node1 CPU(s):                    52-103,156-207
+Vulnerability Gather data sampling:   Not affected
+Vulnerability Itlb multihit:          Not affected
+Vulnerability L1tf:                   Not affected
+Vulnerability Mds:                    Not affected
+Vulnerability Meltdown:               Not affected
+Vulnerability Mmio stale data:        Not affected
+Vulnerability Reg file data sampling: Not affected
+Vulnerability Retbleed:               Not affected
+Vulnerability Spec rstack overflow:   Not affected
+Vulnerability Spec store bypass:      Mitigation; Speculative Store Bypass disabled via prctl and seccomp
+Vulnerability Spectre v1:             Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:             Mitigation; Enhanced / Automatic IBRS, IBPB conditional, RSB filling, PBRSB-eIBRS SW sequence
+Vulnerability Srbds:                  Not affected
+Vulnerability Tsx async abort:        Not affected
+Flags:                                fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch invpcid_single ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx512_bf16 arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk arch_capabilities
+nproc 208
+
+## NUMA
+$ sh -c lscpu | grep -i numa
+NUMA node(s):                         2
+NUMA node0 CPU(s):                    0-51,104-155
+NUMA node1 CPU(s):                    52-103,156-207
+
+## Memory
+$ free -g
+               total        used        free      shared  buff/cache   available
+Mem:            1842          17         912           1         913        1814
+Swap:              0           0           0
+$ sh -c grep -E 'HugePages_Total|Hugepagesize|MemTotal' /proc/meminfo
+MemTotal:       1932107840 kB
+HugePages_Total:       0
+Hugepagesize:       2048 kB
+
+## Disk
+$ df -h /home/dev_patel/182-project /tmp /home/dev_patel/.cache/huggingface
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1  492G  453G   19G  97% /
+/dev/nvme0n1p1  492G  453G   19G  97% /
+/dev/nvme0n1p1  492G  453G   19G  97% /
+
+## CUDA runtimes
+$ sh -c ldconfig -p | grep -E 'libcudart.so|libnccl.so' || true
+sh: 1: ldconfig: not found
+$ sh -c ls -d /usr/local/cuda* 2>/dev/null || true
+/usr/local/cuda
+/usr/local/cuda-12.4
+/usr/local/cuda-13.0
+CUDA_HOME=<unset>
+
+## Software
+$ sh -c python3 --version; command -v docker && docker --version; command -v nsys && nsys --version; true
+Python 3.10.17
+/usr/bin/docker
+Docker version 27.5.1, build 9f9e405
+/usr/local/cuda/bin/nsys
+NVIDIA Nsight Systems version 2026.4.1.191-264138605071v0

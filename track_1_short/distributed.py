@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import torch
 import torch.distributed as dist
 
+# The certified record is 8 GPUs. Any other count is a fit-the-free-devices run: the model pads
+# shard axes, and lm_head stays replicated when 768 does not divide the world (optim/anvil.py).
 WORLD_SIZE = 8
 
 
@@ -24,8 +26,8 @@ def setup_distributed() -> DistEnv:
     """Initialize NCCL from torchrun's RANK / WORLD_SIZE / LOCAL_RANK."""
     rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    # The sampled softmax and the sparse row exchanges assume one microbatch per step on 8 ranks.
-    assert world_size == WORLD_SIZE, f"track 1 runs on exactly {WORLD_SIZE} GPUs, got world_size={world_size}"
+    # One microbatch per step. 8 is the record; other counts need the shard padding in the model.
+    assert world_size >= 1, f"world_size={world_size}"
     assert torch.cuda.is_available()
     device = torch.device("cuda", int(os.environ["LOCAL_RANK"]))
     torch.cuda.set_device(device)

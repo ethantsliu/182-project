@@ -71,6 +71,12 @@ VAL_LOSS_EVERY = _env_int("VAL_LOSS_EVERY", 250)
 if COORD_DESCENT_TUNING:
     import torch._inductor.config as inductor_config
     inductor_config.coordinate_descent_tuning = True
+# ACT_MEM_BUDGET < 1: selective activation recompute in the compiled joint graph (same math, more compute).
+# On torch 2.11 the default (1.0) OOMs at >72 GiB in the compile warmup; #261's own log (torch 2.10-dev) peaked at 57 GiB.
+ACT_MEM_BUDGET = _env_float("ACT_MEM_BUDGET", 1.0)
+if ACT_MEM_BUDGET < 1.0:
+    import torch._functorch.config as functorch_config
+    functorch_config.activation_memory_budget = ACT_MEM_BUDGET
 import triton
 import triton.language as tl
 from kernels import get_kernel
@@ -1150,7 +1156,24 @@ class AttnArgs:
     precomputed_ve_gate: torch.Tensor | None = None
     xsa_alpha: torch.Tensor | None = None  # per-head learnable XSA strength; None = no XSA on this layer
 
-flash_attn_interface = get_kernel('varunneal/flash-attention-3').flash_attn_interface
+def _load_varunneal_fa3():
+    """The Hub kernel repo has no kernels-API build index, so load the torch2.11/cu128 binary."""
+    import importlib.util
+    root = os.environ.get(
+        "FA3_LOCAL",
+        "/mnt/work/dev_patel/fa3-varunneal/build/torch211-cxx11-cu128-x86_64-linux/flash_attention_3",
+    )
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    init = os.path.join(root, "__init__.py")
+    name = "flash_attention_3_varunneal"
+    spec = importlib.util.spec_from_file_location(name, init, submodule_search_locations=[root])
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return getattr(mod, "flash_attn_interface", mod)
+
+flash_attn_interface = _load_varunneal_fa3()
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim: int, head_dim: int, num_heads: int):

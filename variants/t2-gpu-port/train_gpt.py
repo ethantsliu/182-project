@@ -1059,7 +1059,24 @@ class AttnArgs:
     ve_gate_w: torch.Tensor
     train_max_seq_len: torch.Tensor
 
-flash_attn_interface = get_kernel('varunneal/flash-attention-3').flash_attn_interface
+def _load_varunneal_fa3():
+    """The Hub kernel repo has no kernels-API build index, so load the torch2.11/cu128 binary."""
+    import importlib.util
+    root = os.environ.get(
+        "FA3_LOCAL",
+        "/mnt/work/dev_patel/fa3-varunneal/build/torch211-cxx11-cu128-x86_64-linux/flash_attention_3",
+    )
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    init = os.path.join(root, "__init__.py")
+    name = "flash_attention_3_varunneal"
+    spec = importlib.util.spec_from_file_location(name, init, submodule_search_locations=[root])
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return getattr(mod, "flash_attn_interface", mod)
+
+flash_attn_interface = _load_varunneal_fa3()
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, dim: int, head_dim: int, num_heads: int, paired: bool = False):

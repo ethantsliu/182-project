@@ -1,0 +1,960 @@
+W1112 06:30:02.437000 14 torch/distributed/run.py:851] 
+W1112 06:30:02.437000 14 torch/distributed/run.py:851] *****************************************
+W1112 06:30:02.437000 14 torch/distributed/run.py:851] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1112 06:30:02.437000 14 torch/distributed/run.py:851] *****************************************
+logs/d648126a-e3d1-4621-8cc3-2b13ca5f49bf.txt
+Compiling model and warming up kernels (~7 minutes on first execution)
+Sampling steps [0, 1, 343, 344, 345, 687, 688, 689, 1031, 1032, 1033, 1374, 1375, 1376, 1718, 1719, 1720, 2062, 2063, 2064, 2406, 2407, 2408, 2749, 2750, 2751] for warmup
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank4]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank4]:     return super().__call__(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank4]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank4]:     return compiled_fn(full_args)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank4]:     all_outs = call_func_at_runtime_with_args(
+[rank4]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank4]:     out = normalize_as_list(f(args))
+[rank4]:                             ^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank4]:     return f(*args)
+[rank4]:            ^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank4]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank4]:     fw_outs = call_func_at_runtime_with_args(
+[rank4]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank4]:     out = normalize_as_list(f(args))
+[rank4]:                             ^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank4]:     return compiled_fn(runtime_args)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank4]:     outs = compiled_fn(args)
+[rank4]:            ^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank4]:     return self.current_callable(inputs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank4]:     out = model(new_inputs)
+[rank4]:           ^^^^^^^^^^^^^^^^^
+[rank4]:   File "/tmp/torchinductor_dev_patel/fh/cfhkrrdpbkyqofxjh7ra4gionwpxxeqtkpcomgnlgipxkt7pbqgy.py", line 25917, in call
+[rank4]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream4)
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank4]:     self.autotune_to_one_config(*args, **kwargs)
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank4]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank4]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank4]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank4]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank4]:     return benchmarker.benchmark(
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank4]:     return fn(self, *args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank4]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank4]:     return fn(self, *args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank4]:     _callable()
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank4]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank4]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank4]:     prepare_arg(name, arg)
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank4]:     return clone_preserve_strides(arg)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank4]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank4]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank4]:     return disable_fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank4]:     res = func(*args, **kwargs)
+[rank4]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank4]:     return self._op(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 4 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank0]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank0]:     return super().__call__(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank0]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank0]:     return compiled_fn(full_args)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank0]:     all_outs = call_func_at_runtime_with_args(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank0]:     out = normalize_as_list(f(args))
+[rank0]:                             ^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank0]:     return f(*args)
+[rank0]:            ^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank0]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank0]:     fw_outs = call_func_at_runtime_with_args(
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank0]:     out = normalize_as_list(f(args))
+[rank0]:                             ^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank0]:     return compiled_fn(runtime_args)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank0]:     outs = compiled_fn(args)
+[rank0]:            ^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank0]:     return self.current_callable(inputs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank0]:     out = model(new_inputs)
+[rank0]:           ^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/torchinductor_dev_patel/7i/c7io2qpzqxpzq5aypka4eyyvug7qs7g7rkqjmenwtvq54fwiau27.py", line 25917, in call
+[rank0]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream0)
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank0]:     self.autotune_to_one_config(*args, **kwargs)
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank0]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank0]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank0]:     return benchmarker.benchmark(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank0]:     return fn(self, *args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank0]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank0]:     return fn(self, *args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank0]:     _callable()
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank0]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank0]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank0]:     prepare_arg(name, arg)
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank0]:     return clone_preserve_strides(arg)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank0]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank0]:     return disable_fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank0]:     res = func(*args, **kwargs)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank0]:     return self._op(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 0 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank7]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank7]:     return super().__call__(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank7]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank7]:     return compiled_fn(full_args)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank7]:     all_outs = call_func_at_runtime_with_args(
+[rank7]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank7]:     out = normalize_as_list(f(args))
+[rank7]:                             ^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank7]:     return f(*args)
+[rank7]:            ^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank7]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank7]:     fw_outs = call_func_at_runtime_with_args(
+[rank7]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank7]:     out = normalize_as_list(f(args))
+[rank7]:                             ^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank7]:     return compiled_fn(runtime_args)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank7]:     outs = compiled_fn(args)
+[rank7]:            ^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank7]:     return self.current_callable(inputs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank7]:     out = model(new_inputs)
+[rank7]:           ^^^^^^^^^^^^^^^^^
+[rank7]:   File "/tmp/torchinductor_dev_patel/x6/cx66ytildro2okt2clibaxnj464365jkmfyrrl5kaovlonocsv2v.py", line 25917, in call
+[rank7]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream7)
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank7]:     self.autotune_to_one_config(*args, **kwargs)
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank7]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank7]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank7]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank7]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank7]:     return benchmarker.benchmark(
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank7]:     return fn(self, *args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank7]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank7]:     return fn(self, *args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank7]:     _callable()
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank7]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank7]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank7]:     prepare_arg(name, arg)
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank7]:     return clone_preserve_strides(arg)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank7]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank7]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank7]:     return disable_fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank7]:     res = func(*args, **kwargs)
+[rank7]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank7]:     return self._op(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 7 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank3]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank3]:     return super().__call__(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank3]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank3]:     return compiled_fn(full_args)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank3]:     all_outs = call_func_at_runtime_with_args(
+[rank3]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank3]:     out = normalize_as_list(f(args))
+[rank3]:                             ^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank3]:     return f(*args)
+[rank3]:            ^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank3]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank3]:     fw_outs = call_func_at_runtime_with_args(
+[rank3]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank3]:     out = normalize_as_list(f(args))
+[rank3]:                             ^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank3]:     return compiled_fn(runtime_args)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank3]:     outs = compiled_fn(args)
+[rank3]:            ^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank3]:     return self.current_callable(inputs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank3]:     out = model(new_inputs)
+[rank3]:           ^^^^^^^^^^^^^^^^^
+[rank3]:   File "/tmp/torchinductor_dev_patel/6d/c6dz6r5vrvmihun3kepu3un4cndq6qeyqvxwynsjbzjvqenvbox6.py", line 25917, in call
+[rank3]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream3)
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank3]:     self.autotune_to_one_config(*args, **kwargs)
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank3]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank3]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank3]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank3]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank3]:     return benchmarker.benchmark(
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank3]:     return fn(self, *args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank3]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank3]:     return fn(self, *args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank3]:     _callable()
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank3]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank3]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank3]:     prepare_arg(name, arg)
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank3]:     return clone_preserve_strides(arg)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank3]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank3]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank3]:     return disable_fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank3]:     res = func(*args, **kwargs)
+[rank3]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank3]:     return self._op(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 3 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank6]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank6]:     return super().__call__(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank6]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank6]:     return compiled_fn(full_args)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank6]:     all_outs = call_func_at_runtime_with_args(
+[rank6]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank6]:     out = normalize_as_list(f(args))
+[rank6]:                             ^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank6]:     return f(*args)
+[rank6]:            ^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank6]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank6]:     fw_outs = call_func_at_runtime_with_args(
+[rank6]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank6]:     out = normalize_as_list(f(args))
+[rank6]:                             ^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank6]:     return compiled_fn(runtime_args)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank6]:     outs = compiled_fn(args)
+[rank6]:            ^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank6]:     return self.current_callable(inputs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank6]:     out = model(new_inputs)
+[rank6]:           ^^^^^^^^^^^^^^^^^
+[rank6]:   File "/tmp/torchinductor_dev_patel/md/cmdicm7t5hivoodmepp52q3ljpsyfy2tiysujosgqelvwq4lkqo5.py", line 25917, in call
+[rank6]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream6)
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank6]:     self.autotune_to_one_config(*args, **kwargs)
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank6]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank6]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank6]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank6]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank6]:     return benchmarker.benchmark(
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank6]:     return fn(self, *args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank6]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank6]:     return fn(self, *args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank6]:     _callable()
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank6]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank6]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank6]:     prepare_arg(name, arg)
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank6]:     return clone_preserve_strides(arg)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank6]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank6]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank6]:     return disable_fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank6]:     res = func(*args, **kwargs)
+[rank6]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank6]:     return self._op(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 6 has a total capacity of 79.10 GiB of which 103.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.67 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank5]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank5]:     return super().__call__(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank5]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank5]:     return compiled_fn(full_args)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank5]:     all_outs = call_func_at_runtime_with_args(
+[rank5]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank5]:     out = normalize_as_list(f(args))
+[rank5]:                             ^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank5]:     return f(*args)
+[rank5]:            ^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank5]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank5]:     fw_outs = call_func_at_runtime_with_args(
+[rank5]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank5]:     out = normalize_as_list(f(args))
+[rank5]:                             ^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank5]:     return compiled_fn(runtime_args)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank5]:     outs = compiled_fn(args)
+[rank5]:            ^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank5]:     return self.current_callable(inputs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank5]:     out = model(new_inputs)
+[rank5]:           ^^^^^^^^^^^^^^^^^
+[rank5]:   File "/tmp/torchinductor_dev_patel/km/ckmsncej6gtvp3bbwk64zbzwypo2b3ebsmshzoh5v2j42l66lgp4.py", line 25917, in call
+[rank5]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream5)
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank5]:     self.autotune_to_one_config(*args, **kwargs)
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank5]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank5]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank5]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank5]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank5]:     return benchmarker.benchmark(
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank5]:     return fn(self, *args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank5]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank5]:     return fn(self, *args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank5]:     _callable()
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank5]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank5]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank5]:     prepare_arg(name, arg)
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank5]:     return clone_preserve_strides(arg)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank5]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank5]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank5]:     return disable_fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank5]:     res = func(*args, **kwargs)
+[rank5]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank5]:     return self._op(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 5 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank2]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank2]:     return super().__call__(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank2]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank2]:     return compiled_fn(full_args)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank2]:     all_outs = call_func_at_runtime_with_args(
+[rank2]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank2]:     out = normalize_as_list(f(args))
+[rank2]:                             ^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank2]:     return f(*args)
+[rank2]:            ^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank2]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank2]:     fw_outs = call_func_at_runtime_with_args(
+[rank2]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank2]:     out = normalize_as_list(f(args))
+[rank2]:                             ^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank2]:     return compiled_fn(runtime_args)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank2]:     outs = compiled_fn(args)
+[rank2]:            ^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank2]:     return self.current_callable(inputs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank2]:     out = model(new_inputs)
+[rank2]:           ^^^^^^^^^^^^^^^^^
+[rank2]:   File "/tmp/torchinductor_dev_patel/c7/cc7uxfvlsgztz2hdnk4so7lh2oap23pztiuzzglbrkeepi7mregx.py", line 25917, in call
+[rank2]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream2)
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank2]:     self.autotune_to_one_config(*args, **kwargs)
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank2]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank2]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank2]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank2]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank2]:     return benchmarker.benchmark(
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank2]:     return fn(self, *args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank2]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank2]:     return fn(self, *args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank2]:     _callable()
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank2]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank2]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank2]:     prepare_arg(name, arg)
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank2]:     return clone_preserve_strides(arg)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank2]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank2]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank2]:     return disable_fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank2]:     res = func(*args, **kwargs)
+[rank2]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank2]:     return self._op(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 2 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 2220, in <module>
+[rank1]:     loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank1]:     return super().__call__(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/182-project/variants/t2-gpu-port/train_gpt_medium.py", line 1411, in forward
+[rank1]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank1]:     return compiled_fn(full_args)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 566, in runtime_wrapper
+[rank1]:     all_outs = call_func_at_runtime_with_args(
+[rank1]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank1]:     out = normalize_as_list(f(args))
+[rank1]:                             ^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 105, in g
+[rank1]:     return f(*args)
+[rank1]:            ^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank1]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2503, in forward
+[rank1]:     fw_outs = call_func_at_runtime_with_args(
+[rank1]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank1]:     out = normalize_as_list(f(args))
+[rank1]:                             ^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank1]:     return compiled_fn(runtime_args)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank1]:     outs = compiled_fn(args)
+[rank1]:            ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank1]:     return self.current_callable(inputs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank1]:     out = model(new_inputs)
+[rank1]:           ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/torchinductor_dev_patel/2p/c2p5iaxxttf7ykj3q2hq3cuykn3j4fdva5hyu6wvesv6o56unqnp.py", line 25917, in call
+[rank1]:     triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_clone_div_index_lift_fresh_mul_permute_select_slice_split_unsqueeze_view_76.run(buf483, buf478, buf481, primals_21, buf268, buf329, buf353, buf358, buf445, primals_1, primals_11, buf150, buf155, buf484, buf485, buf502, 65536, 1024, stream=stream1)
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1448, in run
+[rank1]:     self.autotune_to_one_config(*args, **kwargs)
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1176, in autotune_to_one_config
+[rank1]:     timings = self.benchmark_all_configs(*args, **kwargs)
+[rank1]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1139, in benchmark_all_configs
+[rank1]:     launcher: self.bench(launcher, *args, **kwargs)
+[rank1]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 999, in bench
+[rank1]:     return benchmarker.benchmark(
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank1]:     return fn(self, *args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 206, in benchmark
+[rank1]:     return self.benchmark_gpu(_callable, warmup=warmup, rep=rep, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 95, in wrapper
+[rank1]:     return fn(self, *args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/benchmarking.py", line 379, in benchmark_gpu
+[rank1]:     _callable()
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 953, in kernel_call
+[rank1]:     cloned_args, cloned_kwargs = self.maybe_clone_args(
+[rank1]:                                  ^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1111, in maybe_clone_args
+[rank1]:     prepare_arg(name, arg)
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/runtime/triton_heuristics.py", line 1106, in prepare_arg
+[rank1]:     return clone_preserve_strides(arg)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3421, in clone_preserve_strides
+[rank1]:     buffer = torch.as_strided(x, (needed_size,), (1,)).clone()
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_compile.py", line 54, in inner
+[rank1]:     return disable_fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 409, in __torch_dispatch__
+[rank1]:     res = func(*args, **kwargs)
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_ops.py", line 865, in __call__
+[rank1]:     return self._op(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 128.00 MiB. GPU 1 has a total capacity of 79.10 GiB of which 63.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 72.02 GiB is allocated by PyTorch, and 2.71 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank0]:[W1112 06:35:40.101922671 ProcessGroupNCCL.cpp:1575] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W1112 06:35:42.995000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 82 closing signal SIGTERM
+W1112 06:35:42.996000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 83 closing signal SIGTERM
+W1112 06:35:42.996000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 84 closing signal SIGTERM
+W1112 06:35:42.997000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 85 closing signal SIGTERM
+W1112 06:35:42.997000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 87 closing signal SIGTERM
+W1112 06:35:42.997000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 88 closing signal SIGTERM
+W1112 06:35:42.997000 14 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 89 closing signal SIGTERM
+E1112 06:35:46.800000 14 torch/distributed/elastic/multiprocessing/api.py:986] failed (exitcode: 1) local_rank: 4 (pid: 86) of binary: /home/dev_patel/venv/bin/python3
+Traceback (most recent call last):
+  File "/home/dev_patel/venv/bin/torchrun", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 990, in main
+    run(args)
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 981, in run
+    elastic_launch(
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train_gpt_medium.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 82)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 82
+[2]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 83)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 83
+[3]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 84)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 84
+[4]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 3 (local_rank: 3)
+  exitcode  : -15 (pid: 85)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 85
+[5]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 5 (local_rank: 5)
+  exitcode  : 1 (pid: 87)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[6]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 6 (local_rank: 6)
+  exitcode  : -15 (pid: 88)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 88
+[7]:
+  time      : 2026-11-12_06:35:46
+  host      : 941cb5e48328
+  rank      : 7 (local_rank: 7)
+  exitcode  : -15 (pid: 89)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 89
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-12_06:35:42
+  host      : 941cb5e48328
+  rank      : 4 (local_rank: 4)
+  exitcode  : 1 (pid: 86)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
