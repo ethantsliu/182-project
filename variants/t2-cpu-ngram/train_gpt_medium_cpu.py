@@ -19,6 +19,11 @@ COORD_DESCENT_TUNING=1 turns on torch._inductor.config.coordinate_descent_tuning
 the GPT-2 Medium track only (it is banned on Track 1). It adds a long untimed compile, so use it for final
 record runs, not sweeps; its effect on this stack (most hot kernels are hand-written Triton or CUDA-graph
 replays) has not been measured.
+
+The stack is checked before anything touches a GPU: torch 2.10.0+cu128 and triton 3.6.0, the versions this tree
+was written against (a node on torch 2.11 trained all 5800 steps and then ran out of memory). Another version
+stops the run unless ALLOW_STACK=1. Rank 0 prints `stack: torch=<v> triton=<v> cuda=<v>`, which 182/run_node.sh
+copies into its RESULT line; the run log's header has the same versions (track_1_short/run_log.py).
 """
 import os
 import sys
@@ -35,6 +40,33 @@ TRACK2_DEFAULTS = {
 }
 for key, value in TRACK2_DEFAULTS.items():
     os.environ.setdefault(key, value)  # before track_1_short.config is imported
+
+STACK = {"torch": "2.10.0+cu128", "triton": "3.6.0"}  # 182/t2-cpu-ngram/node.py TORCH, TRITON
+
+
+def stack_versions() -> dict:
+    import torch
+    import triton
+    return {"torch": torch.__version__, "triton": triton.__version__, "cuda": torch.version.cuda}
+
+
+def stack_error(found: dict, allow: bool) -> str | None:
+    """Why this stack must not run, or None. ALLOW_STACK=1 runs any versions."""
+    wrong = {k: v for k, v in STACK.items() if found.get(k) != v}
+    if not wrong or allow:
+        return None
+    return (f"wrong stack: {', '.join(f'{k} {found.get(k)} (needs {v})' for k, v in wrong.items())}. Fix: bash "
+            f"182/tools/node_setup.sh --mode venv from the repository root, or pip install torch==2.10.0 --index-url "
+            f"https://download.pytorch.org/whl/cu128. ALLOW_STACK=1 runs anyway (unsupported).")
+
+
+if __name__ == "__main__":
+    _found = stack_versions()
+    if os.environ.get("RANK", "0") == "0":
+        print("stack: " + " ".join(f"{k}={v}" for k, v in _found.items()), flush=True)
+    _why = stack_error(_found, os.environ.get("ALLOW_STACK") == "1")
+    if _why:
+        sys.exit(_why)  # before train_gpt is imported: it touches the GPU at import
 
 if os.environ.get("COORD_DESCENT_TUNING", "0") == "1":
     import torch._inductor.config

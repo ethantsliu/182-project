@@ -85,7 +85,7 @@ def parse_details(text: str) -> dict:
     return out
 
 
-_ERROR = re.compile(r"(Error|Exception|HOST CHECK|out of memory|Killed|Segmentation|SIGBUS|SIGKILL|Signal \d+|exitcode)", re.I)
+_ERROR = re.compile(r"(Error|Exception|HOST CHECK|wrong stack|out of memory|Killed|Segmentation|SIGBUS|SIGKILL|Signal \d+|exitcode)", re.I)
 
 
 def failure_reason(text: str, returncode: int) -> str:

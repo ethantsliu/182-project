@@ -5,15 +5,16 @@
   prep   everything slow and off the clock: the 103 train shards, the exact_match Rust extension, the FA3
          kernel and the GPT-2 tokenizer file. Idempotent; a second call does only what is still missing.
   run    one timed run of train_gpt_medium_cpu.py. The last stdout line is
-           RESULT variant=t2-cpu-ngram val_loss=<f> train_time_s=<f> steps=<n> target=2.92 hit=<0|1> log=<path>
-         or, with a nonzero exit, RESULT variant=t2-cpu-ngram status=failed reason=<one line>.
+           RESULT variant=t2-cpu-ngram val_loss=<f> train_time_s=<f> steps=<n> target=2.92 hit=<0|1> torch=<v> log=<path>
+         or, with a nonzero exit, RESULT variant=t2-cpu-ngram status=failed torch=<v> reason=<one line>. torch= is the
+         version the trainer printed (its `stack:` line), else the one installed for this Python.
   ab     the default run against one changed setting (AB_ENV, default a shorter run), interleaved and seed-paired.
 
 Environment (all optional): NPROC (8), SEED (unset: random init), STEPS (NUM_SCHEDULED_ITERATIONS; the default is
 5790 scheduled + 10 extension = 5800 steps), EXTRA_ENV ("K=V K=V", or export the variables), LOG_DIR,
 DRY_RUN=1 (print the command, run nothing), RUN_TIMEOUT_S (5400), PREP_TIMEOUT_S (14400, the download),
-BUILD_TIMEOUT_S (3600, the Rust build), SKIP_CHECK=1 (run without the preflight), ALLOW_STACK=1 (another torch or
-triton version is a WARN), HOST_CHECK=0 (a host too small for the estimate is a WARN; the trainer reads it too),
+BUILD_TIMEOUT_S (3600, the Rust build), SKIP_CHECK=1 (run without the preflight; the torch/triton check still runs),
+ALLOW_STACK=1 (another torch or triton version is a WARN, and the trainer starts anyway), HOST_CHECK=0 (a host too small for the estimate is a WARN; the trainer reads it too),
 INSTALL_RUST=1 (prep may install rustup), AB_RUNS (4), AB_ENV ("NUM_SCHEDULED_ITERATIONS=5200"), AB_SEEDS.
 
 Standard library only, so that check works before anything is installed.
@@ -205,6 +206,35 @@ def retrieval_plan(base: Path, total_steps: int, threads: int, ranks: int):
 
 # --------------------------------------------------------------------------------------------------- check
 
+STACK_FIX = (f"fix: bash 182/tools/node_setup.sh --mode venv from the repository root (makes .venv-run with the pinned stack), "
+             f"or pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128 (it brings triton {TRITON})")
+
+
+def installed_version(dist: str) -> str | None:
+    try:
+        return importlib.metadata.version(dist)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def stack_problems(relax: bool, version=None) -> list[tuple[str, str, str]]:
+    """(level, what, detail) for torch and triton in this Python. Another version is a FAIL: the tree was only
+    written against torch 2.10.0+cu128 / triton 3.6.0, and a node on torch 2.11 ran out of memory after training.
+    ALLOW_STACK=1 makes it a WARN."""
+    version = version or installed_version
+    out = []
+    for dist, want in (("torch", TORCH), ("triton", TRITON)):
+        got = version(dist)
+        if got == want:
+            out.append(("PASS", dist, got))
+        elif got is None:
+            out.append(("FAIL", dist, f"not installed in {sys.executable} ({STACK_FIX})"))
+        else:
+            out.append(("WARN" if relax else "FAIL", dist,
+                        f"{got} in {sys.executable}, the tree needs {want} ({STACK_FIX}; ALLOW_STACK=1 runs anyway, unsupported)"))
+    return out
+
+
 def run_check(env=None, out=print) -> int:
     """Print the preflight lines; returns the number of FAILs."""
     env = os.environ if env is None else env
@@ -232,15 +262,8 @@ def run_check(env=None, out=print) -> int:
                 return importlib.metadata.version(dist)
             except importlib.metadata.PackageNotFoundError:
                 return None
-        install = f"bash 182/tools/node_setup.sh from the repository root, or pip install -r variants/{NAME}/requirements.txt && pip install torch==2.10 --index-url https://download.pytorch.org/whl/cu128"
-        for dist, want in (("torch", TORCH), ("triton", TRITON)):
-            got = version(dist)
-            if got == want:
-                say("PASS", dist, got)
-            elif got is None:
-                say("FAIL", dist, f"not installed in {sys.executable} ({install})")
-            else:
-                say("WARN" if relax else "FAIL", dist, f"{got}, the tree was run on {want} ({install}; ALLOW_STACK=1 to try anyway)")
+        for level, what, detail in stack_problems(relax):
+            say(level, what, detail)
         for dist, want in PINS.items():
             got = version(dist)
             if got is None:
@@ -557,11 +580,21 @@ def execute(cmd, env, stdout_path: Path, timeout: int) -> tuple[int, str | None]
     return rc, (why[0] if why else None)
 
 
-def result_line(result: dict | None, log: Path | str | None, reason: str | None = None) -> str:
+STACK_LINE = re.compile(r"^stack: torch=(\S+)", re.M)
+
+
+def torch_version(text: str = "") -> str:
+    """The torch version of a run: the trainer's `stack:` line when the output has one, else what this Python has."""
+    m = STACK_LINE.search(text)
+    return m.group(1) if m else (installed_version("torch") or "none")
+
+
+def result_line(result: dict | None, log: Path | str | None, reason: str | None = None, torch: str | None = None) -> str:
+    torch = torch or torch_version()
     if result is None or reason:
-        return f"RESULT variant={NAME} status=failed reason={' '.join((reason or 'no final validation line').split())[:300]}"
+        return f"RESULT variant={NAME} status=failed torch={torch} reason={' '.join((reason or 'no final validation line').split())[:300]}"
     return (f"RESULT variant={NAME} val_loss={result['val_loss']:.6f} train_time_s={result['train_time_ms'] / 1000:.3f} "
-            f"steps={result['steps']} target={TARGET} hit={int(result['val_loss'] <= TARGET)} log={log}")
+            f"steps={result['steps']} target={TARGET} hit={int(result['val_loss'] <= TARGET)} torch={torch} log={log}")
 
 
 def summarize(result: dict, details: dict) -> list[str]:
@@ -602,7 +635,7 @@ def run_once(overrides: dict | None, log_dir: Path, dry: bool = False) -> tuple[
         shutil.copyfile(VARIANT / m.group(1), log)
     if rc != 0 or result is None or why:
         reason = {"timeout": f"timeout after {timeout}s (RUN_TIMEOUT_S)", "interrupted": "interrupted"}.get(why) or runlib.failure_reason(text, rc)
-        return None, result_line(None, log, f"{reason}; see {log_dir / 'stdout.txt'}")
+        return None, result_line(None, log, f"{reason}; see {log_dir / 'stdout.txt'}", torch=torch_version(text))
     details = runlib.parse_details(text)
     gpus = gpu_query()
     if gpus:
@@ -615,7 +648,7 @@ def run_once(overrides: dict | None, log_dir: Path, dry: bool = False) -> tuple[
     if knobs:
         row["knobs"] = knobs  # sweep_steps.py fits only runs without other settings changed
     runlib.append_jsonl(RESULTS / "sweep.jsonl", row)
-    return row, result_line(result, log)
+    return row, result_line(result, log, torch=torch_version(text))
 
 
 def default_log_dir(tag: str) -> Path:
@@ -624,8 +657,16 @@ def default_log_dir(tag: str) -> Path:
 
 def preflight(dry: bool) -> str | None:
     """The check before a run; the reason not to start, or None."""
-    if dry or os.environ.get("SKIP_CHECK") == "1":
+    if dry:
         return None
+    if os.environ.get("SKIP_CHECK") == "1":
+        # Still the stack: a wrong torch only shows up after a 20-minute run (torch 2.11 ran out of memory after
+        # training). ALLOW_STACK=1 skips this too.
+        bad = [p for p in stack_problems(os.environ.get("ALLOW_STACK") == "1") if p[0] != "PASS"]
+        for level, what, detail in bad:
+            print(f"{level} {what}: {detail}")
+        fails = sum(level == "FAIL" for level, _, _ in bad)
+        return f"preflight (SKIP_CHECK=1, stack only): {fails} FAIL line(s) above" if fails else None
     fails = run_check()
     return f"preflight: {fails} FAIL line(s) above (SKIP_CHECK=1 runs anyway)" if fails else None
 
