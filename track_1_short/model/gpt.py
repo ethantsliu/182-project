@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from track_1_short.config import (FP8_ATTN_O, FP8_ATTN_O_AMAX, FP8_ATTN_O_SCALES, FP8_DUMP_SLOTS, FP8_OFF,
-                                  HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX, HADAMARD_FP8, HADAMARD_SEED)
+                                  HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX, HADAMARD_FP8, HADAMARD_SEED,
+                                  SPARSE24_MLP)
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
 from track_1_short.model.monarch import (
@@ -53,6 +54,8 @@ from track_1_short.perf.kernels.ngram_embed import ngram_embedding
 from track_1_short.perf.kernels.sampled_cross_entropy import SampledSoftcappedCrossEntropy
 from track_1_short.perf.kernels.value_embed import value_embed_lookup
 from track_1_short.perf.residual_fusion import rms_norm_with_head, scale, scale_add
+from track_1_short.perf.sparse24 import (SPARSE24_BUFFER_NAMES, Sparse24MLP, refresh_sparse24_, slot_operands,
+                                        sparse24_active, sparse24_buffers)
 from track_1_short.sampled_softmax import SampledLoss
 
 # Layer topology (11 layers). Depth cut from record #360 (ANVIL2): layer 7 is removed whole -- its
@@ -118,6 +121,9 @@ POST_GATE_BIGRAM_LAYERS = tuple(i for i in BIGRAM_INJECT_LAYERS if i >= POST_GAT
 PRE_GATE_ATTN_GATE_LAYERS = tuple(i for i in ATTN_GATE_LAYERS if i < POST_GATE_LAYER)      # (3,)
 POST_GATE_ATTN_GATE_LAYERS = tuple(i for i in ATTN_GATE_LAYERS if i >= POST_GATE_LAYER)    # (10,)
 assert all(i < POST_GATE_LAYER for i in XSA_LAYERS), "the XSA strengths come from the pre gate"
+# SPARSE24_MLP (perf/sparse24.py) and MONARCH_MLP (model/monarch.py) each replace the dense MLP.
+assert not (SPARSE24_MLP and MONARCH_MLP), "SPARSE24_MLP prunes the dense MLP bank; MONARCH_MLP replaces it"
+
 # Layer 8 runs a second MLP in parallel, from MLP bank slot 11 (the slot that was sharding padding).
 PARALLEL_MLP_LAYER, PARALLEL_MLP_SLOT = 8, 11
 # The post-loop MUDD mix splits model_dim into this many channel groups, each with its own coefficient delta.
@@ -200,8 +206,9 @@ def _fp8_sat_rows(model):
 def _fp8_sat_dead_slots(name: str) -> set[int]:
     """Slots whose row-`name` scale no forward or backward ever uses: NO_MLP_LAYERS (no MLP); for x_t also
     PARALLEL_MLP_SLOT (the parallel MLP reads its layer's x_t); every slot when the fp8 MLP is off
-    (MONARCH_MLP, or FP8_OFF=mlp for the activation scales; the weight caches are still refreshed there)."""
-    if MONARCH_MLP or ("mlp" in FP8_OFF and name in ("post", "dpre", "post_t", "x_t")):
+    (MONARCH_MLP, SPARSE24_MLP, or FP8_OFF=mlp for the activation scales; the weight caches are still refreshed
+    there, except under MONARCH_MLP and SPARSE24_MLP)."""
+    if MONARCH_MLP or SPARSE24_MLP or ("mlp" in FP8_OFF and name in ("post", "dpre", "post_t", "x_t")):
         return set(range(NUM_MLP_SLOTS))
     dead = set(NO_MLP_LAYERS)
     if name == "x_t":
@@ -451,6 +458,11 @@ class GPT(nn.Module):
             self.mlp_bank[:, 1, :, :].zero_()  # c_proj - zero init suggested by @Grad62304977
 
         self.init_mlp_fp8(model_dim)
+        if SPARSE24_MLP:
+            # perf/sparse24.py: each slot's compressed 2:4 operands (or masked copies), rewritten by every refresh.
+            # The fp8 MLP buffers above are still allocated, unused, so the fp8 refresh graphs keep their shape.
+            for name, buf in sparse24_buffers(NUM_MLP_SLOTS, self.mlp_hdim, model_dim, self.device).items():
+                self.register_buffer(name, buf, persistent=False)
 
     def init_monarch_mlp(self, model_dim):
         """MONARCH_MLP=1 (model/monarch.py): mlp_bank holds each slot's Monarch blocks instead,
@@ -685,17 +697,23 @@ class GPT(nn.Module):
             x[..., :self.ngram_dim] = x[..., :self.ngram_dim] + x0_bigram * bigram_gates[i]
         return x
 
-    def _mlp(self, x_normed, mlp_weights, slot, fp8_args):
+    def _mlp(self, x_normed, mlp_weights, slot, fp8_args, sparse24=False):
         """relu(x @ c_fc.T)^2 @ c_proj; in FP8 (training) when `fp8_args` holds this slot's _mlp_fp8_args,
-        else bf16 (validation). With MONARCH_MLP, always the bf16 Monarch MLP (model/monarch.py)."""
+        else bf16 (validation). With MONARCH_MLP, always the bf16 Monarch MLP (model/monarch.py). With
+        `sparse24` (SPARSE24_MLP in a sparse stage), the bf16 2:4 MLP, in training and validation alike."""
         if MONARCH_MLP:
             return monarch_mlp(x_normed, mlp_weights[slot], self.monarch_shape)
         c_fc, c_proj = mlp_weights[0][slot], mlp_weights[1][slot]
+        if sparse24:
+            return Sparse24MLP(x_normed, c_fc, c_proj, *slot_operands(self._sparse24_buffers(), slot))
         if fp8_args is None:
             if self.training:  # FP8_OFF=mlp
                 return ReLUSqrdMLPBF16(x_normed, c_fc, c_proj)
             return ReLUSqrdMLP(x_normed, c_fc, c_proj)
         return ReLUSqrdMLP(x_normed, c_fc, c_proj, *fp8_args)
+
+    def _sparse24_buffers(self):
+        return {name: getattr(self, name) for name in SPARSE24_BUFFER_NAMES}
 
     def _attn_weights(self):
         """Per attention layer: (qk_w, v_w, o_w) from its bank slot, cut to the layer's head widths.
@@ -761,7 +779,9 @@ class GPT(nn.Module):
         # MONARCH_MLP (182/structured) always runs a bf16 MLP.
         use_fp8_attn = self.training and "qkv" not in FP8_OFF
         use_fp8_attn_o = self.training and FP8_ATTN_O  # 182/fp8-attn-o; off in the record
-        use_fp8_mlp = self.training and "mlp" not in FP8_OFF and not MONARCH_MLP
+        use_fp8_mlp = self.training and "mlp" not in FP8_OFF and not MONARCH_MLP and not SPARSE24_MLP
+        # SPARSE24_MLP (182/sparse24): the bf16 2:4 MLP in its sparse stages, else the bf16 dense one.
+        use_sparse24 = sparse24_active(ws_long)
         attn_f8_weights = self._attn_fp8_weights() if use_fp8_attn else None
         mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8_mlp else None
 
@@ -941,7 +961,7 @@ class GPT(nn.Module):
             else:
                 fp8_args = None
             FP8_DUMP.set_tag(f"mlp{i}" if i in FP8_DUMP_SLOTS else None)
-            mlp_out = self._mlp(mlp_in, mlp_weights, i, fp8_args)
+            mlp_out = self._mlp(mlp_in, mlp_weights, i, fp8_args, sparse24=use_sparse24)
             if mu is not None:
                 x = mu[12] * x + mu[13] * mlp_out
             elif fold_p is not None:
@@ -953,7 +973,7 @@ class GPT(nn.Module):
                 k = PARALLEL_MLP_SLOT
                 parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p, xt_slot=i) if use_fp8_mlp else None
                 FP8_DUMP.set_tag(f"mlp{k}" if k in FP8_DUMP_SLOTS else None)
-                parallel_out = self._mlp(mlp_in, mlp_weights, k, parallel_args)
+                parallel_out = self._mlp(mlp_in, mlp_weights, k, parallel_args, sparse24=use_sparse24)
                 x = x + (parallel_out if fold_p is not None else scale(post_lambdas_mlp[i], parallel_out))
 
             if i in CACHE_LAYERS:
@@ -1154,6 +1174,11 @@ class GPT(nn.Module):
         if MONARCH_MLP:
             # No fp8 MLP to refresh; the call is still counted (fp8_refresh_graphs bumps it per replay).
             self.mlp_quantize_calls += 1
+            return
+        if SPARSE24_MLP:
+            # The 2:4 operands replace the fp8 caches (no fp8 MLP runs under the flag): re-mask, re-compress.
+            self.mlp_quantize_calls += 1
+            refresh_sparse24_(self.mlp_bank[:, 0], self.mlp_bank[:, 1], self._sparse24_buffers())
             return
         e4m3_max = torch.finfo(torch.float8_e4m3fn).max
         e5m2_max = torch.finfo(torch.float8_e5m2).max

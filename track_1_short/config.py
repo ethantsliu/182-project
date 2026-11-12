@@ -2,7 +2,8 @@
 
 The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED, and the FP8
 experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS, FP8_DUMP_DIR /
-_STEPS / _ROWS / _SLOTS, FP8_ATTN_O / FP8_ATTN_O_SCALES at the bottom) are read here. The others: the
+_STEPS / _ROWS / _SLOTS, FP8_ATTN_O / FP8_ATTN_O_SCALES, SPARSE24_MLP / _BACKEND / _MASK / _DENSE_FROM_WS at the
+bottom) are read here. The others: the
 experiment knob HADAMARD_SAT_STATS (train_gpt.py; read here too, to decide whether FP8_ATTN_O records amaxes)
 and MONARCH_MLP / _BLOCKS / _EXPAND / _LR_MUL / _DOWN_LR_MUL (model/monarch.py); torchrun's
 RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads LOCAL_RANK), PYTORCH_ALLOC_CONF
@@ -158,3 +159,27 @@ assert not (FP8_ATTN_O and FP8_OFF == {"mlp", "qkv", "lm"}), "FP8_ATTN_O adds an
 # inductor-fused row quantize on the gated/XSA layers) only when a scale needs it: the delayed arm, or the
 # analysis-only HADAMARD_SAT_STATS=1, whose "fp8 sat" lines then get o_y / o_g / o_w rows.
 FP8_ATTN_O_AMAX = FP8_ATTN_O and (FP8_ATTN_O_SCALES == "delayed" or os.environ.get("HADAMARD_SAT_STATS", "0") == "1")
+# SPARSE24_MLP=1 (182/sparse24, perf/sparse24.py): 2:4 structured weight sparsity on the MLP. Each step's refresh
+# (where the fp8 MLP caches are written in the record) prunes every c_fc / c_proj to a transposable 2:4 mask
+# (every 4x4 tile keeps at most 2 per row and 2 per column) and compresses it; the forward GEMMs and the two
+# input-gradient GEMMs (dpost, dx) then run 2:4-sparse in bf16, the two weight-gradient GEMMs stay dense bf16 and
+# the dense weights get the dense gradient (straight-through). The fp8 MLP is not used: the arm compares bf16 2:4
+# against the record's fp8 dense, two numeric formats (the FP8_OFF=mlp arm is the bf16 dense control).
+# SPARSE24_BACKEND: "cusparselt" (default; torch._cslt_sparse_mm, H100 sparse tensor cores) or "dense" (the same
+# masked math as plain dense GEMMs: loss-only emulation, and the CPU test path).
+# SPARSE24_MASK: "greedy" (default; torch's _sparse_semi_structured_tile 4x4 greedy, which may keep 7 of 8) or
+# "optimal" (the best of the 186 maximal at-most-2-per-row-and-column 4x4 patterns by kept |w|).
+# SPARSE24_DENSE_FROM_WS: 0 (default) = sparse in every training stage and in validation (the 2:4 model is the one
+# evaluated); N > 0 = a dense bf16 MLP from the first stage whose long window is >= N blocks (13: the extension
+# stage only, plus validation; 11: stages 2-4; 7: stages 1-4). Stage-aligned, so each compiled graph is one or
+# the other.
+SPARSE24_MLP = os.environ.get("SPARSE24_MLP", "0") == "1"
+SPARSE24_BACKEND = os.environ.get("SPARSE24_BACKEND", "cusparselt").strip().lower()
+SPARSE24_MASK = os.environ.get("SPARSE24_MASK", "greedy").strip().lower()
+SPARSE24_DENSE_FROM_WS = int(os.environ.get("SPARSE24_DENSE_FROM_WS", "0"))
+assert os.environ.get("SPARSE24_MLP", "0") in ("0", "1"), f"SPARSE24_MLP={os.environ['SPARSE24_MLP']!r}: use 0 or 1"
+assert SPARSE24_BACKEND in ("cusparselt", "dense"), f"SPARSE24_BACKEND={SPARSE24_BACKEND!r}: use cusparselt or dense"
+assert SPARSE24_MASK in ("greedy", "optimal"), f"SPARSE24_MASK={SPARSE24_MASK!r}: use greedy or optimal"
+assert SPARSE24_DENSE_FROM_WS >= 0, f"SPARSE24_DENSE_FROM_WS={SPARSE24_DENSE_FROM_WS}: use 0 (off) or a block count"
+# The sparse MLP is bf16 and bypasses the fp8 MLP: HADAMARD_FP8 (fp8 MLP only) would be a silent no-op.
+assert not (SPARSE24_MLP and HADAMARD_FP8), "HADAMARD_FP8 rotates the fp8 MLP; SPARSE24_MLP replaces it with a bf16 2:4 MLP"
