@@ -35,8 +35,9 @@ from torch import nn
 from track_1_short.model.gpt import FP8_EXACT_SCALE_CALLS
 from track_1_short.perf.cuda_graphs.capture_support import WARM_ITERATIONS, bits_equal, restore, snapshot
 
-# Buffer-name prefixes of what each half writes.
-ATTN_OUTPUT_PREFIXES = ("attn_fp8.",)
+# Buffer-name prefixes of what each half writes. "_attn_o_": FP8_ATTN_O's o_w caches and scales (182/fp8-attn-o),
+# written by quantize_attn_fp8; no buffer has that prefix with the flag off.
+ATTN_OUTPUT_PREFIXES = ("attn_fp8.", "_attn_o_")
 MLP_OUTPUT_PREFIXES = ("_mlp_", "_lm_head_f8_")
 
 
