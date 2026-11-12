@@ -9,7 +9,7 @@ from torch import Tensor, nn
 from track_1_short.config import COPY_TOKEN_ID
 from track_1_short.doc_copy import COPY_BUCKETS, doc_copy_features, hash_power_tables
 from track_1_short.exact_levers import MLP_GRAD_IN_PLACE
-from track_1_short.folds import DOC_COPY, LAYER_ROPE
+from track_1_short.folds import DOC_COPY, LAYER_ROPE, LAYER_ROPE_MLP
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layer_rope import LAYER_ROPE_BASE_FREQ, LAYER_ROPE_GATES_INIT, layer_rope_gains
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
@@ -847,9 +847,9 @@ class GPT(MoEMixin, nn.Module):
                     cache[i] = x
                 continue
             mlp_in = norm(x)
-            # LAYER_ROPE: the input gain on what the MLP (or the router and experts) reads; mlp_in itself stays the
-            # post-loop MUDD source.
-            mlp_x = mlp_in * lr_in_mlp[i] if LAYER_ROPE else mlp_in
+            # LAYER_ROPE (not =attn): the input gain on what the MLP (or the router and experts) reads; mlp_in itself
+            # stays the post-loop MUDD source.
+            mlp_x = mlp_in * lr_in_mlp[i] if LAYER_ROPE_MLP else mlp_in
             # fp8 only: the post-lambda is folded into the down-projection scale, so the MLP output
             # already carries it. Not on the MUDD layer, whose post-lambda mu[13] is per-token.
             fold_p = post_lambdas_mlp[i] if use_fp8 and mu is None else None
@@ -865,7 +865,7 @@ class GPT(MoEMixin, nn.Module):
                 # The routed output carries the folded post-lambda exactly when a dense MLP's would (fp8).
                 mlp_out, aux = self._moe(i, mlp_x, moe_weights, fold_p)
                 moe_aux = moe_aux + aux
-            if LAYER_ROPE:
+            if LAYER_ROPE_MLP:
                 mlp_out = mlp_out * lr_res_mlp[i]   # the residual gain, on top of the (folded) post-lambda
             if mu is not None:
                 x = mu[12] * x + mu[13] * mlp_out
@@ -879,7 +879,7 @@ class GPT(MoEMixin, nn.Module):
                 k = PARALLEL_MLP_SLOT
                 parallel_args = self._mlp_fp8_args(k, mlp_up_f8[k], x_f8, fold_p) if use_fp8 else None
                 parallel_out = self._mlp(mlp_x, mlp_fcs[k], mlp_projs[k], parallel_args)
-                if LAYER_ROPE:
+                if LAYER_ROPE_MLP:
                     parallel_out = parallel_out * lr_res_mlp[i]   # the same gains as the layer's own MLP (#385)
                 x = x + (parallel_out if fold_p is not None else scale(post_lambdas_mlp[i], parallel_out))
 

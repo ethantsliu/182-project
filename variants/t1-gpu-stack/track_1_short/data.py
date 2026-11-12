@@ -135,7 +135,7 @@ class Shard:
         return starts, ends
 
     def _next_batch_planned(self, num_tokens_local: int, max_seq_len: int):
-        """next_batch's starts and ends without the per-document walk (PR #387, @nikhil-lalgudi).
+        """next_batch's starts and ends without the per-document walk (PR #387, nikhil-lalgudi).
 
         A document contributes min(its length, max_seq_len) tokens until the cap or the BOS index changes,
         so one cumulative sum of those lengths serves every rank: rank r's documents run up to the first

@@ -136,7 +136,7 @@ class CandidateBuilder:
         pos[candidates] = self.arange[:P]
         target_pos = self.target_pos[:T]
         if HOST_CANDIDATE_GATHER:
-            # HOST_PREP=cands (PR #387, @nikhil-lalgudi): integer indexing gathers faster than np.take(..., out=...);
+            # HOST_PREP=cands (PR #387, nikhil-lalgudi): integer indexing gathers faster than np.take(..., out=...);
             # assigned into the same scratch views, so the arrays (and the -1 sentinel lookups) are unchanged.
             target_pos[:] = pos[targets]
         else:

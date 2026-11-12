@@ -1,5 +1,5 @@
-"""Document-local copy mixture at the final validation (COPY_MIX=1; PR #376 by @cghane, fit source of PR #382 by
-@krishaab).
+"""Document-local copy mixture at the final validation (COPY_MIX=1; PR #376 by cyrusghane, fit source of PR #382 by
+krishaab).
 
     P'(x) = (1 - lam_b) * P(x) + lam_b * [x == c]
 
@@ -22,7 +22,7 @@ What CPLM changes: CPLM (perf/kernels/cplm.py) already mixes in a learned pointe
 document at validation, which covers most of the copy rule's long-distance matches (#376 found 79% of its gain more
 than 2560 tokens back, beyond every attention window but inside CPLM's band). The fit gives a bucket the model already
 copies well lam = 0 exactly, so the mixture can only help on the fit tokens; how much survives on top of CPLM is
-what the A/B (182/t1-gpu-stack/README.md) measures.
+what the A/B (the variant's README.md) measures.
 """
 from collections import deque
 

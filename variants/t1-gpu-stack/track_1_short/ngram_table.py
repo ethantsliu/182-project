@@ -134,7 +134,7 @@ def ngram_row_ids(x: Tensor) -> Tensor:
 
 def _ngram_rows_functional(x: Tensor, norm_map: Tensor) -> Tensor:
     """ngram_row_ids as one out-of-place expression (int32 throughout, products wrap), which Inductor fuses into a
-    single CPU loop (HOST_PREP=ngramhash, PR #387 by @nikhil-lalgudi, extended to the normalized ids and the
+    single CPU loop (HOST_PREP=ngramhash, PR #387 by nikhil-lalgudi, extended to the normalized ids and the
     interleaved channels). The bigram at t = 1 reads the reserved id as its previous token, as ngram_row_ids does."""
     x = norm_map[x]
     mod = NGRAM_VOCAB_SIZE // 2 - 1   # both channels: NGRAM_VOCAB_SIZE is even
