@@ -32,6 +32,8 @@ from torch import nn
 # torch._inductor.config.coordinate_descent_tuning = True # we have banned this flag for new records because it causes compilation to take 30min
 from track_1_short.canonical_mask import BackgroundCanonicalMask
 from track_1_short.config import (
+    FP8_ATTN_O,
+    FP8_ATTN_O_SCALES,
     FP8_DUMP_DIR,
     FP8_DUMP_ROWS,
     FP8_DUMP_STEPS,
@@ -185,7 +187,8 @@ def main():
     print0(f"fp8 experiment: FP8_OFF={sorted(FP8_OFF) or 'none'} HADAMARD_FP8={int(HADAMARD_FP8)} "
            f"FP8_DUMP_DIR={FP8_DUMP_DIR or 'off'}" + (f" steps={FP8_DUMP_STEPS}" if FP8_DUMP_DIR else "")
            + f" HADAMARD_SAT_STATS={int(HADAMARD_SAT_STATS)}"
-           + "".join(f" {k}={os.environ[k]}" for k in ("HADAMARD_GEMMS", "HADAMARD_BLOCK") if k in os.environ), console=True)
+           + "".join(f" {k}={os.environ[k]}" for k in ("HADAMARD_GEMMS", "HADAMARD_BLOCK") if k in os.environ)
+           + (f" FP8_ATTN_O=1 FP8_ATTN_O_SCALES={FP8_ATTN_O_SCALES}" if FP8_ATTN_O else ""), console=True)
     if MONARCH_MLP:
         ms = model.monarch_shape
         print0(f"MONARCH_MLP=1: blocks={ms.blocks} expand={ms.expand} hidden={ms.hidden} block=[{ms.q}, {ms.p}] "

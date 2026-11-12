@@ -2,8 +2,9 @@
 
 The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED, and the FP8
 experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS, FP8_DUMP_DIR /
-_STEPS / _ROWS / _SLOTS at the bottom) are read here. The others: the experiment knobs HADAMARD_SAT_STATS
-(train_gpt.py) and MONARCH_MLP / _BLOCKS / _EXPAND / _LR_MUL / _DOWN_LR_MUL (model/monarch.py); torchrun's
+_STEPS / _ROWS / _SLOTS, FP8_ATTN_O / FP8_ATTN_O_SCALES at the bottom) are read here. The others: the
+experiment knob HADAMARD_SAT_STATS (train_gpt.py; read here too, to decide whether FP8_ATTN_O records amaxes)
+and MONARCH_MLP / _BLOCKS / _EXPAND / _LR_MUL / _DOWN_LR_MUL (model/monarch.py); torchrun's
 RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads LOCAL_RANK), PYTORCH_ALLOC_CONF
 (set by train_gpt.py), and CUDA_HOME (perf/kernels/cross_entropy.py, for the CE kernel's CUDA headers).
 
@@ -141,3 +142,19 @@ FP8_DUMP_DIR = os.environ.get("FP8_DUMP_DIR", "")
 FP8_DUMP_STEPS = tuple(int(s) for s in os.environ.get("FP8_DUMP_STEPS", "100,500,1000").split(",") if s.strip())
 FP8_DUMP_ROWS = int(os.environ.get("FP8_DUMP_ROWS", "8192"))         # leading tokens kept per tensor
 FP8_DUMP_SLOTS = tuple(int(s) for s in os.environ.get("FP8_DUMP_SLOTS", "0,5,10").split(",") if s.strip())
+# FP8_ATTN_O=1 (182/fp8-attn-o): the attention output projection (y @ (o_scale * o_w).T) runs in fp8 in
+# training, forward, dx and dW, with o_scale folded into the GEMM descale (perf/kernels/attn_o.py). Validation
+# stays bf16. FP8_ATTN_O_SCALES: "static" (default) = the power-of-two scales derived in perf/attn_o_scales.py;
+# "delayed" = y and g from the previous step's amax, o_w from its current amax (the arm for when the static
+# derivation is wrong).
+FP8_ATTN_O = os.environ.get("FP8_ATTN_O", "0") == "1"
+FP8_ATTN_O_SCALES = os.environ.get("FP8_ATTN_O_SCALES", "static").strip().lower()
+assert os.environ.get("FP8_ATTN_O", "0") in ("0", "1"), f"FP8_ATTN_O={os.environ['FP8_ATTN_O']!r}: use 0 or 1"
+assert FP8_ATTN_O_SCALES in ("static", "delayed"), f"FP8_ATTN_O_SCALES={FP8_ATTN_O_SCALES!r}: use static or delayed"
+# FP8_OFF with every part is the bf16 upper bound of 182/hadamard-fp8; adding an fp8 GEMM to it is a contradiction.
+# A partial FP8_OFF (attribution arms) composes with FP8_ATTN_O; so do HADAMARD_FP8 (MLP only) and MONARCH_MLP.
+assert not (FP8_ATTN_O and FP8_OFF == {"mlp", "qkv", "lm"}), "FP8_ATTN_O adds an fp8 GEMM; FP8_OFF=all is the bf16 upper bound"
+# The amax of y, g and o_w is recorded (one atomic max per tile in the quantize kernels; for y/g that costs the
+# inductor-fused row quantize on the gated/XSA layers) only when a scale needs it: the delayed arm, or the
+# analysis-only HADAMARD_SAT_STATS=1, whose "fp8 sat" lines then get o_y / o_g / o_w rows.
+FP8_ATTN_O_AMAX = FP8_ATTN_O and (FP8_ATTN_O_SCALES == "delayed" or os.environ.get("HADAMARD_SAT_STATS", "0") == "1")

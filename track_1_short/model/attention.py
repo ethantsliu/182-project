@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from kernels import get_kernel
 from torch import Tensor, nn
 
+from track_1_short.perf.kernels.attn_o import AttnOFP8
 from track_1_short.perf.kernels.qkv_rope import PackedBF16QKV, PackedFP8QKV, qk_norm_rope_forward
 
 # Record #360's FA3 build, patched to take unequal query/key and value head widths ((64, 128) and
@@ -155,11 +156,12 @@ class CausalSelfAttention(nn.Module):
 
     def forward(
         self, x: Tensor, attn_args: AttnArgs, qk_w: Tensor, v_w: Tensor, o_w: Tensor,
-        qkv_fp8=None,
+        qkv_fp8=None, o_fp8=None,
     ):
         """qkv_fp8 (training only; None under validation and under FP8_OFF=qkv): (weight_f8, weight_f8_t, weight_scale, x_scale,
         grad_scale, x_f8, x_f8_t), this layer's packed weight cache, its static fp8 scales and its
-        already-quantized input."""
+        already-quantized input. o_fp8 (training under FP8_ATTN_O only, 182/fp8-attn-o): GPT._attn_o_fp8_args,
+        o_w's fp8 caches and the output projection's scales / amax slots (perf/kernels/attn_o.py)."""
         B, T = x.size(0), x.size(1) # batch size, sequence length
         assert B == 1, "varlen sequences requires B == 1"
         assert T % 16 == 0
@@ -238,4 +240,10 @@ class CausalSelfAttention(nn.Module):
         y = y.contiguous().view(B, T, H * self.v_dim) # re-assemble all head outputs side by side
         # The output scale rounds to bf16 in the one product with O, with or without o_gain.
         o_scale = sa_lambdas[1] if attn_args.o_gain is None else sa_lambdas[1] * attn_args.o_gain
+        if o_fp8 is not None:
+            # FP8_ATTN_O: o_scale rides the fp8 GEMM's descale instead (fp32, no bf16 product with O). y's row
+            # quantize fuses into the XSA / gate elementwise pass when there is one (static arm).
+            fused = (attn_args.xsa_alpha is not None and not self.paired) or attn_gate_w is not None
+            out = AttnOFP8(y.view(B * T, H * self.v_dim), o_w, o_scale, *o_fp8, fused, True)
+            return out.view(B, T, -1)
         return F.linear(y, o_scale * o_w.type_as(y))

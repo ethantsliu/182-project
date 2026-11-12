@@ -7,8 +7,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from track_1_short.config import (FP8_DUMP_SLOTS, FP8_OFF, HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX,
-                                  HADAMARD_FP8, HADAMARD_SEED)
+from track_1_short.config import (FP8_ATTN_O, FP8_ATTN_O_AMAX, FP8_ATTN_O_SCALES, FP8_DUMP_SLOTS, FP8_OFF,
+                                  HADAMARD_DPOST, HADAMARD_DW1, HADAMARD_DW2, HADAMARD_DX, HADAMARD_FP8, HADAMARD_SEED)
 from track_1_short.model.attention import AttnArgs, CausalSelfAttention, Yarn
 from track_1_short.model.layers import CastedLinearT, next_multiple_of_n, norm
 from track_1_short.model.monarch import (
@@ -22,6 +22,8 @@ from track_1_short.model.monarch import (
 )
 from track_1_short.ngram_table import NGRAM_SIGN_POOL_ROWS
 from track_1_short.perf import bf16_loss
+from track_1_short.perf.attn_o_scales import (ATTN_O_G_HEADROOM, ATTN_O_G_SCALE, ATTN_O_W_SCALE, ATTN_O_Y_HEADROOM,
+                                              ATTN_O_Y_SCALE)
 from track_1_short.perf.bf16_loss import bf16_training_loss
 from track_1_short.perf.fp8_dump import FP8_DUMP
 from track_1_short.perf.hadamard_ref import FP8_MAX, rotate, signed_hadamard
@@ -31,7 +33,8 @@ from track_1_short.perf.kernels.cross_entropy import (
     lm_head_inverse_scale,
     quantize_lm_head_dual,
 )
-from track_1_short.perf.kernels.fp8_attention_quant import PackedQKVFP8Cache
+from track_1_short.perf.kernels.attn_o import quantize_attn_o_weights
+from track_1_short.perf.kernels.fp8_attention_quant import AMAX_PARTS, PackedQKVFP8Cache
 from track_1_short.perf.kernels.hadamard import (
     HADAMARD_BLOCK,
     HADAMARD_TILE,
@@ -206,6 +209,20 @@ def _fp8_sat_dead_slots(name: str) -> set[int]:
     return dead
 
 
+# FP8_ATTN_O rows of the HADAMARD_SAT_STATS snapshot. Their buffers are per attention-bank slot ([7]); the snapshot
+# spreads them over the MLP rows' NUM_MLP_SLOTS columns by layer (slot ATTN_BANK_ORDER.index(layer) -> column
+# layer), so a column is a layer in every row; layers without attention are dead ("-"). o_w's amax spans the
+# full-width O of the half-V layers (its unused columns too: see GPT._quantize_attn_o_fp8).
+# Rows: (name, scale buffer, amax buffer, fmt max, init scale or None), as _fp8_sat_rows.
+def _attn_o_sat_rows():
+    if not FP8_ATTN_O:
+        return []
+    delayed = FP8_ATTN_O_SCALES == "delayed"
+    return [("o_y", "_attn_o_y_scales", "_attn_o_y_amax", 448.0, ATTN_O_Y_SCALE if delayed else None),
+            ("o_g", "_attn_o_g_scales", "_attn_o_g_amax", 57344.0, ATTN_O_G_SCALE if delayed else None),
+            ("o_w", "_attn_o_w_scales", "_attn_o_w_partial_amax", 448.0, None)]
+
+
 # Over this ratio a slot counts as saturated: 1% slack because an exact weight scale is amax / 448 rounded
 # in bf16 (up to 0.4% low), so its ratio can sit just above 1 with nothing clamped beyond rounding.
 SAT_RATIO = 1.01
@@ -375,6 +392,39 @@ class GPT(nn.Module):
         })
         self.register_buffer("_attn_x_scale", torch.tensor([FP8_ATTN_X_SCALE], device=self.device), persistent=False)
         self.register_buffer("_attn_grad_scale", torch.tensor([FP8_ATTN_GRAD_SCALE], device=self.device), persistent=False)
+        if FP8_ATTN_O:
+            self.init_attn_o_fp8(model_dim, head_dim, num_heads)
+
+    def init_attn_o_fp8(self, model_dim, head_dim, num_heads):
+        """FP8_ATTN_O (182/fp8-attn-o, perf/kernels/attn_o.py): per attention-bank slot j, o_w's e4m3 caches and the
+        three scales. The full-width caches hold every slot's whole [768, 768] O (one quantize launch over the
+        strided vo_bank view); the half-V layers' forward reads a packed copy of their v_dim columns. All written
+        by quantize_attn_fp8, i.e. in the attention half of the lagged fp8 refresh (and its CUDA graph: the
+        names start with _attn_o_, an ATTN_OUTPUT_PREFIXES entry of perf/cuda_graphs/fp8_refresh_graphs.py)."""
+        n, hdim, dev = len(ATTN_BANK_ORDER), num_heads * head_dim, self.device
+        half_slots = [j for j, layer in enumerate(ATTN_BANK_ORDER) if layer in HALF_V_LAYERS]
+        assert half_slots == list(range(half_slots[0], half_slots[0] + len(half_slots))), "half-V slots must be contiguous"
+        self._attn_o_half_slots = (half_slots[0], half_slots[0] + len(half_slots))
+        nh, hv = len(half_slots), num_heads * NARROW_HEAD_DIM
+        e4m3, f32 = torch.float8_e4m3fn, torch.float32
+        delayed = FP8_ATTN_O_SCALES == "delayed"
+        buffers = {
+            "_attn_o_f8_row": torch.empty(n, model_dim, hdim, dtype=e4m3, device=dev),       # O_j
+            "_attn_o_f8_col": torch.empty(n, hdim, model_dim, dtype=e4m3, device=dev),       # O_j.T
+            "_attn_o_f8_half_row": torch.empty(nh, model_dim, hv, dtype=e4m3, device=dev),   # O_j[:, each head's first 64]
+            "_attn_o_f8_half_col": torch.empty(nh, hv, model_dim, dtype=e4m3, device=dev),
+            # o_w: static (the delayed arm overwrites it with the exact amax / 448 at every refresh)
+            "_attn_o_w_scales": torch.full((n,), ATTN_O_W_SCALE, dtype=f32, device=dev),
+            "_attn_o_w_partial_amax": torch.zeros(n, AMAX_PARTS, dtype=f32, device=dev),
+            # y / g: static, or delayed from the amax the quantize kernels atomic-max into slot 0 of each row
+            "_attn_o_y_scales": torch.full((n,), ATTN_O_Y_SCALE, dtype=f32, device=dev),
+            "_attn_o_g_scales": torch.full((n,), ATTN_O_G_SCALE, dtype=f32, device=dev),
+            "_attn_o_y_amax": torch.zeros(n, 1, dtype=f32, device=dev),
+            "_attn_o_g_amax": torch.zeros(n, 1, dtype=f32, device=dev),
+        }
+        for name, buf in buffers.items():
+            self.register_buffer(name, buf, persistent=False)
+        self._attn_o_delayed = delayed
 
     def attn_qk_dim(self, layer: int) -> int:
         return self.head_dim if layer in WIDE_QK_LAYERS else NARROW_HEAD_DIM
@@ -710,6 +760,7 @@ class GPT(nn.Module):
         # (182/hadamard-fp8: the bf16 upper bound); the fp8 caches are still refreshed, just not read.
         # MONARCH_MLP (182/structured) always runs a bf16 MLP.
         use_fp8_attn = self.training and "qkv" not in FP8_OFF
+        use_fp8_attn_o = self.training and FP8_ATTN_O  # 182/fp8-attn-o; off in the record
         use_fp8_mlp = self.training and "mlp" not in FP8_OFF and not MONARCH_MLP
         attn_f8_weights = self._attn_fp8_weights() if use_fp8_attn else None
         mlp_up_f8 = self._mlp_up_f8.unbind(0) if use_fp8_mlp else None
@@ -862,7 +913,9 @@ class GPT(nn.Module):
                 )
                 qk_w, v_w, o_w = attn_weights[i]
                 FP8_DUMP.set_tag(f"qkv{i}" if i in FP8_DUMP_SLOTS else None)
-                attn_out = self.attn[str(i)](attn_in_normed, attn_args, qk_w, v_w, o_w, qkv_fp8)
+                o_fp8 = self._attn_o_fp8_args(i) if use_fp8_attn_o else None
+                attn_out = self.attn[str(i)](attn_in_normed, attn_args, qk_w, v_w, o_w, qkv_fp8,
+                                             **({"o_fp8": o_fp8} if o_fp8 is not None else {}))
 
                 if mu is not None:
                     x = mu[8] * x + mu[9] * attn_out + mu[10] * cache[0]
@@ -1035,6 +1088,45 @@ class GPT(nn.Module):
                 qk = qk_heads[slots, :, :qk_dim].reshape(len(layers), 2 * H * qk_dim, dim)
                 v = v_heads[slots, :, :v_dim].reshape(len(layers), H * v_dim, dim)
                 self.attn_fp8[group].refresh(qk, v)
+            if FP8_ATTN_O:
+                self._quantize_attn_o_fp8()
+
+    def _quantize_attn_o_fp8(self):
+        """FP8_ATTN_O: o_w's e4m3 caches (both layouts) for every attention slot, then the half-V layers' packed
+        copies, then (delayed arm) the y / g scales from the amaxes recorded since the last refresh. Two
+        launches plus two fp8 copies (and the amax pass with an exact or recorded o_w amax)."""
+        H, head_dim, dim = self.num_heads, self.head_dim, self.qk_bank.shape[-1]
+        num_slots = len(ATTN_BANK_ORDER)
+        o_all = self.vo_bank[1:2 * num_slots:2]   # slot j's O is matrix 2j + 1, [num_slots, 768, 768] strided
+        quantize_attn_o_weights(o_all, self._attn_o_w_scales, self._attn_o_w_partial_amax,
+                                self._attn_o_f8_row, self._attn_o_f8_col, exact=self._attn_o_delayed,
+                                record_amax=FP8_ATTN_O_AMAX)
+        lo, hi = self._attn_o_half_slots
+        v = NARROW_HEAD_DIM
+        # Pure byte gathers of the full-width caches: each head's leading v columns of O (rows of O.T).
+        self._attn_o_f8_half_row.copy_(self._attn_o_f8_row[lo:hi].view(hi - lo, dim, H, head_dim)[..., :v]
+                                       .reshape(hi - lo, dim, H * v))
+        self._attn_o_f8_half_col.copy_(self._attn_o_f8_col[lo:hi].view(hi - lo, H, head_dim, dim)[:, :, :v]
+                                       .reshape(hi - lo, H * v, dim))
+        if self._attn_o_delayed:
+            self._refresh_delayed_scale(self._attn_o_y_amax, self._attn_o_y_scales, ATTN_O_Y_HEADROOM / 448.0, 1e-12)
+            self._refresh_delayed_scale(self._attn_o_g_amax, self._attn_o_g_scales, ATTN_O_G_HEADROOM / 57344.0, 1e-30)
+        elif FP8_ATTN_O_AMAX:  # static + HADAMARD_SAT_STATS: each snapshot then shows one step's amax
+            self._attn_o_y_amax.zero_()
+            self._attn_o_g_amax.zero_()
+
+    def _attn_o_fp8_args(self, layer):
+        """FP8_ATTN_O: the args of AttnOFP8Function after (y, o_w, o_scale) for attention `layer`, without the fuse
+        flags (the attention module adds those): (w_row, w_col, w_scale, y_scale, g_scale, y_amax, g_amax)."""
+        j = ATTN_BANK_ORDER.index(layer)
+        lo, hi = self._attn_o_half_slots
+        if lo <= j < hi:
+            w_row, w_col = self._attn_o_f8_half_row[j - lo], self._attn_o_f8_half_col[j - lo]
+        else:
+            w_row, w_col = self._attn_o_f8_row[j], self._attn_o_f8_col[j]
+        amax = FP8_ATTN_O_AMAX
+        return (w_row, w_col, self._attn_o_w_scales[j], self._attn_o_y_scales[j], self._attn_o_g_scales[j],
+                self._attn_o_y_amax[j] if amax else None, self._attn_o_g_amax[j] if amax else None)
 
     @staticmethod
     def _refresh_delayed_scale(amax_buf, scale_buf, gain, floor):
@@ -1127,6 +1219,12 @@ class GPT(nn.Module):
                 self._mlp_post_t_scales.fill_(1.0)
             self._mlp_dpre_scales.fill_(FP8_GRAD_SCALE)
             self._mlp_post_scales.fill_(1.0)
+            if FP8_ATTN_O:
+                self._attn_o_y_amax.zero_()
+                self._attn_o_g_amax.zero_()
+                self._attn_o_w_partial_amax.zero_()
+                self._attn_o_y_scales.fill_(ATTN_O_Y_SCALE)
+                self._attn_o_g_scales.fill_(ATTN_O_G_SCALE)
 
     @torch.no_grad()
     def fp8_sat_snapshot(self):
@@ -1144,7 +1242,22 @@ class GPT(nn.Module):
             ratio = torch.where(dead, 0.0, amax / (scale * fmt_max))
             state = torch.where(dead, -1.0, at_init.float())
             out.append(torch.stack((scale, ratio, state)))
-        return [r[0] for r in rows], torch.stack(out)
+        o_rows = _attn_o_sat_rows()
+        for name, scale_name, amax_name, fmt_max, init in o_rows:
+            scale, amax = getattr(self, scale_name), getattr(self, amax_name).amax(dim=1)
+            at_init = (scale == init) if init is not None else torch.zeros_like(scale, dtype=torch.bool)
+            ratio = amax / (scale * fmt_max)
+            # Column = layer (a stack of views and constants: device ops only, no host-to-device copy).
+            dead = torch.zeros((), dtype=torch.float32, device=scale.device)
+            cols = []
+            for layer in range(NUM_MLP_SLOTS):
+                if layer in ATTN_BANK_ORDER:
+                    j = ATTN_BANK_ORDER.index(layer)
+                    cols.append(torch.stack((scale[j], ratio[j], at_init[j].float())))
+                else:
+                    cols.append(torch.stack((dead + 1.0, dead, dead - 1.0)))
+            out.append(torch.stack(cols, dim=1))
+        return [r[0] for r in rows] + [r[0] for r in o_rows], torch.stack(out)
 
     def _attn_fp8_weights(self):
         """Per attention layer: (qkv_f8, qkv_f8_t, qkv_scale) from its width group's cache, for PackedFP8QKV."""

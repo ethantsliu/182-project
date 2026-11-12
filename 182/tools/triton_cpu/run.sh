@@ -3,7 +3,8 @@
 #   bash 182/tools/triton_cpu/run.sh python -m pytest 182/tools/triton_cpu 182/hadamard-fp8/tests -q
 #   bash 182/tools/triton_cpu/run.sh aot [--base <sha>]   # sm_90a compile check (compile_check.py), no GPU
 # Builds the image on first use. Env passed through: TRITON_INTERPRET (default 1), TRITON_CPU_NO_SHIM,
-# TRITON_CPU_NUM_SMS, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS. TRITON_CPU_VERSION=3.5.1 selects the triton 3.5.1 / torch 2.9.1
+# TRITON_CPU_NUM_SMS, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS, FP8_ATTN_O_BASE_ATTENTION (a path
+# under /repo: 182/fp8-attn-o/tests/test_interp_attn_o.py). TRITON_CPU_VERSION=3.5.1 selects the triton 3.5.1 / torch 2.9.1
 # image (default 3.6.0 / 2.10.0, the record's pin); TRITON_CPU_IMAGE overrides the tag.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +38,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 fi
 envs=(-e "TRITON_INTERPRET=${TRITON_INTERPRET:-1}" -e PYTHONPATH=/repo/182/tools/triton_cpu -e PYTHONDONTWRITEBYTECODE=1
       -e "PYTEST_ADDOPTS=-p no:cacheprovider ${PYTEST_ADDOPTS:-}")
-for v in TRITON_CPU_NO_SHIM TRITON_CPU_NUM_SMS HADAMARD_FP8 HADAMARD_SEED HADAMARD_BLOCK HADAMARD_GEMMS; do
+for v in TRITON_CPU_NO_SHIM TRITON_CPU_NUM_SMS HADAMARD_FP8 HADAMARD_SEED HADAMARD_BLOCK HADAMARD_GEMMS FP8_ATTN_O_BASE_ATTENTION; do
   [ -n "${!v:-}" ] && envs+=(-e "$v=${!v}")
 done
 tty=(); [ -t 0 ] && [ -t 1 ] && tty=(-it)
