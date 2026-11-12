@@ -261,3 +261,68 @@ def polar(X, split_baddbmm, maps):
                 torch.baddbmm(C, B, X, beta=a, out=C)
             X, C = C, X
     return X
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Flagged cascade variants (optim/anvil.py OPTIM_MOEFUSED / OPTIM_MAPS / OPTIM_NORM; all off by default). Nothing above
+# this line changed: with every flag off the trainer never calls what follows.
+
+def gram_norm_flagged_eager(X, A, margin: float, s4: bool, dup: bool):
+    """gram_norm / gram_norm_dup with the Frobenius margin as an argument and an optional Schatten-4 scale.
+
+    s4=False: d = sqrt(trace(A)) * margin + 1e-6, the stock normalization (trace(X^T X) = ||X||_F^2); at margin 1.05 this
+    is gram_norm's arithmetic op for op. s4=True: d = ||A||_F^(1/2) * margin + 1e-6, i.e. the Schatten-4 norm
+    (sum sigma^4)^(1/4) of X. It still bounds sigma_max (so every normalized singular value stays <= 1/margin, where the maps
+    are designed to work) but is far tighter than ||X||_F for a spread spectrum, so the small singular values start
+    higher and need fewer maps to reach ~1. A is the Gram of the unnormalized X in both cases."""
+    if s4:
+        n = A.float().square().sum(dim=(-2, -1))[..., None, None].sqrt().sqrt()
+    else:
+        n = A.diagonal(dim1=-2, dim2=-1).float().sum(-1)[..., None, None].sqrt()
+    d = n * margin + 1e-6
+    X = (X.float() / d).bfloat16()
+    A = (A.float() / d.square()).bfloat16()
+    if dup:
+        return X, A, X.clone()
+    return X, A
+
+
+gram_norm_flagged = torch.compile(gram_norm_flagged_eager, dynamic=False, fullgraph=True)
+
+
+def polar_flagged(X, split_baddbmm, maps, margin: float, s4: bool):
+    """polar() with the margin, the normalization and the maps as arguments; the kernels and their order are polar()'s.
+    margin=1.05, s4=False, maps=ANVIL_MAPS is polar() itself. Used for every bank under the OPTIM_* flags, the expert bank
+    included (at its own margin), which otherwise runs the unfused anvil_cascade."""
+    is_tall = X.size(-2) > X.size(-1)
+    n = min(X.size(-1), X.size(-2))
+    A = torch.empty((*X.shape[:-2], n, n), device=X.device, dtype=X.dtype)
+    if is_tall:
+        gram_tall(X, A)
+        X, A = gram_norm_flagged(X, A, margin, s4, False)
+        B = torch.empty_like(A)
+        C = torch.empty_like(X)
+        for k, (a, b, c) in enumerate(maps):
+            if k > 0:
+                gram_tall(X, A)
+            poly_gram(A, c, b, B)
+            if split_baddbmm:
+                gemm_xb_add(X, B, C, a)
+            else:
+                torch.baddbmm(X, X, B, beta=a, out=C)
+            X, C = C, X
+    else:
+        gram_wide(X, A)
+        X, A, C = gram_norm_flagged(X, A, margin, s4, True)
+        B = torch.empty_like(A)
+        for k, (a, b, c) in enumerate(maps):
+            if k > 0:
+                gram_wide(X, A, copy=C)
+            poly_gram(A, c, b, B)
+            if split_baddbmm:
+                torch.bmm(B, X, out=C)
+                C.add_(X, alpha=a)
+            else:
+                torch.baddbmm(C, B, X, beta=a, out=C)
+            X, C = C, X
+    return X
