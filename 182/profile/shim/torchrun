@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# 182/profile/run.sh puts this directory first on PATH, so a tree's own `182/run_node.sh run` starts its trainer
+# through 182/profile/hook.py: this execs the real torchrun (the next one on PATH) with hook.py inserted before the
+# first *.py argument (the trainer script). Nothing else changes: same options, same environment.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+hook="$(cd "$here/.." && pwd)/hook.py"
+real=""
+IFS=: read -ra dirs <<< "${PATH:-}"
+for d in "${dirs[@]}"; do
+  [[ -z "$d" || "$(cd "$d" 2>/dev/null && pwd)" == "$here" ]] && continue
+  [[ -x "$d/torchrun" ]] && { real="$d/torchrun"; break; }
+done
+[[ -n "$real" ]] || { echo "profile shim: no real torchrun on PATH after $here" >&2; exit 127; }
+args=(); hooked=0
+for a in "$@"; do
+  if [[ $hooked == 0 && "$a" == *.py && "$a" != -* ]]; then args+=("$hook"); hooked=1; fi
+  args+=("$a")
+done
+[[ $hooked == 1 ]] || { echo "profile shim: no trainer script (*.py) among the arguments: $*" >&2; exit 2; }
+exec "$real" "${args[@]}"
