@@ -18,8 +18,9 @@ sys.path.insert(0, HERE)
 import node  # noqa: E402
 
 RUN_NODE = os.path.join(HERE, "run_node.sh")
-RESULT_OK = re.compile(r"^RESULT variant=t1-cpu-ngram val_loss=\d+\.\d{4} train_time_s=\d+\.\d{3} steps=\d+ target=3\.28 hit=[01] log=\S+$")
-RESULT_FAILED = re.compile(r"^RESULT variant=t1-cpu-ngram status=failed reason=\S.*$")
+TAGS = r"(?: [a-z_0-9]+=\S+)*"  # config=, torch=, triton=, fa3=, tree=: before log= / reason=, which stay last
+RESULT_OK = re.compile(rf"^RESULT variant=t1-cpu-ngram val_loss=\d+\.\d{{4}} train_time_s=\d+\.\d{{3}} steps=\d+ target=3\.28 hit=[01]{TAGS} log=\S+$")
+RESULT_FAILED = re.compile(rf"^RESULT variant=t1-cpu-ngram status=failed{TAGS} reason=\S.*$")
 
 
 @pytest.fixture(scope="module")
@@ -192,10 +193,15 @@ mkdir -p logs
 log=logs/11111111-2222-3333-4444-555555555555.txt
 {
   echo 'print0(f"step:{step}/{n} val_loss:{val_loss:.4f} train_time:{t:.0f}ms")'
+  echo "Running PyTorch ${FAKE_TORCH:-2.10.0+cu128} compiled for CUDA 12.8"
+  echo "Running Triton version 3.6.0"
+  echo "attention kernel: pinned=${FAKE_PINNED:-1} module=flash_attn3.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=x repo=r@1 kernels=0.16.1"
+  echo "retrieval host plan: 32 build threads, 4 online-index threads per rank; x"
   echo "step:25/685 train_time:500ms step_avg:20.00ms"
   echo "step:685/685 train_time:8700ms step_avg:12.70ms"
   echo "step:685/685 val_loss:3.2741 train_time:9250ms step_avg:13.50ms"
   [ -n "$TABLE_VOTE" ] && echo "table vote: val_loss:3.27412 with the table's links, 3.27530 without them, 3.27611 with PR #399's fixed vote instead (k=1)"
+  echo "val diagnostics: network val_loss:3.3120 (before the chain; the chain adds -0.0379); hint rows: 6-token 0.4100, 3/4-token 0.3500, 2-token 0.2000, none 0.0400 of 10485760"
   echo "host memory: rank 0 peak RSS 181.2 GiB, node in use 402 GiB (incl. /dev/shm 164 GiB)"
 } > "$log"
 echo "$log"
@@ -254,3 +260,77 @@ def test_ab_end_to_end_with_a_stand_in_torchrun(fake_torchrun):
     assert [l.split()[1:3] for l in runs] == [["arm=A", "seed=0"], ["arm=B", "seed=0"], ["arm=B", "seed=1"], ["arm=A", "seed=1"]]
     assert "AB n=2 pairs, B - A: train_time +0.000 s" in r.stdout
     assert "AB table vote within B's runs (same weights, n=2): links - none -0.00118" in r.stdout
+
+
+def test_upstream_log_stack_fields(upstream_log):
+    p = node.parse_log(upstream_log)
+    assert (p["torch"], p["cuda"], p["triton"]) == ("2.10.0+cu128", "12.8", "3.6.0")
+    assert p["fa3"] is None and p["diag"] is None and p["build_threads"] is None  # #380's logs predate these lines
+    tags = dict(config="380", torch=p["torch"], triton=p["triton"], fa3="unknown", tree="abc-dirty")
+    line = node.result_line(p, "/x/log.txt", tags=tags)
+    assert RESULT_OK.match(line) and line.endswith(" hit=1 config=380 torch=2.10.0+cu128 triton=3.6.0 fa3=unknown tree=abc-dirty log=/x/log.txt")
+    failed = node.result_line(reason="exit 1: boom", tags=dict(tags, torch="2.11 x"))
+    assert RESULT_FAILED.match(failed) and " torch=2.11_x " in failed and failed.endswith(" reason=exit 1: boom")
+    ref = node.reference_line("380", dict(p, val_loss=3.3008))
+    assert ref.startswith("reference: val_loss 3.3008 vs 3.2759") and "+0.0249, +15.6 std" in ref
+
+
+def test_result_line_parses_in_the_session_summary(upstream_log):
+    """The root's 182/tools/summarize_session.py reads the tagged RESULT lines as before."""
+    import importlib.util
+    path = os.path.join(node.REPO, "182", "tools", "summarize_session.py")
+    spec = importlib.util.spec_from_file_location("summarize_session", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    tags = dict(config="381", torch="2.10.0+cu128", triton="3.6.0", fa3="pinned", tree="0123456789ab")
+    r = mod.parse_result(node.result_line(node.parse_log(upstream_log), "/x/l.txt", tags=tags))
+    assert r["ok"] and r["val_loss"] == 3.2765 and r["log"] == "/x/l.txt" and r["variant"] == "t1-cpu-ngram"
+    r = mod.parse_result(node.result_line(reason="preflight failed: x", tags=tags))
+    assert not r["ok"] and r["reason"] == "preflight failed: x"
+
+
+def test_tree_state(tmp_path):
+    assert node.tree_state(str(tmp_path)) == (None, [])  # not a checkout
+    git = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+    git("init", "-q")
+    (tmp_path / "track_1_short").mkdir()
+    (tmp_path / "track_1_short" / "attention.py").write_text("x = 1\n")
+    (tmp_path / "train_gpt.py").write_text("y = 1\n")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c")
+    commit, dirty = node.tree_state(str(tmp_path))
+    assert re.fullmatch(r"[0-9a-f]{12}", commit) and dirty == []
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "run.txt").write_text("not the trainer")  # outside TREE_PATHS
+    assert node.tree_state(str(tmp_path)) == (commit, [])
+    (tmp_path / "track_1_short" / "attention.py").write_text("import sys\nx = 2\n")  # a patched loader
+    (tmp_path / "track_1_short" / "fallback.py").write_text("z = 1\n")
+    assert node.tree_state(str(tmp_path)) == (commit, ["track_1_short/attention.py", "track_1_short/fallback.py"])
+
+
+def test_check_fails_on_a_changed_trainer(monkeypatch, tmp_path):
+    rows = {}
+    def run_check(env, tree):
+        monkeypatch.setattr(node, "tree_state", lambda vdir=None: tree)
+        out = []
+        node.check(node.Settings(dict(env, DATA_PATH=str(tmp_path))), out=out.append)
+        return next(l for l in out if " trainer source: " in l)
+    assert run_check({}, ("0123456789ab", [])).startswith("PASS trainer source: as committed (0123456789ab)")
+    row = run_check({}, ("0123456789ab", ["track_1_short/model/attention.py"]))
+    assert row.startswith("FAIL trainer source: 1 file(s) differ from commit 0123456789ab: track_1_short/model/attention.py") and "ALLOW_DIRTY=1" in row
+    assert run_check({"ALLOW_DIRTY": "1"}, ("0123456789ab", ["x"])).startswith("WARN trainer source: ")
+    assert run_check({}, (None, [])).startswith("WARN trainer source: not a git checkout")
+
+
+def test_run_attributes_an_off_stack_result(fake_torchrun, tmp_path):
+    r = _sh("run", dict(fake_torchrun, FAKE_TORCH="2.11.0+cu130", FAKE_PINNED="0"), cwd=str(tmp_path))
+    lines = r.stdout.strip().splitlines()
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert RESULT_OK.match(lines[-1]) and " config=381 torch=2.11.0+cu130 triton=3.6.0 fa3=other tree=" in lines[-1]
+    assert any(l.startswith("WARN this run's stack: torch 2.11.0+cu130 / triton 3.6.0, not the records' 2.10.0+cu128") for l in lines)
+    assert any(l.startswith("WARN this run's attention kernel: other") for l in lines)
+    ref = next(l for l in lines if l.startswith("reference: "))
+    assert "val_loss 3.2741 vs 3.2750 (estimate" in ref and "network alone 3.3120; hint rows 6-token 0.410, 3/4-token 0.350, 2-token 0.200, none 0.040" in ref
+    r = _sh("run", fake_torchrun, cwd=str(tmp_path))  # the records' stack and the pinned kernel: no stack warnings
+    assert r.returncode == 0 and " torch=2.10.0+cu128 triton=3.6.0 fa3=pinned " in r.stdout.strip().splitlines()[-1]
+    assert "WARN this run's stack" not in r.stdout and "WARN this run's attention kernel" not in r.stdout
