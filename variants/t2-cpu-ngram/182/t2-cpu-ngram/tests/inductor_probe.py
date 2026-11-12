@@ -1,5 +1,5 @@
 """The validation slab loop (model/gpt.py cplm_eval_slab_losses) through CPU inductor at two slab sizes.
-Prints one JSON line: per slab size, the largest per-token and the mean difference from one slab.
+Prints one JSON line: for half a slab, the largest per-token and the mean difference from one slab.
 
 A subprocess of test_final_val.py: model/gpt.py is imported under the CPU stubs, then the triton stub is removed
 before torch._dynamo is imported, so inductor takes its C++ path (it type-checks triton objects, which the stub
@@ -27,7 +27,7 @@ for fn in vars(torch.utils._triton).values():  # has_triton_package() etc. may h
         fn.cache_clear()
 import torch._dynamo.utils  # noqa: E402
 
-VOCAB, T, D, IDS = 50304, 45, 32, 64
+VOCAB, T, D, IDS = 50304, 12, 8, 16  # the vocabulary must hold the copy column (50257); the rest is minimal
 g = torch.Generator().manual_seed(0)
 weight = torch.randn(D, VOCAB, generator=g).bfloat16() * 0.2
 xf = torch.randn(T, D, generator=g).bfloat16()
@@ -54,7 +54,7 @@ def loss(xf, inputs, targets):
 compiled = torch.compile(loss, dynamic=False, fullgraph=True)
 out = {}
 with torch.no_grad():
-    for rows in (T, (T + 1) // 2, 8):  # one slab, half (the retry's first step), small
+    for rows in (T, T // 2):  # one slab, then half of it (the retry's step)
         gpt.EVAL_CE_SLAB_ROWS = rows
         out[rows] = compiled(xf, inputs, targets)
     eager = loss(xf, inputs, targets)

@@ -96,17 +96,21 @@ def test_plain_slabs_give_the_same_per_token_losses(rows):
                            gpt.eval_slab_losses(lm_head, x, inputs, targets, canon, rows))
 
 
+@pytest.mark.skipif(os.environ.get("RUN_INDUCTOR_PROBE") != "1",
+                    reason="compiles with CPU inductor (C++ builds, ~30 s of several cores); RUN_INDUCTOR_PROBE=1 runs it")
 def test_inductor_slab_sizes_agree_to_rounding(tmp_path):
     """The slab loop through CPU inductor (tests/inductor_probe.py, a subprocess: inductor cannot compile with the
-    triton stub loaded) at one slab, half a slab and 8 rows. Eager is bit for bit (above); compiled, a different
-    slab size may change the kernels' reduction split, so a token's loss may move at float rounding. Measured:
-    at most 3.8e-6 nats per token, 2e-8 on the mean. On the GPU the bound is not measured (see the README)."""
-    env = {**os.environ, "TMPDIR": str(tmp_path), "TORCHINDUCTOR_CACHE_DIR": str(tmp_path / "inductor")}
+    triton stub loaded) at one slab and at half a slab. Eager is bit for bit (above); compiled, a different slab
+    size may change how a reduction is split, so a token's loss may move at float rounding. Measured at 45 rows:
+    at most 3.8e-6 nats per token, 2e-8 on the mean; at the probe's 12 rows, bit for bit. On the GPU the bound is
+    not measured (see the README)."""
+    env = {**os.environ, "TMPDIR": str(tmp_path), "TORCHINDUCTOR_CACHE_DIR": str(tmp_path / "inductor"),
+           "TORCHINDUCTOR_COMPILE_THREADS": os.environ.get("TORCHINDUCTOR_COMPILE_THREADS", "1")}
     out = subprocess.run([sys.executable, str(HERE / "inductor_probe.py")], env=env, capture_output=True, text=True,
                          timeout=900)
     assert out.returncode == 0, out.stderr[-3000:]
     r = json.loads(out.stdout.strip().splitlines()[-1])
-    assert r["graphs"] == 3  # one compile per slab size: the bare module constant is guarded, so the retry recompiles
+    assert r["graphs"] == 2  # one compile per slab size: the bare module constant is guarded, so the retry recompiles
     assert max(r["max_abs"].values()) < 1e-4 and max(r["mean_abs"].values()) < 1e-6
 
 

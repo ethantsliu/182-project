@@ -202,6 +202,9 @@ unless `--no-seed-point`. It solves for the mean that gives p < 0.01 with 6 runs
   line; `DRY_RUN=1`; `check` (it fails cleanly on a machine without GPUs); the host fallback; a full
   run/timeout/failure cycle against a stand-in trainer.
 - The failure paths above (a two-rank gloo test for the index build), and the t-test against scipy.
+- The final validation's loss slabs (`tests/test_final_val.py`): per-token losses bit for bit across slab sizes in
+  eager mode, the out-of-memory retry, the release, the stack guard and the RESULT line. The CPU inductor
+  comparison is opt-in (`RUN_INDUCTOR_PROBE=1`): 3.8e-6 nats at most per token at 45 rows, bit for bit at 12 rows.
 
 ## Not verified without an 8xH100
 - That this tree trains at all at d=1024: compile, CUDA-graph capture and the kernels have only run for PR #380
