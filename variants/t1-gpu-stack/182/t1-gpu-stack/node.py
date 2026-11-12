@@ -10,7 +10,7 @@ Environment:
   prep   SHARDS (9), PREP_TIMEOUT_S (3600, per step), SKIP_DATA=1, SKIP_FA3=1, DRY_RUN=1
   run    NPROC (8; the trainer refuses anything else), SEED (-> TRAIN_SEED; unset = random init, as #397),
          STEPS (-> NUM_SCHEDULED_ITERATIONS, default 981), EXTRA_ENV ("K=V K=V"), exported HOST_PREP / DOC_COPY /
-         LAYER_ROPE / COPY_MIX / COPY_MIX_FIT / EXACT_LEVERS, LOG_DIR (logs/node), RUN_TIMEOUT_S (1800), DRY_RUN=1
+         LAYER_ROPE / COPY_MIX / COPY_MIX_FIT / OPTIM_* / EXACT_LEVERS, LOG_DIR (logs/node), RUN_TIMEOUT_S (1800), DRY_RUN=1
   ab     AB_RUNS (4), AB_ARMS ("base hostprep copymix"), AB_STEPS ("981"; several counts = equal-loss comparison
          through sweep_steps.py), AB_SEED_BASE (1), LOG_DIR, RUN_TIMEOUT_S, DRY_RUN=1. Resumable: finished runs are kept.
 
@@ -52,6 +52,12 @@ ARMS = {
     "lropeattn":    dict(env={"LAYER_ROPE": "attn"}, exact=False, what="#385 gains on the attention sites only (weight folds)"),
     "lrope":        dict(env={"LAYER_ROPE": "1"}, exact=False, what="#385 gains on all four sites (MLP ones as activation scales)"),
     "doccopy":      dict(env={"DOC_COPY": "1"}, exact=False, what="#378 document-local copy feature"),
+    # r6-optim (182/optim-cost/README.md): the ANVIL cascade's cost
+    "optprof":      dict(env={"OPTIM_PROFILE": "1"}, exact=True, what="CUDA-event timing of the optimizer tail (diagnostic)"),
+    "optmoefused":  dict(env={"OPTIM_MOEFUSED": "1"}, exact=True, what="expert bank on the fused ANVIL tail (time only)"),
+    "optmaps3":     dict(env={"OPTIM_MAPS": "3"}, exact=False, what="three-map ANVIL cascade (one round less per bank)"),
+    "opts4maps3":   dict(env={"OPTIM_MAPS": "3", "OPTIM_NORM": "s4"}, exact=False, what="three maps after a Schatten-4 scale"),
+    "opts4":        dict(env={"OPTIM_NORM": "s4"}, exact=False, what="Schatten-4 cascade scale, four maps (loss only)"),
 }
 # What a millinat of val loss costs in train time on this stack, to price a loss change at a single step count:
 # #393 cut 999 -> 981 scheduled steps for about +3.0 millinats and -0.75 s. A sweep (AB_STEPS) measures it instead.
@@ -218,7 +224,8 @@ def mem_total_gb() -> float | None:
 def flag_env_problem(env: dict, clear: tuple[str, ...] = ()) -> str | None:
     """Parse our flags exactly as the trainer will (folds.py reads only os.environ), in a child process: the
     exported ones (minus `clear`) plus `env`."""
-    code = "import sys; sys.path.insert(0, %r); from track_1_short import folds; print(folds.describe())" % VARIANT_DIR
+    code = ("import sys; sys.path.insert(0, %r); from track_1_short import folds; "
+            "from track_1_short.optim import cascade_flags; print(folds.describe())" % VARIANT_DIR)
     child = {k: v for k, v in os.environ.items() if k not in clear}
     child.update(env)
     p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=child, timeout=30)
