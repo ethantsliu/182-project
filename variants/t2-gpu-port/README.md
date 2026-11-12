@@ -1,123 +1,173 @@
-# variants/t2-gpu-port — Track 2 (GPT-2 Medium, val ≤ 2.92), GPU only
+# variants/t2-gpu-port — Track 2 (GPT-2 Medium, val loss ≤ 2.92), GPU only
 
-This is the rule-clean hedge for Track 2: no CPU retrieval, only small-track features ported into
-`train_gpt_medium.py`. It starts from **PR #261** (@Lisennlp, MUDD connections, 14.34 min), which
-already includes #252 (@JOD-code: bigram hash, fused FP8 CE, unified NorMuonAndAdam).
+The rule-clean Track 2 tree: no CPU retrieval, only GPU-side changes to `train_gpt_medium.py`. It is
+**PR #261** (Lisennlp, MUDD connections; reported 14.34 min = 860.5 s, val loss 2.9171 ± 0.0007, n=6, on
+torch 2.10.0+cu128 / triton 3.6.0) plus a few flags that are all **off by default**. The official Track 2
+record is 17.35 min.
 
-**Nothing here has been run on a GPU.** Every flag defaults to off, and with all defaults the
-numerics are #261's. The only default-path changes are a no-op prefix-target gather plus two
-kernel arguments, and the run log now also includes `triton_kernels.py` and `medium_extras.py`.
+**Nothing here has been run on a GPU by us.** With every flag off the model, the kernels, the schedule and
+the timed region are #261's (how that was checked is below).
 
-## What changed (all behind env vars)
+## Run on the node
+
+Use the repo root's environment (torch 2.10.0+cu128, triton 3.6.0: the stack #261 was measured on).
+
+```bash
+variants/t2-gpu-port/182/run_node.sh prep     # once: 25 data shards (the root record needs 9), FA3 wheel, tokenizer, mask check
+variants/t2-gpu-port/182/run_node.sh check    # preflight, no GPU work: PASS|WARN|FAIL lines with the fix, exit 1 on FAIL
+variants/t2-gpu-port/182/run_node.sh run      # one timed run of PR #261's configuration (~22 min wall)
+```
+
+`run` repeats the preflight, runs `torchrun --standalone --nproc_per_node=8 train_gpt_medium.py` in its own
+process group with a timeout (90 min; 3 h with `COORD_DESCENT_TUNING=1`), tees stdout to `runs/<time>-run.out`
+and ends with exactly one of
+
+```
+RESULT variant=t2-gpu-port val_loss=2.9161 train_time_s=860.467 steps=4150 target=2.92 hit=1 log=<path>
+RESULT variant=t2-gpu-port status=failed reason=<one line>          (exit code != 0)
+```
+
+A run is about 14.4 min of training plus about 7 min of compile and warmup.
+
+| Variable | Meaning |
+|---|---|
+| any flag from the table below, or `EXTRA_ENV="K=V K=V"` | turns that flag on for the run |
+| `NPROC` (8) | GPUs; must divide 8 (the trainer accumulates 8/NPROC batches) |
+| `DATA_PATH` (repo root) | folder that holds `data/fineweb10B/` |
+| `LOG_DIR` (`runs/` in this folder) | where the captured stdout goes; the trainer's own log is `logs/<uuid>.txt` |
+| `DRY_RUN=1` | print the exact command and exit 0; nothing is created |
+| `RUN_TIMEOUT`, `SKIP_CHECK=1`, `PREP_TIMEOUT` (3600), `PREP_SHARDS` (25), `PYTHON` | timeouts, skip the preflight, interpreter |
+| `SEED` | ignored with a note: #261 does not seed its RNGs |
+
+What `check` looks at: Python ≥ 3.10; torch is a CUDA build that `varunneal/flash-attention-3` has a wheel
+for (2.10 + CUDA 12.8 expected); triton 3.6.0; `kernels`; numpy; the tiktoken GPT-2 vocabulary; CUDA headers
+(`cuda_bf16.h`) and a real NVRTC compile of both cross-entropy kernels for sm_90 (CPU only, ~2 s); GPU count,
+model and memory; the val shard and at least 20 train shards (one run reads 1.905 B tokens, 25 shards
+recommended); RAM, `/dev/shm`, vCPUs per rank, free disk.
+
+## What to run first, and what each result means
+
+**1. `CANON_MASK=1 variants/t2-gpu-port/182/run_node.sh run` (one run, ~22 min).** This is the base run and
+the canonical-mask measurement at once. The mask only changes the final validation, so the trained weights
+are a normal #261 run's. After the timed result the trainer scores the same weights once more with the mask
+cleared (off the clock) and logs both; `run_node.sh` prints them just above the RESULT line:
+
+```
+CANON variant=t2-gpu-port val_loss_masked=<x> val_loss_unmasked=<y> delta=<y-x> canon_ms=<ms>
+```
+
+- `val_loss_unmasked` near 2.917 and `train_time_s` near 860 says the node reproduces #261.
+  (`train_time_s` includes `canon_ms`, the wait + copy + broadcast of the mask at the end, and the mask
+  build that runs in a forked process on rank 0 during the first seconds.)
+- `delta` is the mask's gain on identical weights, so one run measures it without run-to-run noise. It
+  cannot be negative. Track 1 measured about 0.0017 at loss 3.28 (PR #350). #261's own logs lose
+  7.4e-5 of loss per step at the end (207 ms per step), so 0.0017 would be worth about 23 steps, about 4.8 s.
+- Keep the mask if `delta` ≥ 0.0005 and `canon_ms` is under about 1000. Drop it if the final validation
+  runs out of memory even with `VAL_CE_CHUNKS=16`, or if `delta` is smaller than that.
+
+**2. `variants/t2-gpu-port/182/run_node.sh ab` (4 runs, ~1.5 h).** Interleaved A B B A:
+A = `CANON_MASK=1`, B = `CANON_MASK=1 FUSED_MLP=1`, both with `VAL_LOSS_EVERY=0` (final validation only).
+`FUSED_MLP` is the pure-speed lever: the same MLP arithmetic in bf16 through one fused Triton kernel.
+The summary prints per-arm means, the paired `B-A` time and loss differences, and the mask delta of all runs.
+
+- #261's six runs have a time standard deviation of 0.28 s, so a 1 % change (8.6 s) is far outside noise
+  even with two pairs.
+- Keep `FUSED_MLP` if B is faster in both pairs by at least 4 s (0.5 %) and the unmasked loss difference is
+  within ±0.0015 (loss sd is 0.0007 per run). Drop it if the gain is under 1 s, if it is slower (at d=1024
+  the GEMMs dominate more than at Track 1's d=768, where PR #197 measured about 2 %), or if it fails to
+  launch (its kernel has never run at these shapes; forward shared memory is 229408 B of the H100's 232448).
+- `AB_RUNS` is the number of pairs (default 2, not 4, because each pair costs about 45 min);
+  `AB_A` / `AB_B` choose other flag sets, e.g. `AB_B="CANON_MASK=1 XSA=1"`.
+
+**3. Spend what survived.** If the mask (and possibly `FUSED_MLP`) hold, lower
+`NUM_SCHEDULED_ITERATIONS` from 4125 by about `delta / 7.4e-5` steps and confirm the mean stays ≤ 2.92 with
+enough runs for p < 0.01. #261 sits at 2.9171, so there are only about 0.003 of slack before any change.
+
+The other flags (prefix loss, XSA, coordinate-descent tuning) are second tier: each needs loss runs with
+noise 0.0007 and so several runs per arm. Try them only after 1 and 2.
+
+## What changed relative to PR #261 (all behind environment variables)
 
 | Flag | What it does | Ported from |
 |---|---|---|
-| `CANON_MASK=1` | At the final validation, masks the (prev, cur) token pairs GPT-2's tokenizer never emits. This can only lower the loss. Rank 0 builds the 316 MB bit mask in a forked child **on the clock** (6.5 s of CPU on an M-series Mac), then it is waited on, copied and broadcast before the clock stops. Intermediate validations run unmasked. | Track 1 #91, PR #350 @jvarho; background build from #92, PR #360 @DevenPzak (`medium_extras.py`, verbatim) |
-| `VAL_CE_CHUNKS=N` | Number of row chunks in the validation CE (default 4, as #261). Per-token losses are identical. Use 8 with `CANON_MASK`, which adds a mask gather to every logit block. | — |
-| `PREFIX_WEIGHT=w` | Prefix-token prediction aux loss: an extra CE term toward the longest proper-prefix token of the next token, added inside the fused CE kernel (`triton_kernels.py`). Schedule: `w` until `PREFIX_HOLD_FRAC` (0.2854), then 0.8w, 0.6w, 0.4w, 0.2w in equal steps until `PREFIX_END_FRAC` (0.6063), then 0. That is track 1's 0.25 → 0.20/0.15/0.10/0.05 → 0 at its stage fractions. The table is built on the clock, one bucket per rank, then `all_reduce(MAX)`. | Track 1 #88, PR #337 @jvarho; bucketed build from #92 |
-| `XSA=1`, `XSA_LAYERS=all\|i,j,..` | Learnable per-(layer, head) exclusive self-attention: `y -= tanh(α)·(⟨y,v⟩/‖v‖²)·v`, with α starting at zero, Adam (0.9, 0.95), lr_mul 1, no wd. Medium has no paired layers, so `all` means all 16. | Track 1 #82, PR #264 @djdumpling; algebraic rewrite #86, PR #317 @aryavohra |
-| `ATTN_GATE=0` | Removes the sparse attention gate (`attn_gate_bank`), as #86 did once XSA was in. | Track 1 #86, PR #317 |
-| `FUSED_MLP=1` | Runs the MLP through `triton_kernels.FusedLinearReLUSquareFunction` (already in this tree, unused by #261): `x @ W1.T` with the relu² epilogue in one kernel, and `2·(g @ W2.T)·relu(pre)` fused in the backward. Medium forked from track 1 (#188) before this kernel landed, so it still runs three inline ops. Same math in bf16. | Track 1 #59, PR #197 @andrewbriand @jrauvola (1.820 → 1.781 min there, ~2%) |
-| `COORD_DESCENT_TUNING=1` | `torch._inductor.config.coordinate_descent_tuning`. The README explicitly allows it on the medium track. #252 measured ~5 s; #261 shipped with it commented out. It adds a lot of compile time (the code comment says 30+ min). | #252 |
-| `NUM_SCHEDULED_ITERATIONS` (4125), `NUM_EXTENSION_ITERATIONS` (25), `COOLDOWN_FRAC` (0.70), `MUON_LR` (0.015), `ADAM_LR` (0.004), `VAL_LOSS_EVERY` (250) | Step and LR retune knobs. | — |
+| `CANON_MASK=1` | At the final validation, masks the (prev, cur) token pairs GPT-2's tokenizer never emits. Can only lower the loss. Rank 0 builds the 316 MB bit mask in a forked child on the clock; it is waited on, copied and broadcast before the clock stops. Intermediate validations are unmasked. Logs the unmasked loss of the same weights too (off the clock). | Track 1 #91 (PR #350, jvarho); background build from #92 (PR #360, DevenPzak), `medium_extras.py` |
+| `VAL_CE_CHUNKS=N` | Row chunks of the validation cross-entropy: 4 as #261, 8 when `CANON_MASK=1` (the mask adds a gather to every logit block). Per-token losses are the same. | — |
+| `FUSED_MLP=1` | Runs the MLP through `triton_kernels.FusedLinearReLUSquareFunction`, which #261's file already contains but Medium never calls. | Track 1 #59 (PR #197, andrewbriand, jrauvola) |
+| `PREFIX_WEIGHT=w` | Prefix-token prediction auxiliary loss inside the fused CE kernel: `w` until `PREFIX_HOLD_FRAC` (0.2854), then 0.8w, 0.6w, 0.4w, 0.2w until `PREFIX_END_FRAC` (0.6063), then 0. Uses a separate kernel compiled only when the flag is on. The table is built on the clock, one bucket per rank. | Track 1 #88 (PR #337, jvarho); bucketed build from #92 |
+| `XSA=1`, `XSA_LAYERS=all\|i,j,..` | Learnable per-(layer, head) exclusive self-attention, `y -= tanh(α)·(⟨y,v⟩/‖v‖²)·v`, α starts at 0. | Track 1 #82 (PR #264, djdumpling), rewrite of #86 (PR #317, aryavohra) |
+| `ATTN_GATE=0` | Removes the sparse attention gate, as #86 did once XSA was in. | Track 1 #86 |
+| `COORD_DESCENT_TUNING=1` | `torch._inductor.config.coordinate_descent_tuning`, allowed on this track. #252 measured about 5 s; adds 30+ min of compile. | #252 |
+| `NUM_SCHEDULED_ITERATIONS` (4125), `NUM_EXTENSION_ITERATIONS` (25), `COOLDOWN_FRAC` (0.70), `MUON_LR` (0.015), `ADAM_LR` (0.004), `VAL_LOSS_EVERY` (250) | Step and learning-rate knobs, defaults are #261's values. | — |
 
-The kernel change copies master's `track_1_short/perf/kernels/cross_entropy.py` prefix logic into
-medium's older kernel, which keeps its bf16 sigmoid cache and `grad_scale`. The S_w term, the
-prefix thread `n_predict` and the term2 collision handling are the same as master's. The prefix
-arguments go at the end of `FusedSoftcappedCrossEntropy.apply`, so `train_gpt.py`'s existing
-8-argument call still works.
+### What is the same as #261 with every flag off, and how that was checked
 
-### What was verified (CPU only, `python 182/t2-gpu-port/test_cpu.py`, ~17 s)
+- `triton_kernels.py` up to its last section is #261's file byte for byte (a test compares the SHA-256). The
+  prefix cross-entropy is a separate kernel, custom op and autograd Function appended after it, built from
+  #261's kernel source by six textual substitutions and compiled only for `PREFIX_WEIGHT > 0`.
+- The model calls the base cross-entropy with #261's eight arguments and has #261's parameters and buffers
+  (tested on CPU with the real model source at a small width).
+- The diff of `train_gpt_medium.py` against #261 was read line by line. Outside flag branches it contains:
+  the run log also includes `triton_kernels.py` and `medium_extras.py`; one `flags:` line is logged;
+  hyperparameters are read from the environment with #261's values as defaults; a zero prefix-weight tensor
+  rides along in the schedule config unused; `import medium_extras` loads the tiktoken vocabulary at start.
+  None of these is inside the timed region.
+- #261's `train_gpt.py`, `run.sh` and `Dockerfile` are not in this folder: they are the Track 1 trainer of
+  that PR's base, a launcher for it, and an image with a torch nightly this tree was not measured on.
 
-1. **Canonical mask soundness.** 228k tokens of real text (repo READMEs and .py files, plus
-   unicode and contraction edge cases) contain **0** masked adjacent pairs. 2.80% of all pairs are
-   masked. EOT/BOS is never masked. The torch bit-unpack used in eval matches numpy's `bitorder="little"`.
-2. **Prefix table.** The 8 per-rank buckets max-reduce to exactly the full table. Spot checks
-   confirm each entry is the longest proper prefix.
-3. **CE kernel logic.** A Python transliteration of the edited kernel matches autograd for loss
-   and dlogits under MTP plus prefix: the dense pass, then sparse overwrites for duplicate MTP
-   targets and for a prefix target that collides with an MTP target.
-4. **Autograd.** Surplus `None` gradients are accepted, so the 13-gradient backward is fine for
-   8-argument callers.
-5. **Prefix schedule shape.**
-6. **Model smoke test.** The real `GPT` and `TrainingManager` source is exec'd on CPU at d=128,
-   with flash-attn and the fused CE replaced by torch references. Forward and backward run under
-   every flag and the combined stack, and every parameter gets a gradient. Optimizer
-   `param_table`, `scatter_order` and `work_order` cover the parameter labels exactly. XSA at
-   α=0 is bit-identical to base, and α≠0 changes the output. An all-zero mask is a no-op, and a
-   sound random mask lowers the eval loss. Chunking does not change the loss.
-7. **`FUSED_MLP`.** The real `FusedLinearReLUSquareFunction` autograd code (exec'd from
-   `triton_kernels.py`, with a torch stand-in for the Triton kernel that asserts its 2D contiguous bf16
-   contract) matches the inline MLP's loss and every parameter gradient up to bf16 rounding.
-8. **`check_canon_val.py`** reads a fineweb `.bin` shard and finds an injected masked pair. On the box,
-   `DATA_PATH=../.. python 182/t2-gpu-port/check_canon_val.py` counts the masked adjacent pairs in the
-   real first 10,485,760 val tokens (~10 s, no GPU). It must print 0 before any `canon` run.
+### Verified on CPU
 
-### What is NOT verified (needs the 8xH100 box)
+`python -m pytest 182 -q` from this folder (38 tests, about 90 s):
 
-- The edited CUDA kernel has not been compiled (no nvcc here). The first GPU run is the compile test,
-  and the default path uses the edited kernel too. Its prefix logic is line-for-line master's
-  `track_1_short/perf/kernels/cross_entropy.py`, which compiles and runs on H100.
-- `FUSED_MLP`'s Triton kernel has never run at d=1024/4096 (track 1 ran it at 768/3072). The block
-  sizes divide both shapes and shared memory does not depend on K, but only a GPU run proves it.
-- Whether the `canon_mask` gather/shift/`masked_fill` fuses under Inductor in the eval graph.
-  Without fusion, a 65k-row chunk materializes ~13 GB of fp32 logits plus a bool mask. #261's eval
-  peak is unknown and its training peak is 60 GB. Watch for OOM at the final validation, and raise
-  `VAL_CE_CHUNKS` if needed.
-- Fork-on-clock of the mask builder alongside medium's data-loader threads. Master does the same
-  thing, but not with this loader.
-- All loss and speed effects. No speedup is claimed.
+1. Canonical mask: 0 masked adjacent pairs in about 228k tokens of real text; 2.80 % of all pairs are
+   masked; EOT is never masked; the torch bit-unpack matches numpy's.
+2. Prefix table: the 8 per-rank buckets max-reduce to the full table; entries are the longest proper prefix.
+3. Kernels file is #261's plus the prefix section; each of the six kernel edits applies exactly once.
+4. Prefix kernel arithmetic: a Python transliteration matches autograd for loss and dlogits, including
+   duplicate targets, a prefix target that collides with another target, and an out-of-range prefix target.
+5. Model smoke test of every flag and the combined stack with the real `GPT` / `TrainingManager` source:
+   every parameter gets a gradient, optimizer tables cover the parameters, XSA at α=0 is bit-identical,
+   an all-zero mask is a no-op and a sound mask lowers the loss, `FUSED_MLP` matches the inline MLP up to
+   bf16 rounding.
+6. `run_node.sh`: parsing of a real #261 record log and of truncated, NaN, timed-out and failed runs;
+   the exact RESULT line; dry runs; the preflight on this machine (fails with reasons) and on fake nodes
+   (complete, too few shards, too few or too small GPUs, wrong torch, missing wheel, NVRTC failure); a full
+   `run` and `ab` against a stand-in interpreter, including the timeout kill.
 
-## Ablation plan (8xH100)
+`bash 182/compile_check.sh` (docker, `triton-cpu:3.6.0`: torch 2.10.0, triton 3.6.0, NVRTC 12.8.93)
+**compiles** every kernel for sm_90a without a GPU: the base CE kernel and the prefix CE kernel through
+torch's own NVRTC call and `ptxas`, and the `FUSED_MLP` Triton kernel forward and backward at Medium's
+shapes (K=1024, N=4096, per-rank token counts 16384 to 65536 and the 262144-row validation batch).
 
-```bash
-cd variants/t2-gpu-port
-pip install -r requirements.txt && (cd ../.. && python data/cached_fineweb10B.py 25)  # ~1.9B tokens (+BOS-alignment waste)
-python 182/t2-gpu-port/test_cpu.py                                   # sanity check on the box
-DATA_PATH=../.. python 182/t2-gpu-port/check_canon_val.py            # must print "0 masked"
-182/t2-gpu-port/ablate.sh base 1      # first: compiles the edited kernel; confirm val ≈ 2.917, ~860 s
-```
+On the node, `prep` also runs `182/check_canon_val.py`, which counts masked adjacent pairs in the real
+10,485,760 validation tokens. It must print 0 before any `CANON_MASK` result is trusted.
 
-`ablate.sh` cd's into this folder and defaults `DATA_PATH` to `../..`. It sets `VAL_LOSS_EVERY=0` for
-every arm (#261 used 250). Use the default for a record submission.
+### Not verified (needs the 8xH100 node)
 
-Each run takes ~14.3 min of training plus ~7 min of compile/warmup, so about 22 min (much more with
-`COORD_DESCENT_TUNING=1`). The plan is ordered by expected value per GPU-hour. The step estimates
-come from #261's own logs: the end-of-run slope is 7.4e-5 loss/step at 207 ms/step, so 0.001 of
-loss is worth ~13.5 steps, about 2.8 s.
+- Any loss or time. No speedup is claimed.
+- That the kernels compute the right thing on the GPU: the compile check executes nothing. The prefix
+  kernel's arithmetic is only checked through the Python transliteration.
+- `FUSED_MLP` at d=1024/4096 under `torch.compile` and its speed.
+- `CANON_MASK` final validation memory at 8 chunks (training peaks at 59977 MiB allocated in #261's logs;
+  the validation should need far less, but it was never run), the fork alongside Medium's data-loader
+  threads, and the second (unmasked) validation pass.
+- XSA, the prefix loss and `ATTN_GATE=0` under `torch.compile` (no graph breaks expected, not tried).
+- `check`'s NVRTC compile and the FA3 wheel resolution on the node's real stack. `kernels` 0.16.1 was
+  only inspected: it accepts the `torch210-cxx11-cu128-x86_64-linux` build the FA3 repository publishes.
+- `prep`'s downloads (network), and whether 25 shards cover the tokens BOS alignment skips (20 is the
+  arithmetic minimum; the loader stops with an error if it runs out).
 
-| # | Arm | Runs | Expectation from track 1 | What decides it |
-|---|---|---|---|---|
-| 0 | `base` | 2 | #261: 2.9171 ± 0.0007, 860.5 s | Node reproduces the record. |
-| 1 | `canon` | 2 | −0.0017 loss at 3.28, so maybe −15 to −25 steps (~3–5 s) | Final-val delta. It is eval-only, so the masked run is the same run as base except at the last validation. Check the eval doesn't OOM. |
-| 2 | `cdt` | 1 | ~−5 s (#252) | Step time only. Costs the compile. |
-| 3 | `prefix` vs `prefix_s` | 2 each | −15 steps of 1375 at 3.28, ~1% | Medium's MTP only runs for the first 1/6 of training, so also try a shorter prefix window (`prefix_s`). |
-| 3b | `fmlp` | 2 | #59: ~2% of step time at d=768, so a guess of 5–15 s here (at d=1024 the GEMMs grow faster than the elementwise traffic the fusion saves) | Step time only, at the same loss. |
-| 4 | `xsa`, `xsa_nog` | 2 each | #82: −30 steps of 1440. #86: dropping the gate made each step faster at about the same loss | Loss delta and step time (XSA adds elementwise work). |
-| 5 | `stack` | 3 | Sum of what survived 1–4 | Should stay additive. |
-| 6 | `stack_steps` | 5–8 | Spend the gain: `NUM_SCHEDULED_ITERATIONS=4125 − Δsteps`, then confirm p < 0.01 | #261 already used up most of #252's budget (2.9171 vs 2.92). With sd 0.0007 and n=6, p < 0.01 needs a mean ≤ ~2.919, so only ~0.002 of slack is left (~25 steps) before any new feature. |
+## Upstream status (checked 2026-11-11)
 
-Summarize with `python 182/t2-gpu-port/summarize.py runs/`. It prints mean, sd, p(<2.92), time,
-and the steps the loss gain buys versus `base`. For the LR retune (priority 6 in the brief), sweep
-`MUON_LR` ∈ {0.013, 0.015, 0.017} and `COOLDOWN_FRAC` ∈ {0.65, 0.70, 0.75} on the `stack`
-config with 1 run each, only after step 6 settles the feature set. `182/tools` has the
-t-test/nsys tooling.
+PR #261 is open with a single commit (cdddeda8, 2026-04-27) and no maintainer decision; its only comment
+(2026-07-08) asks whether Medium records are still being merged. No Track 2 PR was opened or updated after
+2026-11-08, and there is no new rule decision for this track. Nothing was ported this round.
 
-## Not ported (yet), in priority order, with notes
+## Not ported, in priority order
 
-- **FP8 MLP up/down/backward and packed FP8 QKV (#84, #89, #90).** Medium hard-disables FP8 in
-  `CastedLinear` ("requires tuning of scales") and runs the MLP as inline bf16 `F.linear`. The
-  port needs master's `perf/kernels/mlp.py`, its delayed-scaling amax, and new
-  d=1024 scale constants. Master's static x scale of 2^-4 is justified by max|x| ≤ √768 < 448·2^-4 = 28
-  after RMS norm. At d=1024, √1024 = 32 > 28, so it needs 2^-3 here. It is the largest likely speed win (d=1024 MLPs are more compute-bound
-  than d=768), but it cannot be checked without a GPU, so it was skipped rather than shipped broken.
-  `182/hadamard-fp8` covers the FP8 numerics question.
-- **Paired-head attention (#58).** Needs paired YaRN tables and an interleaved q/k layout. With
-  medium's 8 heads × 128 it is a real architecture change, so do it after XSA results come in.
-- **Medium-native features dropped by #188:** Snoo and EMA optimizer wrappers (#128/#129/#137),
-  Smear-MTP (#151), the cubic window schedule (record 8), and sharded mixed-precision Muon
-  (record 7). Snoo/EMA would wrap the unified `NorMuonAndAdam`, which is not a small diff.
-  The cubic window schedule is cheap, but every new window size is another FA3 compile.
-- **Hashed n-gram table and sampled softmax (#92).** At d=1024, 84.6M rows is 173 GB in bf16, or
-  21.7 GB per rank. With #261's 60 GB peak, that does not fit in 80 GB. It would need about half
-  the rows (~11 GB per rank) or a 768-wide table projected up. This is a stretch goal and was not started.
+- **FP8 MLP and packed FP8 QKV (Track 1 #84, #89, #90).** Medium disables FP8 in `CastedLinear` and runs
+  the MLP in bf16. The port needs master's MLP kernels, delayed-scaling amax and new d=1024 scale constants
+  (master's static x scale 2^-4 assumes max|x| ≤ √768; at d=1024 it needs 2^-3). Probably the largest speed
+  win, and not checkable without a GPU.
+- **Paired-head attention (#58).** A real architecture change with 8 heads × 128.
+- **Medium-native features dropped by #188:** Snoo / EMA wrappers, Smear-MTP, the cubic window schedule.
+- **Hashed n-gram table and sampled softmax (#92).** At d=1024 the table does not fit next to #261's 60 GB peak.
