@@ -22,6 +22,8 @@ address census see them like any other.
 
 Provenance: ours (not in record #360 or #92).
 """
+import os
+
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -30,6 +32,15 @@ from torch import nn
 from track_1_short.perf.kernels import moe_mlp
 from track_1_short.perf.kernels.mlp import quantize_mlp_weights_dual, quantize_weights_dual_ntiles
 from track_1_short.perf.kernels.moe_mlp import RoutedFP8MoE, transpose_copy_batched
+
+# MOE_ROUTER_FUSED=1 (off by default): the router's GEMMs as fused kernels (perf/kernels/moe_router.py). Unset, the
+# module is not imported and RoutedFP8MoE runs as in #397.
+if os.environ.get("MOE_ROUTER_FUSED", "0") == "1":
+    from track_1_short.perf.kernels.moe_router import RoutedFP8MoEFusedRouter as _RoutedMoE
+    if os.environ.get("RANK", "0") == "0":
+        print("[moe] MOE_ROUTER_FUSED=1: fused router kernels (perf/kernels/moe_router.py)", flush=True)
+else:
+    _RoutedMoE = RoutedFP8MoE
 
 MOE_LAYERS = (1, 3, 5, 6, 8)   # the MoE layers; the dense slots of mlp_bank are derived from them
 MOE_EXPERTS = 8
@@ -141,7 +152,7 @@ class MoEMixin:
         if self.training:
             up, down = slice(2 * k * E, (2 * k + 1) * E), slice((2 * k + 1) * E, (2 * k + 2) * E)
             d = w_fc.size(-1)
-            out, probs, counts = RoutedFP8MoE.apply(
+            out, probs, counts = _RoutedMoE.apply(
                 xin, router_w, post, w_fc, w_proj,
                 self._moe_f8_row[up].view(-1, d), self._moe_f8_col[up],
                 self._moe_f8_row[down].view(-1, d), self._moe_f8_col[down],
