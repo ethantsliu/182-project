@@ -1,0 +1,857 @@
+/mnt/work/dev_patel/pydeps/t2-exact-match/exact_match/__init__.py
+W1112 06:12:14.733000 9 torch/distributed/run.py:851] 
+W1112 06:12:14.733000 9 torch/distributed/run.py:851] *****************************************
+W1112 06:12:14.733000 9 torch/distributed/run.py:851] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1112 06:12:14.733000 9 torch/distributed/run.py:851] *****************************************
+track 2 settings: {'MODEL_DIM': '1024', 'MODEL_LAYERS': '16', 'MLP_HIDDEN_DIM': '4096', 'LR_COOLDOWN_FRAC': '0.70', 'LR_FLOOR': '0.10', 'VAL_BATCH_SIZE': '1048576', 'NUM_SCHEDULED_ITERATIONS': '5790', 'TARGET_LOSS': '2.92'} coordinate_descent_tuning=False
+logs/32e26c06-d61e-405d-8a0c-bccb7cade37e.txt
+memory budget (estimate) d=1024 layers=16 mlp_hidden=4096 val_batch=1048576 steps=5800 train_shards=103 (excluded 12):
+  gpu  ngram table shard                                20.29 GiB
+  gpu  ngram cycle grads + row cache                     0.75 GiB
+  gpu  value_embeds                                      1.44 GiB
+  gpu  dense matrices                                    1.50 GiB
+  gpu  fixed buffers                                     1.02 GiB
+  gpu  exact counts (corpus share + table)               6.25 GiB
+  gpu  other (activations, graph pools; calibrated)     28.57 GiB
+  gpu  peak allocated, estimated                        59.81 GiB of 79.1 GiB
+  host model build, transient (all local ranks)         12.64 GiB
+  host pinned staging (all local ranks)                  0.03 GiB
+  host canonical mask build (one child)                  2.36 GiB
+  host MemTotal 1842.6 GiB, MemAvailable 1806.3 GiB
+model_configuration:layers=16 width=1024 mlp_hidden=4096 parameters=528536207 lr_cooldown=0.7 lr_floor=0.1 val_batch_size=1048576 target_loss=2.92 coordinate_descent_tuning=False
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1713 available) | /dev/shm 921 GiB (920 free) | THP [always] madvise never | kernel 5.10.0-34-cloud-amd64
+retrieval host plan: 64 build threads; 6-token index 91 shards (9.06B tokens), 3-/2-token indexes 20 shards; estimated arenas 147 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 388 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 1651, 1652, 1653, 1654, 3511, 3512, 3513, 3514, 4798, 4799, 4800, 4801, 5441, 5442, 5443, 5444, 5788, 5789, 5790, 5791, 5792, 5793, 5794] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 5442
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/lowering.py:1960: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+memory after setup (measured, rank 0): allocated 55.20 GiB reserved 64.77 GiB
+step:25/5800 train_time:1131ms step_avg:45.23ms
+step:50/5800 train_time:2054ms step_avg:41.08ms
+step:75/5800 train_time:2971ms step_avg:39.61ms
+step:100/5800 train_time:3892ms step_avg:38.92ms
+step:125/5800 train_time:4802ms step_avg:38.41ms
+validation index built in 4.25 s
+step:150/5800 train_time:5717ms step_avg:38.11ms
+step:175/5800 train_time:6624ms step_avg:37.85ms
+step:200/5800 train_time:7540ms step_avg:37.70ms
+step:225/5800 train_time:8452ms step_avg:37.57ms
+validation index built in 3.76 s
+step:250/5800 train_time:9362ms step_avg:37.45ms
+step:275/5800 train_time:10270ms step_avg:37.35ms
+step:300/5800 train_time:11184ms step_avg:37.28ms
+step:325/5800 train_time:12093ms step_avg:37.21ms
+step:350/5800 train_time:13006ms step_avg:37.16ms
+step:375/5800 train_time:13916ms step_avg:37.11ms
+step:400/5800 train_time:14830ms step_avg:37.08ms
+step:425/5800 train_time:15739ms step_avg:37.03ms
+step:450/5800 train_time:16654ms step_avg:37.01ms
+step:475/5800 train_time:17564ms step_avg:36.98ms
+step:500/5800 train_time:18484ms step_avg:36.97ms
+step:525/5800 train_time:19386ms step_avg:36.93ms
+step:550/5800 train_time:20299ms step_avg:36.91ms
+step:575/5800 train_time:21208ms step_avg:36.88ms
+validation index built in 11.88 s
+step:600/5800 train_time:22258ms step_avg:37.10ms
+step:625/5800 train_time:23170ms step_avg:37.07ms
+step:650/5800 train_time:24082ms step_avg:37.05ms
+step:675/5800 train_time:24990ms step_avg:37.02ms
+step:700/5800 train_time:25903ms step_avg:37.00ms
+step:725/5800 train_time:26812ms step_avg:36.98ms
+step:750/5800 train_time:27725ms step_avg:36.97ms
+step:775/5800 train_time:28633ms step_avg:36.95ms
+step:800/5800 train_time:29547ms step_avg:36.93ms
+step:825/5800 train_time:30454ms step_avg:36.91ms
+step:850/5800 train_time:31368ms step_avg:36.90ms
+step:875/5800 train_time:32277ms step_avg:36.89ms
+step:900/5800 train_time:33190ms step_avg:36.88ms
+step:925/5800 train_time:34098ms step_avg:36.86ms
+step:950/5800 train_time:35010ms step_avg:36.85ms
+step:975/5800 train_time:35919ms step_avg:36.84ms
+step:1000/5800 train_time:36833ms step_avg:36.83ms
+step:1025/5800 train_time:37741ms step_avg:36.82ms
+step:1050/5800 train_time:38656ms step_avg:36.81ms
+step:1075/5800 train_time:39564ms step_avg:36.80ms
+step:1100/5800 train_time:40477ms step_avg:36.80ms
+step:1125/5800 train_time:41385ms step_avg:36.79ms
+step:1150/5800 train_time:42298ms step_avg:36.78ms
+step:1175/5800 train_time:43208ms step_avg:36.77ms
+step:1200/5800 train_time:44122ms step_avg:36.77ms
+step:1225/5800 train_time:45030ms step_avg:36.76ms
+step:1250/5800 train_time:45945ms step_avg:36.76ms
+step:1275/5800 train_time:46853ms step_avg:36.75ms
+step:1300/5800 train_time:47768ms step_avg:36.74ms
+step:1325/5800 train_time:48677ms step_avg:36.74ms
+step:1350/5800 train_time:49591ms step_avg:36.73ms
+step:1375/5800 train_time:50500ms step_avg:36.73ms
+step:1400/5800 train_time:51413ms step_avg:36.72ms
+step:1425/5800 train_time:52323ms step_avg:36.72ms
+step:1450/5800 train_time:53238ms step_avg:36.72ms
+step:1475/5800 train_time:54147ms step_avg:36.71ms
+step:1500/5800 train_time:55060ms step_avg:36.71ms
+step:1525/5800 train_time:55970ms step_avg:36.70ms
+step:1550/5800 train_time:56883ms step_avg:36.70ms
+step:1575/5800 train_time:57793ms step_avg:36.69ms
+step:1600/5800 train_time:58709ms step_avg:36.69ms
+step:1625/5800 train_time:59619ms step_avg:36.69ms
+step:1650/5800 train_time:60525ms step_avg:36.68ms
+step:1675/5800 train_time:61448ms step_avg:36.69ms
+step:1700/5800 train_time:62385ms step_avg:36.70ms
+step:1725/5800 train_time:63315ms step_avg:36.70ms
+step:1750/5800 train_time:64249ms step_avg:36.71ms
+step:1775/5800 train_time:65181ms step_avg:36.72ms
+step:1800/5800 train_time:66120ms step_avg:36.73ms
+step:1825/5800 train_time:67051ms step_avg:36.74ms
+step:1850/5800 train_time:67985ms step_avg:36.75ms
+step:1875/5800 train_time:68917ms step_avg:36.76ms
+step:1900/5800 train_time:69854ms step_avg:36.77ms
+step:1925/5800 train_time:70785ms step_avg:36.77ms
+step:1950/5800 train_time:71718ms step_avg:36.78ms
+step:1975/5800 train_time:72650ms step_avg:36.78ms
+step:2000/5800 train_time:73588ms step_avg:36.79ms
+step:2025/5800 train_time:74519ms step_avg:36.80ms
+step:2050/5800 train_time:75453ms step_avg:36.81ms
+step:2075/5800 train_time:76383ms step_avg:36.81ms
+step:2100/5800 train_time:77319ms step_avg:36.82ms
+step:2125/5800 train_time:78251ms step_avg:36.82ms
+step:2150/5800 train_time:79186ms step_avg:36.83ms
+step:2175/5800 train_time:80118ms step_avg:36.84ms
+step:2200/5800 train_time:81054ms step_avg:36.84ms
+step:2225/5800 train_time:81984ms step_avg:36.85ms
+step:2250/5800 train_time:82918ms step_avg:36.85ms
+step:2275/5800 train_time:83848ms step_avg:36.86ms
+step:2300/5800 train_time:84785ms step_avg:36.86ms
+step:2325/5800 train_time:85715ms step_avg:36.87ms
+step:2350/5800 train_time:86648ms step_avg:36.87ms
+step:2375/5800 train_time:87579ms step_avg:36.88ms
+step:2400/5800 train_time:88518ms step_avg:36.88ms
+step:2425/5800 train_time:89451ms step_avg:36.89ms
+step:2450/5800 train_time:90385ms step_avg:36.89ms
+step:2475/5800 train_time:91318ms step_avg:36.90ms
+step:2500/5800 train_time:92254ms step_avg:36.90ms
+step:2525/5800 train_time:93184ms step_avg:36.90ms
+step:2550/5800 train_time:94117ms step_avg:36.91ms
+step:2575/5800 train_time:95047ms step_avg:36.91ms
+step:2600/5800 train_time:95983ms step_avg:36.92ms
+step:2625/5800 train_time:96916ms step_avg:36.92ms
+step:2650/5800 train_time:97850ms step_avg:36.92ms
+step:2675/5800 train_time:98780ms step_avg:36.93ms
+step:2700/5800 train_time:99717ms step_avg:36.93ms
+step:2725/5800 train_time:100649ms step_avg:36.94ms
+step:2750/5800 train_time:101585ms step_avg:36.94ms
+step:2775/5800 train_time:102517ms step_avg:36.94ms
+step:2800/5800 train_time:103455ms step_avg:36.95ms
+step:2825/5800 train_time:104386ms step_avg:36.95ms
+step:2850/5800 train_time:105320ms step_avg:36.95ms
+step:2875/5800 train_time:106252ms step_avg:36.96ms
+step:2900/5800 train_time:107188ms step_avg:36.96ms
+step:2925/5800 train_time:108122ms step_avg:36.96ms
+step:2950/5800 train_time:109056ms step_avg:36.97ms
+step:2975/5800 train_time:109987ms step_avg:36.97ms
+step:3000/5800 train_time:110925ms step_avg:36.97ms
+step:3025/5800 train_time:111856ms step_avg:36.98ms
+step:3050/5800 train_time:112791ms step_avg:36.98ms
+step:3075/5800 train_time:113721ms step_avg:36.98ms
+step:3100/5800 train_time:114658ms step_avg:36.99ms
+step:3125/5800 train_time:115589ms step_avg:36.99ms
+step:3150/5800 train_time:116523ms step_avg:36.99ms
+step:3175/5800 train_time:117453ms step_avg:36.99ms
+step:3200/5800 train_time:118390ms step_avg:37.00ms
+step:3225/5800 train_time:119320ms step_avg:37.00ms
+step:3250/5800 train_time:120255ms step_avg:37.00ms
+step:3275/5800 train_time:121183ms step_avg:37.00ms
+step:3300/5800 train_time:122121ms step_avg:37.01ms
+step:3325/5800 train_time:123052ms step_avg:37.01ms
+step:3350/5800 train_time:123986ms step_avg:37.01ms
+step:3375/5800 train_time:124917ms step_avg:37.01ms
+step:3400/5800 train_time:125853ms step_avg:37.02ms
+step:3425/5800 train_time:126786ms step_avg:37.02ms
+step:3450/5800 train_time:127717ms step_avg:37.02ms
+step:3475/5800 train_time:128648ms step_avg:37.02ms
+step:3500/5800 train_time:129585ms step_avg:37.02ms
+step:3525/5800 train_time:130521ms step_avg:37.03ms
+step:3550/5800 train_time:131478ms step_avg:37.04ms
+step:3575/5800 train_time:132433ms step_avg:37.04ms
+step:3600/5800 train_time:133394ms step_avg:37.05ms
+step:3625/5800 train_time:134350ms step_avg:37.06ms
+step:3650/5800 train_time:135307ms step_avg:37.07ms
+step:3675/5800 train_time:136262ms step_avg:37.08ms
+step:3700/5800 train_time:137225ms step_avg:37.09ms
+step:3725/5800 train_time:138180ms step_avg:37.10ms
+step:3750/5800 train_time:139137ms step_avg:37.10ms
+step:3775/5800 train_time:140092ms step_avg:37.11ms
+step:3800/5800 train_time:141053ms step_avg:37.12ms
+step:3825/5800 train_time:142009ms step_avg:37.13ms
+step:3850/5800 train_time:142965ms step_avg:37.13ms
+step:3875/5800 train_time:143918ms step_avg:37.14ms
+step:3900/5800 train_time:144879ms step_avg:37.15ms
+step:3925/5800 train_time:145835ms step_avg:37.16ms
+step:3950/5800 train_time:146793ms step_avg:37.16ms
+step:3975/5800 train_time:147747ms step_avg:37.17ms
+step:4000/5800 train_time:148710ms step_avg:37.18ms
+step:4025/5800 train_time:149665ms step_avg:37.18ms
+step:4050/5800 train_time:150622ms step_avg:37.19ms
+step:4075/5800 train_time:151576ms step_avg:37.20ms
+step:4100/5800 train_time:152538ms step_avg:37.20ms
+step:4125/5800 train_time:153494ms step_avg:37.21ms
+step:4150/5800 train_time:154450ms step_avg:37.22ms
+step:4175/5800 train_time:155405ms step_avg:37.22ms
+step:4200/5800 train_time:156367ms step_avg:37.23ms
+step:4225/5800 train_time:157324ms step_avg:37.24ms
+step:4250/5800 train_time:158279ms step_avg:37.24ms
+step:4275/5800 train_time:159235ms step_avg:37.25ms
+step:4300/5800 train_time:160194ms step_avg:37.25ms
+step:4325/5800 train_time:161148ms step_avg:37.26ms
+step:4350/5800 train_time:162107ms step_avg:37.27ms
+step:4375/5800 train_time:163062ms step_avg:37.27ms
+step:4400/5800 train_time:164021ms step_avg:37.28ms
+step:4425/5800 train_time:164977ms step_avg:37.28ms
+step:4450/5800 train_time:165935ms step_avg:37.29ms
+step:4475/5800 train_time:166889ms step_avg:37.29ms
+step:4500/5800 train_time:167849ms step_avg:37.30ms
+step:4525/5800 train_time:168805ms step_avg:37.30ms
+step:4550/5800 train_time:169763ms step_avg:37.31ms
+step:4575/5800 train_time:170717ms step_avg:37.32ms
+step:4600/5800 train_time:171678ms step_avg:37.32ms
+step:4625/5800 train_time:172632ms step_avg:37.33ms
+step:4650/5800 train_time:173591ms step_avg:37.33ms
+step:4675/5800 train_time:174545ms step_avg:37.34ms
+step:4700/5800 train_time:175508ms step_avg:37.34ms
+step:4725/5800 train_time:176462ms step_avg:37.35ms
+step:4750/5800 train_time:177420ms step_avg:37.35ms
+step:4775/5800 train_time:178376ms step_avg:37.36ms
+step:4800/5800 train_time:179336ms step_avg:37.36ms
+step:4825/5800 train_time:180319ms step_avg:37.37ms
+step:4850/5800 train_time:181308ms step_avg:37.38ms
+step:4875/5800 train_time:182296ms step_avg:37.39ms
+step:4900/5800 train_time:183289ms step_avg:37.41ms
+step:4925/5800 train_time:184277ms step_avg:37.42ms
+step:4950/5800 train_time:185267ms step_avg:37.43ms
+step:4975/5800 train_time:186255ms step_avg:37.44ms
+step:5000/5800 train_time:187250ms step_avg:37.45ms
+step:5025/5800 train_time:188239ms step_avg:37.46ms
+step:5050/5800 train_time:189229ms step_avg:37.47ms
+step:5075/5800 train_time:190219ms step_avg:37.48ms
+step:5100/5800 train_time:191213ms step_avg:37.49ms
+step:5125/5800 train_time:192202ms step_avg:37.50ms
+step:5150/5800 train_time:193193ms step_avg:37.51ms
+step:5175/5800 train_time:194183ms step_avg:37.52ms
+step:5200/5800 train_time:195179ms step_avg:37.53ms
+step:5225/5800 train_time:196167ms step_avg:37.54ms
+step:5250/5800 train_time:197160ms step_avg:37.55ms
+step:5275/5800 train_time:198148ms step_avg:37.56ms
+step:5300/5800 train_time:199143ms step_avg:37.57ms
+step:5325/5800 train_time:200133ms step_avg:37.58ms
+step:5350/5800 train_time:201121ms step_avg:37.59ms
+step:5375/5800 train_time:202109ms step_avg:37.60ms
+step:5400/5800 train_time:203105ms step_avg:37.61ms
+step:5425/5800 train_time:204098ms step_avg:37.62ms
+step:5450/5800 train_time:205108ms step_avg:37.63ms
+step:5475/5800 train_time:206163ms step_avg:37.66ms
+step:5500/5800 train_time:207223ms step_avg:37.68ms
+step:5525/5800 train_time:208275ms step_avg:37.70ms
+step:5550/5800 train_time:209329ms step_avg:37.72ms
+step:5575/5800 train_time:210387ms step_avg:37.74ms
+step:5600/5800 train_time:211448ms step_avg:37.76ms
+step:5625/5800 train_time:212501ms step_avg:37.78ms
+step:5650/5800 train_time:213559ms step_avg:37.80ms
+step:5675/5800 train_time:214616ms step_avg:37.82ms
+step:5700/5800 train_time:215679ms step_avg:37.84ms
+step:5725/5800 train_time:216732ms step_avg:37.86ms
+step:5750/5800 train_time:217788ms step_avg:37.88ms
+step:5775/5800 train_time:218843ms step_avg:37.89ms
+step:5799/5800 train_time:219858ms step_avg:37.91ms
+step:5800/5800 train_time:219904ms step_avg:37.91ms
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank7]:     train_gpt.main()
+[rank7]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank7]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank7]:     return super().__call__(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank7]:     return self._call_impl(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank7]:     return forward_call(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank7]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank7]:     return fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank7]:     return compiled_fn(full_args)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank7]:     all_outs = call_func_at_runtime_with_args(
+[rank7]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank7]:     out = normalize_as_list(f(args))
+[rank7]:                             ^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank7]:     return self.compiled_fn(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank7]:     return compiled_fn(runtime_args)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank7]:     outs = compiled_fn(args)
+[rank7]:            ^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank7]:     return self.current_callable(inputs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank7]:     out = model(new_inputs)
+[rank7]:           ^^^^^^^^^^^^^^^^^
+[rank7]:   File "/tmp/torchinductor_dev_patel/av/cavjcortje36ieui3eyzvkszhbobuffb5wcoh76ccaik5rsvlyh6.py", line 10587, in call
+[rank7]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank7]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 7 has a total capacity of 79.10 GiB of which 859.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.12 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 574.34 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank4]:     train_gpt.main()
+[rank4]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank4]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank4]:     return super().__call__(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank4]:     return self._call_impl(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank4]:     return forward_call(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank4]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank4]:     return fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank4]:     return compiled_fn(full_args)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank4]:     all_outs = call_func_at_runtime_with_args(
+[rank4]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank4]:     out = normalize_as_list(f(args))
+[rank4]:                             ^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank4]:     return self.compiled_fn(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank4]:     return compiled_fn(runtime_args)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank4]:     outs = compiled_fn(args)
+[rank4]:            ^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank4]:     return self.current_callable(inputs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank4]:     out = model(new_inputs)
+[rank4]:           ^^^^^^^^^^^^^^^^^
+[rank4]:   File "/tmp/torchinductor_dev_patel/tz/ctzyhfoatmmkcussmzg6ditxopsoykm3wir5ajbdleblxiq4uuqh.py", line 10587, in call
+[rank4]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank4]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 4 has a total capacity of 79.10 GiB of which 1.15 GiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.12 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 253.12 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank6]:     train_gpt.main()
+[rank6]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank6]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank6]:     return super().__call__(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank6]:     return self._call_impl(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank6]:     return forward_call(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank6]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank6]:     return fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank6]:     return compiled_fn(full_args)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank6]:     all_outs = call_func_at_runtime_with_args(
+[rank6]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank6]:     out = normalize_as_list(f(args))
+[rank6]:                             ^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank6]:     return self.compiled_fn(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank6]:     return compiled_fn(runtime_args)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank6]:     outs = compiled_fn(args)
+[rank6]:            ^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank6]:     return self.current_callable(inputs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank6]:     out = model(new_inputs)
+[rank6]:           ^^^^^^^^^^^^^^^^^
+[rank6]:   File "/tmp/torchinductor_dev_patel/n6/cn6ejond6vi6ty2c4viiinj5uzcuofnrps6ntub7ywe7eb7ifts6.py", line 10587, in call
+[rank6]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank6]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 6 has a total capacity of 79.10 GiB of which 1.13 GiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.12 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 275.74 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank5]:     train_gpt.main()
+[rank5]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank5]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank5]:     return super().__call__(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank5]:     return self._call_impl(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank5]:     return forward_call(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank5]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank5]:     return fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank5]:     return compiled_fn(full_args)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank5]:     all_outs = call_func_at_runtime_with_args(
+[rank5]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank5]:     out = normalize_as_list(f(args))
+[rank5]:                             ^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank5]:     return self.compiled_fn(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank5]:     return compiled_fn(runtime_args)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank5]:     outs = compiled_fn(args)
+[rank5]:            ^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank5]:     return self.current_callable(inputs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank5]:     out = model(new_inputs)
+[rank5]:           ^^^^^^^^^^^^^^^^^
+[rank5]:   File "/tmp/torchinductor_dev_patel/m4/cm45prz3v3fqnx2x5dp2yll7pib3l2r6mak4bp5tgxkkvofnptpu.py", line 10587, in call
+[rank5]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank5]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 5 has a total capacity of 79.10 GiB of which 737.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.12 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 695.59 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank1]:     train_gpt.main()
+[rank1]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank1]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank1]:     return super().__call__(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank1]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank1]:     return compiled_fn(full_args)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank1]:     all_outs = call_func_at_runtime_with_args(
+[rank1]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank1]:     out = normalize_as_list(f(args))
+[rank1]:                             ^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank1]:     return self.compiled_fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank1]:     return compiled_fn(runtime_args)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank1]:     outs = compiled_fn(args)
+[rank1]:            ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank1]:     return self.current_callable(inputs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank1]:     out = model(new_inputs)
+[rank1]:           ^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/torchinductor_dev_patel/pq/cpqwspewelyygamfhgnnhjpasujsvkonuqznvffpkhka65ngfrjo.py", line 10587, in call
+[rank1]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 1 has a total capacity of 79.10 GiB of which 741.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.31 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 503.26 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank3]:     train_gpt.main()
+[rank3]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank3]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank3]:     return super().__call__(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank3]:     return self._call_impl(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank3]:     return forward_call(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank3]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank3]:     return fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank3]:     return compiled_fn(full_args)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank3]:     all_outs = call_func_at_runtime_with_args(
+[rank3]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank3]:     out = normalize_as_list(f(args))
+[rank3]:                             ^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank3]:     return self.compiled_fn(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank3]:     return compiled_fn(runtime_args)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank3]:     outs = compiled_fn(args)
+[rank3]:            ^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank3]:     return self.current_callable(inputs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank3]:     out = model(new_inputs)
+[rank3]:           ^^^^^^^^^^^^^^^^^
+[rank3]:   File "/tmp/torchinductor_dev_patel/3s/c3szsdwmer2jfmirve3itcczjzlv3v2q5ih6yrdgxnm7r7xalwyn.py", line 10587, in call
+[rank3]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank3]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 3 has a total capacity of 79.10 GiB of which 1021.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.12 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 414.45 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank0]:     train_gpt.main()
+[rank0]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank0]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank0]:     return super().__call__(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank0]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank0]:     return compiled_fn(full_args)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank0]:     all_outs = call_func_at_runtime_with_args(
+[rank0]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank0]:     out = normalize_as_list(f(args))
+[rank0]:                             ^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank0]:     return self.compiled_fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank0]:     return compiled_fn(runtime_args)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank0]:     outs = compiled_fn(args)
+[rank0]:            ^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank0]:     return self.current_callable(inputs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank0]:     out = model(new_inputs)
+[rank0]:           ^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/torchinductor_dev_patel/yt/cyt6xdvv4autmwjqgyen47fihrdms5k6r5sbpklsm2g7j5a2jywm.py", line 10587, in call
+[rank0]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 0 has a total capacity of 79.10 GiB of which 881.88 MiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.31 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 362.77 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt_medium_cpu.py", line 56, in <module>
+[rank2]:     train_gpt.main()
+[rank2]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/train_gpt.py", line 486, in main
+[rank2]:     loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 472, in __call__
+[rank2]:     return super().__call__(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1024, in compile_wrapper
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
+[rank2]:     return self._call_impl(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1790, in _call_impl
+[rank2]:     return forward_call(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/182-project/variants/t2-cpu-ngram/track_1_short/model/gpt.py", line 576, in forward
+[rank2]:     def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor,
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1263, in _fn
+[rank2]:     return fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/aot_autograd.py", line 1200, in forward
+[rank2]:     return compiled_fn(full_args)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 580, in runtime_wrapper
+[rank2]:     all_outs = call_func_at_runtime_with_args(
+[rank2]:                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/utils.py", line 138, in call_func_at_runtime_with_args
+[rank2]:     out = normalize_as_list(f(args))
+[rank2]:                             ^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 2298, in __call__
+[rank2]:     return self.compiled_fn(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 783, in wrapper
+[rank2]:     return compiled_fn(runtime_args)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_functorch/_aot_autograd/runtime_wrappers.py", line 1011, in inner_fn
+[rank2]:     outs = compiled_fn(args)
+[rank2]:            ^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/output_code.py", line 656, in __call__
+[rank2]:     return self.current_callable(inputs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/_inductor/utils.py", line 3401, in run
+[rank2]:     out = model(new_inputs)
+[rank2]:           ^^^^^^^^^^^^^^^^^
+[rank2]:   File "/tmp/torchinductor_dev_patel/tz/ctzagrwv2gepwfvr6npfidzuf2m5yztekv5lievuteh7aszazt5o.py", line 10587, in call
+[rank2]:     buf485 = empty_strided_cuda((32768, 50304), (50304, 1), torch.bfloat16)
+[rank2]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.07 GiB. GPU 2 has a total capacity of 79.10 GiB of which 1.08 GiB is free. Including non-PyTorch memory, this process has 0 bytes memory in use. Of the allocated memory 73.22 GiB is allocated by PyTorch, with 5.72 GiB allocated in private pools (e.g., CUDA Graphs), and 228.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank0]:[W1112 06:23:56.143859696 ProcessGroupNCCL.cpp:1575] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W1112 06:23:57.820000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 77 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 79 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 80 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 81 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 82 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 83 closing signal SIGTERM
+W1112 06:23:57.821000 9 torch/distributed/elastic/multiprocessing/api.py:1012] Sending process 84 closing signal SIGTERM
+E1112 06:24:05.520000 9 torch/distributed/elastic/multiprocessing/api.py:986] failed (exitcode: 1) local_rank: 1 (pid: 78) of binary: /home/dev_patel/venv/bin/python3
+Traceback (most recent call last):
+  File "/home/dev_patel/venv/bin/torchrun", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 990, in main
+    run(args)
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 981, in run
+    elastic_launch(
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train_gpt_medium_cpu.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 77)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 77
+[2]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 79)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 79
+[3]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 80)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[4]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 4 (local_rank: 4)
+  exitcode  : 1 (pid: 81)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[5]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 5 (local_rank: 5)
+  exitcode  : 1 (pid: 82)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[6]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 6 (local_rank: 6)
+  exitcode  : 1 (pid: 83)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[7]:
+  time      : 2026-11-12_06:24:05
+  host      : bf4b8db7c92c
+  rank      : 7 (local_rank: 7)
+  exitcode  : 1 (pid: 84)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-12_06:23:57
+  host      : bf4b8db7c92c
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 78)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

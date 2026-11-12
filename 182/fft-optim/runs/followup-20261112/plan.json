@@ -1,0 +1,168 @@
+{
+  "stages": {
+    "controls-darcy": {
+      "dataset": "darcy",
+      "arms": [
+        {
+          "arm": "adamw",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "adamw_matched",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "complex_adam",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_shared",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_mixed",
+          "center_lr": 0.003,
+          "refresh": 10
+        }
+      ]
+    },
+    "ns-boundary": {
+      "dataset": "ns",
+      "arms": [
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.027,
+          "refresh": 10
+        },
+        {
+          "arm": "adamw",
+          "center_lr": 0.003,
+          "refresh": 10
+        }
+      ]
+    },
+    "refresh-darcy": {
+      "dataset": "darcy",
+      "arms": [
+        {
+          "arm": "adamw",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_flat",
+          "center_lr": 0.009,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.009,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.009,
+          "refresh": 25
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.009,
+          "refresh": 50
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.009,
+          "refresh": 100
+        }
+      ]
+    },
+    "refresh-ns": {
+      "dataset": "ns",
+      "arms": [
+        {
+          "arm": "adamw",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_flat",
+          "center_lr": 0.009,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.027,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.027,
+          "refresh": 25
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.027,
+          "refresh": 50
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.027,
+          "refresh": 100
+        }
+      ]
+    },
+    "controls-burgers": {
+      "dataset": "burgers",
+      "arms": [
+        {
+          "arm": "adamw",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "adamw_matched",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "complex_adam",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_shared",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "mode_soap",
+          "center_lr": 0.003,
+          "refresh": 10
+        },
+        {
+          "arm": "soap_mixed",
+          "center_lr": 0.003,
+          "refresh": 10
+        }
+      ]
+    }
+  },
+  "tune_seed": 100,
+  "confirmation_seeds": [
+    101,
+    102,
+    103
+  ],
+  "lr_ratio": 3,
+  "max_edge_extensions": 2,
+  "source_hash": "655c06979cbb09cd271417d014e0a6b51049c97cdd08922902acade38da57fa9"
+}

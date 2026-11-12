@@ -1,0 +1,41 @@
+{
+  "protocol": 1,
+  "source_hash": "655c06979cbb09cd271417d014e0a6b51049c97cdd08922902acade38da57fa9",
+  "torch": "2.10.0+cu128",
+  "split_seed": 182,
+  "tune_seed": 100,
+  "confirm_seeds": [
+    101,
+    102,
+    103
+  ],
+  "test_seed": 20261112,
+  "sources": {
+    "darcy": {
+      "path": "/mnt/work/dev_patel/data/fno/darcy.pt",
+      "sha256": "5bb592d825fdba3b947fdcc0dc479dbea2161b7d1e737796bed4819ea857627d"
+    },
+    "ns": {
+      "path": "/mnt/work/dev_patel/data/fno/ns.pt",
+      "sha256": "4ff010665835929b381ceddf9b9ae024fa31720a1a1da8dfed41720817e7b17d"
+    },
+    "burgers": {
+      "path": "/mnt/work/dev_patel/data/fno/burgers.pt",
+      "sha256": "62a39c9332f9877f5504909cd20f064879c9d2c8da76fe50f17005b9facdf160"
+    }
+  },
+  "tests": {
+    "darcy": {
+      "path": "/home/dev_patel/182-project-dev/182/results/fno-followup-20261112-79a2a2fa1f69/data/darcy-fresh-test.pt",
+      "sha256": "b26a111a794fb5aeb2580fa65d68d90e147b2911095767a55fd3ed1a5ab741a2"
+    },
+    "ns": {
+      "path": "/home/dev_patel/182-project-dev/182/results/fno-followup-20261112-79a2a2fa1f69/data/ns-fresh-test.pt",
+      "sha256": "2ad06fb9a85d82cd57dadc4c6e18d29dc33f6329699e91608c77eb33a8524d39"
+    },
+    "burgers": {
+      "path": "/home/dev_patel/182-project-dev/182/results/fno-followup-20261112-79a2a2fa1f69/data/burgers-fresh-test.pt",
+      "sha256": "a199829d3fc7e7f39b8335232d1bf0c909c1420ed5569ad3647eeddc4f280a9c"
+    }
+  }
+}

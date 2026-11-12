@@ -1,0 +1,34 @@
+Traceback (most recent call last):
+  File "/home/dev_patel/182-project/variants/t2-gpu-port/182/t2-gpu-port/test_cpu.py", line 384, in <module>
+    t()
+  File "/home/dev_patel/182-project/variants/t2-gpu-port/182/t2-gpu-port/test_cpu.py", line 348, in test_model_smoke
+    base = _smoke({})
+           ^^^^^^^^^^
+  File "/home/dev_patel/182-project/variants/t2-gpu-port/182/t2-gpu-port/test_cpu.py", line 295, in _smoke
+    g = _load_trainer(flags)
+        ^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev_patel/182-project/variants/t2-gpu-port/182/t2-gpu-port/test_cpu.py", line 289, in _load_trainer
+    exec(compile(model_src + tm_src, "train_gpt_medium.py[model+tm]", "exec"), g)
+  File "train_gpt_medium.py[model+tm]", line 136, in <module>
+  File "train_gpt_medium.py[model+tm]", line 126, in _load_varunneal_fa3
+NameError: name 'sys' is not defined. Did you forget to import 'sys'?
+test_ce_kernel_logic
+  CE kernel loss + two-pass gradient logic matches autograd (incl. duplicate/prefix-collision columns)
+test_model_smoke
+[base 1/1]  -> runs/base/20261112-045036-1.out
+OUT=runs/base/20261112-045036-1.out
+  host      : c3640ac539c4
+  rank      : 7 (local_rank: 7)
+  exitcode  : -15 (pid: 266)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 266
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-12_04:56:17
+  host      : c3640ac539c4
+  rank      : 4 (local_rank: 4)
+  exitcode  : 1 (pid: 263)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
