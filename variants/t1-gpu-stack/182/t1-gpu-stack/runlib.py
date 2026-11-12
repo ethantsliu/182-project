@@ -27,7 +27,7 @@ TARGET_LOSS = 3.28
 WORLD_SIZE = 8  # track_1_short/distributed.py asserts it
 
 # Our flags (track_1_short/folds.py) and the base PR's own knobs. A/B arms clear every one of them first.
-FLAG_KEYS = ("HOST_PREP", "DOC_COPY", "LAYER_ROPE", "COPY_MIX", "COPY_MIX_FIT")
+FLAG_KEYS = ("HOST_PREP", "DOC_COPY", "LAYER_ROPE", "COPY_MIX", "COPY_MIX_FIT", "HOST_ASYNC", "HOST_ASYNC_DEPTH")
 BASE_KEYS = ("EXACT_LEVERS", "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED")
 
 _NUM = r"(?:[0-9]+(?:\.[0-9]*)?(?:e-?[0-9]+)?|nan|inf)"

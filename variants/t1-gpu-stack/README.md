@@ -7,7 +7,7 @@ node so far is the root record at 40.93 s (n=1) against its official 39.9 s, so 
 30.67 s there too.
 
 With no flag exported the code path is #397's. Every change of ours sits behind `HOST_PREP`, `DOC_COPY`,
-`LAYER_ROPE` or `COPY_MIX` (`track_1_short/folds.py`), with three exceptions that do not change a run: the trainer
+`LAYER_ROPE`, `COPY_MIX` or `HOST_ASYNC` (`track_1_short/folds.py`), with three exceptions that do not change a run: the trainer
 prints a `[folds]` line and a full-precision `[final]` line, `train_step` returns the batch it consumed, and the
 attention fp8 quantize kernels take a gain argument that is compiled out when it is off (`HAS_GAIN` is a
 constexpr). That was checked by reading `git diff` against the PR head, not by a run.
@@ -50,6 +50,7 @@ RESULT variant=t1-gpu-stack status=failed reason=<one line>          # with a no
 |---|---|---|---|
 | `HOST_PREP=all` (= `batchplan,cands`) | #387 (nikhil-lalgudi) | the document plan by cumulative sums and searchsorted instead of a per-document Python walk (`data.py`); the sampled-softmax candidate gather by integer indexing (`sampled_softmax.py`) | no: same batches, same arrays |
 | `HOST_PREP=ngramhash` (by name only) | #387 | the host n-gram row hash as one CPU-compiled expression, primed before the clock (`ngram_table.py`) | no; adds a `torch.compile` call site |
+| `HOST_ASYNC=1` (`HOST_ASYNC_DEPTH`, default 4) | ours (round 6) | the training loader's host build (document plan, gather, cu_seqlens, n-gram hash) on a producer thread up to 4 batches ahead; the pinned copy and H2D stay on the main thread (`data.py`, `182/hostcpu/README.md`). Expected gain about 0: the host runs ahead of the GPU | no: same batches, same order |
 | `COPY_MIX=1`, `COPY_MIX_FIT=consumed` (default) or `shard` | #376 (cyrusghane), fit source of #382 (krishaab) | at the final validation, `P' = (1-λ_b)P + λ_b[x=c]` with 31 bucket weights fitted on the clock on training tokens (`copy_mixture.py`) | eval only |
 | `LAYER_ROPE=attn` | #385 (shikhar-srivastava) | depth-conditioned rotary gains on the attention input and residual, folded into the QKV columns (fp8 cache) and the O rows | yes |
 | `LAYER_ROPE=1` | #385 | the same, plus the MLP input and residual gains as activation scales on the dense and MoE layers | yes |
@@ -106,6 +107,9 @@ more than the 17 steps (about 0.5 s) #385 saved on #360. It is an estimate; noth
 only the two sites that are still weight folds. How much of #385's gain those two sites carry is unknown: the PR
 reports no per-site ablation. #385 also had 2 of 98 development runs end near 3.33, so read every run's loss, and
 the `layer_rope ... gain rms` lines at the end of each log.
+
+`AB_ARMS="base hostprep hostasync"` adds `HOST_PREP=all HOST_ASYNC=1` (time only, exact; expected null, see
+`182/hostcpu/README.md`).
 
 `doccopy` goes last: #378 measured -1.17 s on #360, before CPLM existed, and CPLM copies from the same matches.
 `HOST_PREP=ngramhash` is in no arm: it adds a compile call site that the Track 1 rules may not allow, and on this

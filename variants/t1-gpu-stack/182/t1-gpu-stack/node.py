@@ -10,7 +10,7 @@ Environment:
   prep   SHARDS (9), PREP_TIMEOUT_S (3600, per step), SKIP_DATA=1, SKIP_FA3=1, DRY_RUN=1
   run    NPROC (8; the trainer refuses anything else), SEED (-> TRAIN_SEED; unset = random init, as #397),
          STEPS (-> NUM_SCHEDULED_ITERATIONS, default 981), EXTRA_ENV ("K=V K=V"), exported HOST_PREP / DOC_COPY /
-         LAYER_ROPE / COPY_MIX / COPY_MIX_FIT / EXACT_LEVERS, LOG_DIR (logs/node), RUN_TIMEOUT_S (1800), DRY_RUN=1
+         LAYER_ROPE / COPY_MIX / COPY_MIX_FIT / HOST_ASYNC / HOST_ASYNC_DEPTH / EXACT_LEVERS, LOG_DIR (logs/node), RUN_TIMEOUT_S (1800), DRY_RUN=1
   ab     AB_RUNS (4), AB_ARMS ("base hostprep copymix"), AB_STEPS ("981"; several counts = equal-loss comparison
          through sweep_steps.py), AB_SEED_BASE (1), LOG_DIR, RUN_TIMEOUT_S, DRY_RUN=1. Resumable: finished runs are kept.
 
@@ -47,6 +47,8 @@ SETUP_CMD = "bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/ac
 ARMS = {
     "base":         dict(env={}, exact=True, what="#397, no flag"),
     "hostprep":     dict(env={"HOST_PREP": "all"}, exact=True, what="#387 host batch plan + candidate gather"),
+    "hostasync":    dict(env={"HOST_PREP": "all", "HOST_ASYNC": "1"}, exact=True,
+                         what="hostprep + the loader's host batches on a producer thread (182/hostcpu)"),
     "copymix":      dict(env={"COPY_MIX": "1"}, exact=True, what="#376/#382 eval-time copy mixture, fit on consumed tokens"),
     "copymixshard": dict(env={"COPY_MIX": "1", "COPY_MIX_FIT": "shard"}, exact=True, what="#376's fit source (unconsumed shard head)"),
     "lropeattn":    dict(env={"LAYER_ROPE": "attn"}, exact=False, what="#385 gains on the attention sites only (weight folds)"),
