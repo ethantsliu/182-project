@@ -1,4 +1,4 @@
-"""LAYER_ROPE (PR #385, @shikhar-srivastava): depth-conditioned gains on both stages of both branches. Per layer l,
+"""LAYER_ROPE (PR #385, shikhar-srivastava): depth-conditioned gains on both stages of both branches. Per layer l,
 u = log(l + 1), and per site s (0 attn input, 1 mlp input, 2 attn residual, 3 mlp residual):
   gamma_eff[s, l] = exp(alpha_s + beta_s * u) * ComplexRot(gamma_s, exp(alpha_rot_s + beta_rot_s * u) * freq_j)
 rotating channel pairs (2j, 2j + 1), freq_j = base ** (-2j / model_dim). The four gamma vectors (init ones) and

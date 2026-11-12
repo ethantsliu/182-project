@@ -1,6 +1,6 @@
 """CPU checks of the folded PRs' host-side and pure-torch code (no GPU, no triton, no data).
 
-    python 182/t1-gpu-stack/test_folds.py        # from the repo root; plain asserts, prints one line per check
+    python 182/t1-gpu-stack/test_folds.py        # from the variant directory (or any other); plain asserts, one line per check
 
 What it covers: HOST_PREP's three exact rewrites against #397's code (batch plan, candidate gather, n-gram hash),
 the copy mixture's matcher / loss / fit (COPY_MIX) against brute force, the consumed-token window, PR #378's matcher
