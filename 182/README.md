@@ -25,6 +25,9 @@ The "best reported" times in the table below are the ones each tree's author rep
 | `t1cpu` | `variants/t1-cpu-ngram` | Track 1, CPU retrieval: the tree of open PR #381 (exact-count chain of #380) | 9.653 s, n=16 (PR #380; #381 itself has no 8xH100 time) | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1cpu` |
 | `t2cpu` | `variants/t2-cpu-ngram` | Track 2 (GPT-2 Medium): that CPU retrieval chain | 221 s, one run, 5800 steps, loss 2.8769 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2cpu` |
 | `t2gpu` | `variants/t2-gpu-port` | Track 2, GPU only: open PR #261 (MUDD) plus our flags | 14.34 min (860.5 s), loss 2.9171 ± 0.0007 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2gpu` |
+| `profile` | `t1-gpu-stack`, repo root | torch.profiler over 20 timed-loop steps on all ranks: time per category, exposed NCCL, idle gaps, top kernels (`182/profile/README.md`); not timing runs | - | - | - | `bash 182/gpu_session.sh profile` |
+| `nccl` | `t1-gpu-stack`, repo root | A/B: NCCL defaults vs `NCCL_NVLS_ENABLE=0` vs forced NVLS (4 seed pairs); skipped if `nvls_check.py` finds NVLS unavailable | - | - | - | `bash 182/gpu_session.sh nccl` |
+| `xab` | per file | Every `182/experiments.d/*.sh` A/B (format: `182/experiments.d/README.md`): Δval mnat and Δtime with 95% CIs, net seconds | - | - | - | `bash 182/gpu_session.sh xab` |
 | `gate` | repo root | A/B: the record vs `FP8_OFF=1` (what does fp8 cost in val loss?) | - | - | - | `bash 182/gpu_session.sh gate` |
 | `attno` | repo root | A/B: the record vs `FP8_ATTN_O=1` (4 seed pairs; cost model expects about +0.2 s, range -0.7 to +1.3 s) | - | - | - | `bash 182/gpu_session.sh attno` |
 | `hadamard` | repo root | A/B: the record vs `HADAMARD_FP8=1` variants; runs only if the gate finds a gap | - | - | - | `bash 182/gpu_session.sh gate hadamard` |
@@ -42,7 +45,7 @@ tmux new -s gpu                # first: an ssh drop kills a plain shell and the 
 bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/activate   # the root record's stack
 DRY_RUN=1 bash 182/gpu_session.sh   # the plan, the estimates, each variant's check, every command; runs nothing
 bash 182/gpu_session.sh             # everything, most promising first (about 4 h if nothing is skipped)
-QUICK=1 bash 182/gpu_session.sh     # instead, if time is short: env sanity base t1gpu bundle (under 45 min)
+QUICK=1 bash 182/gpu_session.sh     # instead, if time is short: env sanity base t1gpu profile bundle (under 45 min)
 ```
 
 Docker instead of a venv: `bash 182/tools/node_setup.sh --mode docker`, then put `SESSION_DOCKER=modded-nanogpt` in
@@ -52,7 +55,7 @@ It ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Sen
 `python 182/tools/summarize_session.py <bundle>`. The summary starts with one table (method, runs, mean val loss,
 mean time, best reported, official record, target hits) and says plainly when a row is a single run.
 
-The order is `env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle`:
+The order is `env tests sanity base t1gpu profile nccl xab t1cpu t2cpu t2gpu gate attno hadamard bundle`:
 
 - `base` first (2 runs): this node's own reference and its spread, with logs, which the one earlier run did not leave.
 - Then the four variants, Track 1 before Track 2, GPU-only before CPU retrieval: 4, 4, 1 and 1 runs. For each, the
