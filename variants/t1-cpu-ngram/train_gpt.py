@@ -46,7 +46,8 @@ from track_1_short.config import (
 from track_1_short.data import HEADER_BYTES, ScheduledBatches, cu_seqlens_rows, distributed_data_generator, read_val_prefix
 from track_1_short.distributed import setup_distributed
 from track_1_short.doc_cache import NBINS as DOC_BINS, ORDERS as DOC_ORDERS, DocChain
-from track_1_short.exact_counts import NBINS, ORDERS, SCAN_HINT_MARKS, SCAN_HINTS, SCAN_HINTS_SKIP, ChainFit, ExactCounts, chain_prob, components, context_counts, gate_L
+from track_1_short.exact_counts import (NBINS, ORDERS, SCAN_HINT_MARKS, SCAN_HINTS, SCAN_HINTS_SKIP, ChainFit, ExactCounts, chain_prob, components,
+                                         context_counts, gate_L, vote_base_prob)
 from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT
 from track_1_short.model.prefix_prediction import build_prefix_table_bucket
 from track_1_short.ngram_table import (
@@ -66,7 +67,7 @@ from track_1_short.perf.kernels.mlp import prime_stage_cache
 from track_1_short.perf.pinned_batches import PinnedBatchStaging
 from track_1_short.perf.row_prefetch import PrefetchStaging, RowPrefetch
 from track_1_short.perf.value_embed_pull import ValueEmbedPull
-from track_1_short.retrieval import (LARGE_HOST, RET_CELLS, TABLE_VOTE, VAL_WIDTH, VOTE_BINS, FitRows, OnlineCache, ValidationCache, host_plan,
+from track_1_short.retrieval import (LARGE_HOST, RET_CELLS, TABLE_VOTE, VAL_WIDTH, VOTE_BINS, VOTE_K, FitRows, OnlineCache, ValidationCache, host_plan,
                                      host_usage, mix_q, pin_cpus, pin_threads, rows_part, table_part, table_vote)
 from track_1_short.sampled_softmax import SampledSoftmax
 from track_1_short.schedule import TrainingSchedule
@@ -259,11 +260,15 @@ def main():
     K, groups = K + 1, groups + 4 * RET_CELLS
     # the in-document cache of this rank's validation chunks and kept fit positions
     doc_chain = DocChain(len(val_cache.offsets) * val_cache.chunk, val_cache.chunk, F, F // len(fit_steps), env.device)
-    if TABLE_VOTE == "chain":  # the table's links at match lengths 6, 10, 20, after the hint rows' (retrieval.table_part)
+    if TABLE_VOTE:  # the table's links at match lengths 6, 10, 20, after the hint rows' (retrieval.table_part)
         K, groups = K + 3, groups + 3 * VOTE_BINS
-    fit_host = []  # TABLE_VOTE=chain: the kept fit steps' host (inputs, targets), looked up in the table after training
+    fit_host = []  # TABLE_VOTE: the kept fit steps' host (inputs, targets), looked up in the table after training
     K, groups = K + len(DOC_ORDERS), groups + len(DOC_ORDERS) * DOC_BINS
     chain = ChainFit(F, K, groups, env.device, MODEL_DIM, env.world_size, env.rank)
+    # TABLE_VOTE: the chain without the table's links, fit after the clock has stopped, for the run's own report of what
+    # the links change on the same trained weights
+    base_groups = groups - 3 * VOTE_BINS
+    chain_base = ChainFit(F, K - 3, base_groups, env.device, MODEL_DIM, env.world_size, env.rank) if TABLE_VOTE else None
     online_cache.mix = fit_rows = FitRows(fit_steps, max_step_tokens, env.device)
     # the validation prefix's pinned slot (+2: the loader reads one token past the last target) and the all-ranks flag
     val_slot, post_flag = (torch.empty(args.val_tokens + 2, dtype=torch.uint16, pin_memory=True), torch.ones(1, device=env.device))
@@ -465,12 +470,12 @@ def main():
             if SCAN_HINTS_SKIP:
                 val_cache.looked_up.result()  # the lookup thread has launched the count
             dist.all_reduce(exact.out)
-            f_rows = rows_part(fit_rows.cell[:fit_rows.n], fit_rows.q[:fit_rows.n])
-            if TABLE_VOTE == "chain":  # the lookup thread has the fit positions' counts
+            f_base = f_rows = rows_part(fit_rows.cell[:fit_rows.n], fit_rows.q[:fit_rows.n])
+            if TABLE_VOTE:  # the lookup thread has the fit positions' counts
                 val_cache.looked_up.result()
-                f_rows += table_part(val_cache.fit_vote, env.device)
-            fQ, fG, _ = components(*context_counts(exact.out, V + env.rank * F + torch.arange(F, device=env.device)),
-                                   f_rows + doc_chain.part())
+                f_rows = f_base + table_part(val_cache.fit_vote, env.device)
+            f_counts = context_counts(exact.out, V + env.rank * F + torch.arange(F, device=env.device))
+            fQ, fG, _ = components(*f_counts, f_rows + doc_chain.part())
             exact_lam = chain.em(f_p, fQ, fG)
             gate = chain.gate(f_h[0], f_p, fQ, fG, exact_lam)  # the hidden-state gate
             exact_val = [context_counts(exact.out, torch.arange(o, o + val_cache.chunk, device=env.device)) for o in val_cache.offsets]
@@ -485,6 +490,11 @@ def main():
             # stop the clock
             torch.cuda.synchronize()
             training_time_ms += 1000 * (time.perf_counter() - t0)
+            if TABLE_VOTE:  # off the clock: the chain refit without the table's links
+                fQ0, fG0, _ = components(*f_counts, f_base + doc_chain.part())
+                gate_base = chain_base.gate(f_h[0], f_p, fQ0, fG0, chain_base.em(f_p, fQ0, fG0))
+                vote_report = torch.zeros(2, dtype=torch.float64, device=env.device)  # the loss without the links; with #399's vote
+                vote_error = None  # the report is a diagnostic: its failure must not cost the run its result
             model.eval()
             val_loss = 0
             with torch.no_grad():
@@ -495,19 +505,31 @@ def main():
                     # the chain: the hint rows' link (q, the target's share of the row's counts), the corpus and document links
                     r = torch.as_tensor(rows, device=env.device)
                     link = rows_part(r[:, 0].long(), mix_q(r, batch.targets))
-                    if TABLE_VOTE == "chain":
-                        link += table_part(val_cache.vote[i], env.device)
+                    if TABLE_VOTE:
+                        try:
+                            p_base = vote_base_prob(torch.exp(-loss.float()), exact_val[i], link + doc_chain.part(i),
+                                                    uncompiled_model.val_hidden, gate_base, base_groups)
+                            vote_report += torch.stack([-torch.log(q.clamp_min(1e-30)).mean() for q in (p_base, table_vote(p_base, val_cache.vote[i]))])
+                        except Exception as e:
+                            vote_error = e
+                        link = link + table_part(val_cache.vote[i], env.device)
                     Q, G, _ = components(*exact_val[i], link + doc_chain.part(i))
                     L = gate_L(uncompiled_model.val_hidden[:len(Q)], G, *gate, groups)
                     p = chain_prob(torch.exp(-loss.float()), Q, L)
-                    if TABLE_VOTE == "fixed":  # PR #399: the table votes on the final probability
-                        p = table_vote(p, val_cache.vote[i])
                     loss = -torch.log(p.clamp_min(1e-30)).float()
                     val_loss += loss.mean()
             val_loss /= val_steps
             del val_batches, val_pulls
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
+            if TABLE_VOTE:  # the same weights three ways: this run's loss, the chain refit without the table's links, #399's vote on that
+                vote_report /= val_steps
+                if vote_error is not None:  # every rank still takes part in the reduce
+                    vote_report.fill_(float("nan"))
+                    print(f"table vote report failed on rank {env.rank}: {vote_error!r}", flush=True)
+                dist.reduce(vote_report, 0, op=dist.ReduceOp.AVG)
+                print0(f"table vote: val_loss:{val_loss:.5f} with the table's links, {vote_report[0]:.5f} without them, "
+                       f"{vote_report[1]:.5f} with PR #399's fixed vote instead (k={','.join(map(str, VOTE_K))})", console=True)
             # The clock is stopped: flush the log and collect the loop's garbage here.
             flush_log()
             gc.collect()
@@ -528,7 +550,7 @@ def main():
         # --------------- TRAINING SECTION -----------------
         if step in fit_steps:  # the kept fit step's tokens
             exact_fit.append((batches.peek(step).inputs.clone(), batches.peek(step).targets.int()))
-            if TABLE_VOTE == "chain":  # and their host copies, for the table's counts
+            if TABLE_VOTE:  # and their host copies, for the table's counts
                 fit_host.append((batches.peek(step).inputs_cpu.astype(np.uint16), batches.peek(step).targets_cpu.numpy().astype(np.uint16)))
         train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers, online_cache,
                    step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps)

@@ -1,8 +1,9 @@
 """Step-count sweep for the Track 2 CPU-retrieval run: cut NUM_SCHEDULED_ITERATIONS until the mean lands near 2.918.
 
-@ldmberman's 5790 + 10 steps reached 2.8769, ~43 millinats under the 2.92 target. Every point is a fresh
-torchrun of train_gpt_medium_cpu.py (the stage boundaries, sampled-softmax switches, lr cooldown and the
-exact-count corpus split all follow NUM_SCHEDULED_ITERATIONS). Results append to a JSONL, so the sweep
+ldmberman's 5790 + 10 steps reached 2.8769, ~43 millinats under the 2.92 target. Every point is a fresh
+run of train_gpt_medium_cpu.py through node.py, with the same preflight, command and result files as
+run_node.sh run (the stage boundaries, sampled-softmax switches, lr cooldown and the exact-count corpus split
+all follow NUM_SCHEDULED_ITERATIONS). Run it from the variant folder. Results append to a JSONL, so the sweep
 can be stopped, resumed and refitted. The fit is val_loss = a + b * ln(total_steps) by least squares
 over every run (seeds pooled), solved for the target mean.
 
@@ -20,11 +21,12 @@ import math
 import sys
 from pathlib import Path
 
-from runlib import TARGET, append_jsonl, launch, load_jsonl, mean_std, parse_result, required_mean
+import node
+from runlib import TARGET, append_jsonl, load_jsonl, parse_result, required_mean
 
 HERE = Path(__file__).resolve().parent
 EXTENSION_STEPS = 10  # config.Hyperparameters.num_extension_iterations
-# @ldmberman's run (PR #380 thread, 2026-10-04), the one point known before any sweep. Not our measurement.
+# ldmberman's run (PR #380 thread, 2026-10-04), the one point known before any sweep. Not our measurement.
 SEED_POINT = dict(scheduled_iterations=5790, steps=5800, seed=1337, val_loss=2.876861, train_time_ms=221003,
                   out="ldmberman pr380-adapted-to-track-2.txt")
 
@@ -58,7 +60,11 @@ def pooled_seed_std(rows):
 
 
 def report(rows, target_arg, n_sig, include_seed_point):
-    data = rows + ([SEED_POINT] if include_seed_point else [])
+    skipped = [r for r in rows if r.get("knobs")]
+    if skipped:
+        print(f"({len(skipped)} run(s) with other settings changed are left out of the fit: "
+              f"{sorted({k for r in skipped for k in r['knobs']})})")
+    data = [r for r in rows if not r.get("knobs")] + ([SEED_POINT] if include_seed_point else [])
     print(f"\n{'steps':>6} {'seed':>6} {'val_loss':>9} {'train_s':>8}  source")
     for r in sorted(data, key=lambda r: (r["steps"], str(r.get("seed")))):
         print(f"{r['steps']:>6} {str(r.get('seed')):>6} {r['val_loss']:>9.4f} {r['train_time_ms'] / 1000:>8.1f}  {r.get('out', '')}")
@@ -90,12 +96,15 @@ def main():
     ap.add_argument("--results", type=Path, default=HERE / "results" / "sweep.jsonl")
     ap.add_argument("--target", type=float, default=None, help="target mean val loss (default: from the seed std)")
     ap.add_argument("--n-significance", type=int, default=6)
-    ap.add_argument("--no-seed-point", action="store_true", help="leave @ldmberman's 5800-step point out of the fit")
+    ap.add_argument("--no-seed-point", action="store_true", help="leave ldmberman's 5800-step point out of the fit")
     ap.add_argument("--ingest", type=Path, nargs="*", default=[], help="finished run logs/stdout files to add")
     ap.add_argument("--fit-only", action="store_true")
     ap.add_argument("--dry-run", action="store_true", help="print the torchrun commands only")
-    ap.add_argument("--nproc", type=int, default=8)
     a = ap.parse_args()
+    if a.steps and not a.fit_only and a.results != node.RESULTS / "sweep.jsonl":
+        ap.error("launched runs are recorded in the default --results file; --results is for --fit-only / --ingest")
+    if a.steps and not a.fit_only and (reason := node.preflight(a.dry_run)):
+        sys.exit(reason)
 
     rows = load_jsonl(a.results)
     for path in a.ingest:
@@ -113,10 +122,12 @@ def main():
                 if (s, seed) in done:
                     print(f"[skip] {s} seed {seed}: already in {a.results}")
                     continue
-                r = launch(s, seed, HERE / "results" / f"steps{s}_seed{seed}.out", nproc=a.nproc, dry_run=a.dry_run)
+                r, line = node.run_once({"NUM_SCHEDULED_ITERATIONS": str(s), "TRAIN_SEED": str(seed)},
+                                        HERE / "results" / "sweep" / f"steps{s}_seed{seed}", a.dry_run)
+                if not a.dry_run:
+                    print(line)
                 if r is not None:
-                    rows.append(r)
-                    append_jsonl(a.results, r)
+                    rows.append(r)  # node.run_once appended it to results/sweep.jsonl
                     print(f"[done] steps={r['steps']} val_loss={r['val_loss']:.4f} train_time={r['train_time_ms'] / 1000:.1f}s")
     report(rows, a.target, a.n_significance, include_seed_point=not a.no_seed_point)
 

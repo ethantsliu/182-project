@@ -1,4 +1,4 @@
-"""Document-local copy feature (DOC_COPY=1; PR #378 by @josusanmartin, this file unchanged but for this docstring):
+"""Document-local copy feature (DOC_COPY=1; PR #378 by josusanmartin, this file unchanged but for this docstring):
 a candidate next token per position from the longest exact earlier match of its context in the same document, fed
 to the model as an extra input.
 

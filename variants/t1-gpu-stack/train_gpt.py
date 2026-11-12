@@ -26,7 +26,7 @@ Beyond record #360 (the base trainer), this run adds:
   * a run of 981 scheduled + 52 growth + 20 extension = 1053 steps, with all ranks aligned by a barrier right before the
     clock starts (PRs #390/#391: no rank's clock runs while it waits for another rank's pre-clock work).
 
-Open PRs folded in behind environment variables, all off by default (track_1_short/folds.py, 182/t1-gpu-stack/README.md):
+Open PRs folded in behind environment variables, all off by default (track_1_short/folds.py, the variant's README.md):
 HOST_PREP (#387), DOC_COPY (#378), LAYER_ROPE (#385), COPY_MIX / COPY_MIX_FIT (#376, #382).
 """
 import os

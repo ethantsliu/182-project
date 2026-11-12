@@ -32,7 +32,8 @@ import torch.nn.functional as F
 
 # torch._inductor.config.coordinate_descent_tuning = True # allowed on medium track, ~30+ min extra compile time
 # -----------------------------------------------------------------------------
-# A/B knobs (182/t2-gpu-port). Every default reproduces PR #261 exactly.
+# A/B knobs (variants/t2-gpu-port, see its README). With every default the model, the kernels, the
+# schedule and the timed region are PR #261's.
 def _env_int(name: str, default: int) -> int:
     return int(os.environ.get(name, default))
 def _env_float(name: str, default: float) -> float:
@@ -40,27 +41,28 @@ def _env_float(name: str, default: float) -> float:
 
 # coordinate_descent_tuning is explicitly allowed on the medium track (README); PR #252 measured ~5s.
 COORD_DESCENT_TUNING = _env_int("COORD_DESCENT_TUNING", 0)
-# Canonical token masking at the final validation (track 1 record #91, PR #350 @jvarho).
+# Canonical token masking at the final validation (track 1 record #91, PR #350 jvarho).
 CANON_MASK = _env_int("CANON_MASK", 0)
-# Row chunks of the validation CE (only the logit block size changes, not the per-token losses).
-VAL_CE_CHUNKS = _env_int("VAL_CE_CHUNKS", 4)
-# Prefix-token prediction aux loss (track 1 record #88, PR #337 @jvarho). Weight 0 == off. Schedule:
+# Row chunks of the validation CE (only the logit block size changes, not the per-token losses). #261
+# uses 4; the canonical mask adds a [rows, vocab] gather to every block, so it defaults to 8.
+VAL_CE_CHUNKS = _env_int("VAL_CE_CHUNKS", 8 if CANON_MASK else 4)
+# Prefix-token prediction aux loss (track 1 record #88, PR #337 jvarho). Weight 0 == off. Schedule:
 # PREFIX_WEIGHT up to PREFIX_HOLD_FRAC of the scheduled steps, then 4/5, 3/5, 2/5, 1/5 of it in equal
 # steps up to PREFIX_END_FRAC, then 0 -- track 1's 0.25 -> 0.20/0.15/0.10/0.05 -> 0 at its stage ends.
 PREFIX_WEIGHT = _env_float("PREFIX_WEIGHT", 0.0)
 PREFIX_HOLD_FRAC = _env_float("PREFIX_HOLD_FRAC", 0.2854)
 PREFIX_END_FRAC = _env_float("PREFIX_END_FRAC", 0.6063)
-# Learnable per-(layer, head) XSA (track 1 record #82, PR #264 @djdumpling) with the algebraic rewrite
-# of record #86 (PR #317 @aryavohra). XSA_LAYERS: comma list of layer indices, or "all".
+# Learnable per-(layer, head) XSA (track 1 record #82, PR #264 djdumpling) with the algebraic rewrite
+# of record #86 (PR #317 aryavohra). XSA_LAYERS: comma list of layer indices, or "all".
 XSA = _env_int("XSA", 0)
 XSA_LAYERS = os.environ.get("XSA_LAYERS", "all")
 # Sparse attention gate on/off. Record #86 dropped it once XSA was in (both act as attention sinks).
 ATTN_GATE = _env_int("ATTN_GATE", 1)
-# Fused relu^2 MLP: triton_kernels.FusedLinearReLUSquareFunction (track 1 record #59 @andrewbriand
-# @jrauvola, bf16, x @ W1.T -> relu^2 epilogue in one kernel; backward fuses 2*(g @ W2.T)*relu(pre)).
+# Fused relu^2 MLP: triton_kernels.FusedLinearReLUSquareFunction (track 1 record #59 andrewbriand
+# jrauvola, bf16, x @ W1.T -> relu^2 epilogue in one kernel; backward fuses 2*(g @ W2.T)*relu(pre)).
 # Medium forked from track 1 before #59 and still runs the MLP as three inline ops. Same math in bf16.
 FUSED_MLP = _env_int("FUSED_MLP", 0)
-# Step count / lr retune (PR #252 left loss budget; see 182/t2-gpu-port/README.md).
+# Step count / lr retune knobs.
 NUM_SCHEDULED_ITERATIONS = _env_int("NUM_SCHEDULED_ITERATIONS", 4125)
 NUM_EXTENSION_ITERATIONS = _env_int("NUM_EXTENSION_ITERATIONS", 25)
 COOLDOWN_FRAC = _env_float("COOLDOWN_FRAC", 0.70)
@@ -76,9 +78,12 @@ import triton.language as tl
 from kernels import get_kernel
 from torch import Tensor, nn
 from triton_kernels import XXT, XTX, ba_plus_cAA, FusedSoftcappedCrossEntropy, FusedLinearReLUSquareFunction, transpose_add, transpose_copy
+from triton_kernels import FusedSoftcappedCrossEntropyPrefix, prefix_ce_kernel
 from medium_extras import BackgroundCanonicalMask, build_prefix_table_bucket
 
 dynamo.config.recompile_limit = 64
+if PREFIX_WEIGHT > 0:
+    prefix_ce_kernel()  # compile the prefix CE kernel now, off the clock; the default path never builds it
 
 
 # -----------------------------------------------------------------------------
@@ -1199,10 +1204,10 @@ class CausalSelfAttention(nn.Module):
                                                         causal=True, softmax_scale=attn_scale, window_size=(bm_size, 0))
         y = y.view(B, T, self.num_heads, self.head_dim)
         if attn_args.xsa_alpha is not None:
-            # Gated XSA (arXiv:2603.09078) with learnable strength, track 1 record #82 @djdumpling: subtract a
+            # Gated XSA (arXiv:2603.09078) with learnable strength, track 1 record #82 djdumpling: subtract a
             # per-head fraction tanh(alpha) of y's component along v (the v this layer attended with, VE and
             # MUDD adds included). Zero init == identity at step 0. Written as dot/denom rather than
-            # normalize(v), which Inductor lowers better (record #86 @aryavohra); same math.
+            # normalize(v), which Inductor lowers better (record #86 aryavohra); same math.
             dot = (y * v).sum(-1, keepdim=True)
             denom = v.square().sum(-1, keepdim=True).clamp_min(1e-8)
             alpha = torch.tanh(attn_args.xsa_alpha).type_as(y).view(1, 1, self.num_heads, 1)
@@ -1260,7 +1265,8 @@ class GPT(nn.Module):
 
         # Prefix-token lookup table for prefix token prediction, filled after the clock starts so the build
         # is charged to training time. -1 == "no valid prefix" == term disabled, which warmup runs with.
-        self.register_buffer("prefix_table", torch.full((self.vocab_size,), -1, dtype=torch.int64), persistent=False)
+        if PREFIX_WEIGHT > 0:
+            self.register_buffer("prefix_table", torch.full((self.vocab_size,), -1, dtype=torch.int64), persistent=False)
 
         # Canonical token mask for the validation softmax, one bit per (prev, cur) pair (316 MB at this vocab).
         # All-zero == no masking until the final validation fills it.
@@ -1587,13 +1593,18 @@ class GPT(nn.Module):
                 loss += F.cross_entropy(logits.view(-1, logits.size(-1)), tgt_chunks[i], reduction="mean") / n
             return loss
 
-        # Fused softcapped cross-entropy with FP8: hidden states + lm_head weight -> loss in one kernel.
-        # Prefix targets are -1 (term off) unless PREFIX_WEIGHT > 0 filled the table.
-        prefix_target_seq = self.prefix_table[target_seq]
+        # Fused softcapped cross-entropy with FP8: hidden states + lm_head weight -> loss in one kernel
+        if PREFIX_WEIGHT > 0:
+            # same kernel plus the prefix-token term; table entries are -1 (term off) until it is filled
+            loss = FusedSoftcappedCrossEntropyPrefix.apply(
+                x.view(-1, x.size(-1)), target_seq, mtp_weights,
+                self.lm_head.weight, self.lm_head.x_s, self.lm_head.w_s, self.lm_head.grad_s, grad_scale,
+                self.prefix_table[target_seq], prefix_weight,
+            ).sum()
+            return loss
         loss = FusedSoftcappedCrossEntropy.apply(
             x.view(-1, x.size(-1)), target_seq, mtp_weights,
-            self.lm_head.weight, self.lm_head.x_s, self.lm_head.w_s, self.lm_head.grad_s, grad_scale,
-            23.0, 5.0, 7.5, prefix_target_seq, prefix_weight,
+            self.lm_head.weight, self.lm_head.x_s, self.lm_head.w_s, self.lm_head.grad_s, grad_scale
         ).sum()
         return loss
 
@@ -1942,6 +1953,8 @@ class TrainingManager():
         # between PREFIX_HOLD_FRAC and PREFIX_END_FRAC of the scheduled steps, then 0 (track 1: 0.25 for
         # stage 1, 0.20/0.15/0.10/0.05 over the quarters of stage 2, 0 after).
         assert 0 <= PREFIX_HOLD_FRAC <= PREFIX_END_FRAC <= 1
+        if PREFIX_WEIGHT <= 0:  # off: one shared zero the model never reads
+            return [torch.zeros(1, dtype=torch.float32, device=device)] * (args.num_iterations + 1)
         schedule = []
         for s in range(args.num_iterations + 1):
             x = s / args.num_scheduled_iterations
@@ -2141,6 +2154,12 @@ def nvidia_smi():
     return subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout
 print0(nvidia_smi())
 print0("="*100)
+# one line with every knob of this tree, so a log says which arm it was (all defaults == PR #261)
+print0(f"flags: COORD_DESCENT_TUNING={COORD_DESCENT_TUNING} CANON_MASK={CANON_MASK} VAL_CE_CHUNKS={VAL_CE_CHUNKS} "
+       f"PREFIX_WEIGHT={PREFIX_WEIGHT} PREFIX_HOLD_FRAC={PREFIX_HOLD_FRAC} PREFIX_END_FRAC={PREFIX_END_FRAC} "
+       f"XSA={XSA} XSA_LAYERS={XSA_LAYERS} ATTN_GATE={ATTN_GATE} FUSED_MLP={FUSED_MLP} "
+       f"NUM_SCHEDULED_ITERATIONS={NUM_SCHEDULED_ITERATIONS} NUM_EXTENSION_ITERATIONS={NUM_EXTENSION_ITERATIONS} "
+       f"COOLDOWN_FRAC={COOLDOWN_FRAC} MUON_LR={MUON_LR} ADAM_LR={ADAM_LR} VAL_LOSS_EVERY={VAL_LOSS_EVERY}", console=True)
 
 model: nn.Module = GPT(
     vocab_size=50257,
@@ -2242,8 +2261,12 @@ for step in range(train_steps + 1):
             if canon_mask_builder is not None:
                 # Both on the clock: the wait in case the build is somehow not done, and the copy and
                 # broadcast of the result, since they are part of the mask's cost.
+                torch.cuda.synchronize()
+                t_canon = time.perf_counter()
                 canon_mask_builder.wait()
                 canon_mask_builder.collect(raw_model.canon_mask)
+                torch.cuda.synchronize()
+                canon_ms = 1000 * (time.perf_counter() - t_canon)
         # stop the clock
         torch.cuda.synchronize()
         training_time_ms += 1000 * (time.perf_counter() - t0)
@@ -2260,6 +2283,23 @@ for step in range(train_steps + 1):
         del val_loader
         dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
+        if last_step and canon_mask_builder is not None:
+            # Off the clock, after the timed result above: score the same weights once more with the
+            # mask cleared, so one run reports the masked and the unmasked loss (the mask is eval-only,
+            # so the unmasked number is what this run scores without CANON_MASK). canon_ms is what the
+            # mask added to train_time at the end; the forked build's CPU time is not separable.
+            raw_model.canon_mask.zero_()
+            val_loader = distributed_data_generator(args.val_files, args.val_batch_size, -1, grad_accum_steps=grad_accum_steps, align_to_bos=False)
+            unmasked_loss = 0
+            with torch.no_grad():
+                for _ in range(val_steps):
+                    inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+                    unmasked_loss += model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
+            unmasked_loss /= val_steps
+            del val_loader
+            dist.reduce(unmasked_loss, 0, op=dist.ReduceOp.AVG)
+            print0(f"canon_mask: val_loss_masked:{val_loss:.6f} val_loss_unmasked:{unmasked_loss:.6f} "
+                   f"delta:{unmasked_loss - val_loss:.6f} canon_ms:{canon_ms:.0f}", console=True)
         model.train()
         # start the clock again
         torch.cuda.synchronize()

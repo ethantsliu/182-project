@@ -1,8 +1,10 @@
 """Step-count sweep: find the NUM_SCHEDULED_ITERATIONS whose mean final val loss sits at a target (default 3.2785).
 
-Run on the 8xH100 box from the repo root. Every run is a plain `torchrun ... train_gpt.py` with the current
-environment (so EXACT_LEVERS / HOST_PREP / DOC_COPY / LAYER_ROPE / COPY_MIX pass through) plus
-NUM_SCHEDULED_ITERATIONS; the console goes to <out>/<tag>_s<steps>_r<k>.txt, and the analysis reads those files.
+Run on the 8xH100 box from any directory: every run is a plain `torchrun ... train_gpt.py` launched in the variant
+directory with the current environment (so EXACT_LEVERS / HOST_PREP / DOC_COPY / LAYER_ROPE / COPY_MIX pass
+through) plus NUM_SCHEDULED_ITERATIONS and DATA_PATH (the repo root unless exported); the console goes to
+<out>/<tag>_s<steps>_r<k>.txt, and the analysis reads those files. `182/run_node.sh ab` with several AB_STEPS
+runs the same sweep for several arms at once, interleaved, and ends in `compare`.
 
   # 3 step counts x 4 runs, interleaved (one run of each count, then the next round), then the fit:
   python 182/t1-gpu-stack/sweep_steps.py run --steps 951 966 981 --runs 4 --out sweeps/stack --tag stack
@@ -24,29 +26,19 @@ import math
 import os
 import re
 import statistics
-import subprocess
 import sys
 
-FINAL_RE = re.compile(r"\[final\] val_loss:([0-9.]+) train_time_ms:([0-9]+) steps:([0-9]+) scheduled:([0-9]+)")
-# Logs without the [final] line (other branches): the last step:N/N val_loss line and the [config] steps line.
-STEP_RE = re.compile(r"step:(\d+)/(\d+) val_loss:([0-9.]+) train_time:([0-9]+)ms")
-CONFIG_RE = re.compile(r"\[config\] steps (\d+) scheduled")
-RECORD_BAR = 3.28
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import runlib  # noqa: E402
+
+RECORD_BAR = runlib.TARGET_LOSS
+TARGET_MEAN = 3.2785  # the mean a record pool aims at: 1.5 millinats under the bar
 
 
 def parse_log(path: str):
     """(scheduled steps, val loss, train time s) of one finished run, or None."""
-    text = open(path, errors="replace").read()
-    m = FINAL_RE.findall(text)
-    if m:
-        loss, ms, _, sched = m[-1]
-        return int(sched), float(loss), int(ms) / 1000
-    steps = [s for s in STEP_RE.findall(text) if s[0] == s[1]]
-    cfg = CONFIG_RE.findall(text)
-    if steps and cfg:
-        _, _, loss, ms = steps[-1]
-        return int(cfg[-1]), float(loss), int(ms) / 1000
-    return None
+    r = runlib.parse_log(path)
+    return None if r is None or r.scheduled is None else (r.scheduled, r.val_loss, r.train_time_s)
 
 
 def one_sided_p_below(values, bar=RECORD_BAR):
@@ -180,22 +172,26 @@ def fit(log_dirs, target: float):
 
 def run(args):
     os.makedirs(args.out, exist_ok=True)
-    env_extra = {k: os.environ[k] for k in ("EXACT_LEVERS", "HOST_PREP", "DOC_COPY", "LAYER_ROPE", "COPY_MIX",
-                                            "COPY_MIX_FIT", "DATA_PATH") if k in os.environ}
-    print(f"sweep {args.steps} x {args.runs} runs, env {env_extra or '(defaults)'} -> {args.out}")
+    passed = {k: os.environ[k] for k in runlib.FLAG_KEYS + ("EXACT_LEVERS",) if k in os.environ}
+    print(f"sweep {args.steps} x {args.runs} runs, env {passed or '(defaults)'} -> {args.out}")
     for k in range(args.runs):
         for steps in args.steps:  # interleaved: drift on the node hits every count alike
             path = os.path.join(args.out, f"{args.tag}_s{steps}_r{k}.txt")
             if os.path.exists(path) and parse_log(path) is not None:
                 print(f"have {path}")
                 continue
-            env = dict(os.environ, NUM_SCHEDULED_ITERATIONS=str(steps))
-            cmd = ["torchrun", "--standalone", f"--nproc_per_node={args.nproc}", "train_gpt.py"]
-            print(f"run {path}: NUM_SCHEDULED_ITERATIONS={steps} {' '.join(cmd)}", flush=True)
-            with open(path, "w") as f:
-                code = subprocess.call(cmd, env=env, stdout=f, stderr=subprocess.STDOUT)
-            r = parse_log(path)
-            print(f"  exit {code}: {r if r else 'no final validation in the log'}", flush=True)
+            env_set = {"DATA_PATH": runlib.data_path(), "NUM_SCHEDULED_ITERATIONS": str(steps)}
+            if args.seed_base is not None:
+                env_set["TRAIN_SEED"] = str(args.seed_base + k)  # the same seed in round k of every arm
+            print(f"run {path}: {runlib.format_cmd({**passed, **env_set}, runlib.torchrun_cmd(args.nproc))}", flush=True)
+            code, note = runlib.launch(env_set, path, nproc=args.nproc, timeout_s=args.timeout)
+            r = parse_log(path) if code == 0 else None
+            if r is None:
+                reason = note or runlib.failure_reason(open(path, errors="replace").read(), code)
+                print(f"  FAILED: {reason}", flush=True)
+                os.replace(path, path + ".failed")  # not a run: a re-run of the sweep retries it
+            else:
+                print(f"  {r}", flush=True)
     fit([args.out], args.target)
 
 
@@ -208,13 +204,15 @@ def main():
     r.add_argument("--out", required=True)
     r.add_argument("--tag", default="sweep")
     r.add_argument("--nproc", type=int, default=8)
-    r.add_argument("--target", type=float, default=3.2785)
+    r.add_argument("--target", type=float, default=TARGET_MEAN)
+    r.add_argument("--seed-base", type=int, default=None, help="TRAIN_SEED = this + round (default: random inits)")
+    r.add_argument("--timeout", type=float, default=1800, help="seconds per run; the whole process group is killed")
     f = sub.add_parser("fit")
     f.add_argument("dirs", nargs="+")
-    f.add_argument("--target", type=float, default=3.2785)
+    f.add_argument("--target", type=float, default=TARGET_MEAN)
     c = sub.add_parser("compare", help="train time at equal loss per arm (one sweep dir each), vs the first arm")
     c.add_argument("dirs", nargs="+")
-    c.add_argument("--target", type=float, default=3.2785)
+    c.add_argument("--target", type=float, default=TARGET_MEAN)
     c.add_argument("--boot", type=int, default=2000)
     args = p.parse_args()
     if args.cmd == "run":

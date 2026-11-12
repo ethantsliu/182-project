@@ -1,21 +1,27 @@
-"""CPU checks for the 182/t2-gpu-port additions (no GPU needed). Run from the repo root:
+"""CPU checks for what variants/t2-gpu-port adds to PR #261 (no GPU needed, ~20 s):
 
-    python 182/t2-gpu-port/test_cpu.py
+    python -m pytest 182 -q            # from variants/t2-gpu-port; or: python 182/test_cpu.py
 
 1. Canonical mask soundness: no adjacent token pair of real GPT-2-encoded text is masked.
 2. Prefix table: the per-rank buckets max-reduce to the single-bucket (full) table, and spot checks.
-3. CE kernel logic: a Python transliteration of ce_fwd_bwd_kernel's loss and its two-pass gradient write
-   (dense pass, then sparse target-column overwrite incl. the new prefix thread) matches autograd.
-4. FusedSoftcappedCrossEntropy-style surplus None gradients are accepted by autograd, so the old
-   8-argument call in train_gpt.py keeps working with the 13-gradient backward.
-5. The prefix-weight schedule reproduces track 1's 0.25 -> 0.20/0.15/0.10/0.05 -> 0 shape.
-6. Model smoke test: the GPT and TrainingManager sections of train_gpt_medium.py, exec'd on CPU at a
+3. Kernels file: everything up to the prefix section is PR #261's triton_kernels.py byte for byte, and the
+   prefix CE kernel is that kernel plus six substitutions whose anchors each occur exactly once.
+4. Prefix CE kernel logic: a Python transliteration of its loss and two-pass gradient write (dense pass,
+   then sparse target-column overwrite incl. the prefix thread) matches autograd.
+5. Autograd accepts the surplus None gradients the prefix Function's backward returns.
+6. The prefix-weight schedule reproduces track 1's 0.25 -> 0.20/0.15/0.10/0.05 -> 0 shape.
+7. Model smoke test: the GPT and TrainingManager sections of train_gpt_medium.py, exec'd on CPU at a
    tiny width with flash-attention and the fused CE replaced by plain-torch references, run forward +
    backward under each flag combination; every parameter gets a gradient, every optimizer label is
    covered, the canonical mask can only lower the eval loss, and XSA at alpha=0 is an exact no-op.
-   FUSED_MLP runs triton_kernels.FusedLinearReLUSquareFunction's real autograd code with a torch stand-in
-   for the Triton kernel and matches the inline MLP's loss and gradients up to bf16 rounding.
+   With every flag off the model calls the base CE with #261's 8 arguments and has #261's parameters
+   and buffers. FUSED_MLP runs triton_kernels.FusedLinearReLUSquareFunction's real autograd code with a
+   torch stand-in for the Triton kernel and matches the inline MLP's loss and gradients up to bf16 rounding.
+
+The kernels themselves are compiled (not run) for H100 by 182/compile_check.sh.
 """
+import ast
+import hashlib
 import glob
 import os
 import sys
@@ -25,7 +31,7 @@ import numpy as np
 import tiktoken
 import torch
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 from medium_extras import build_canonical_mask, build_prefix_table_bucket  # noqa: E402
 
@@ -104,8 +110,40 @@ def test_prefix_table():
     print(f"  prefix table ok, {(full >= 0).float().mean() * 100:.1f}% of tokens have a prefix target")
 
 
+BASE_KERNELS_SHA256 = "5ad45f3466502cd9d3d60f42a09f7277eb5983d5aa1c13e72aad85f9ed07f857"  # upstream PR #261 (cdddeda8) triton_kernels.py
+BASE_KERNELS_BYTES = 34510
+
+
+def _kernel_sources():
+    """(base CE kernel source, prefix CE kernel source), built from triton_kernels.py without importing it
+    (the import compiles a CUDA kernel)."""
+    with open(os.path.join(ROOT, "triton_kernels.py")) as f:
+        tree = ast.parse(f.read())
+    ns = {}
+    for node in tree.body:
+        name = getattr(getattr(node, "targets", [None])[0], "id", None) or getattr(node, "name", "")
+        if name.startswith(("CE_KERNEL_", "_CE_PREFIX_EDITS", "_ce_prefix_source", "CE_PREFIX_KERNEL_SOURCE")):
+            exec(compile(ast.Module([node], []), "triton_kernels.py", "exec"), ns)
+    return ns["CE_KERNEL_SOURCE"], ns["CE_PREFIX_KERNEL_SOURCE"]
+
+
+def test_kernels_file_is_base_plus_prefix_section():
+    with open(os.path.join(ROOT, "triton_kernels.py"), "rb") as f:
+        raw = f.read()
+    assert hashlib.sha256(raw[:BASE_KERNELS_BYTES]).hexdigest() == BASE_KERNELS_SHA256, \
+        "the first part of triton_kernels.py is no longer PR #261's file"
+    assert b"prefix" not in raw[:BASE_KERNELS_BYTES].lower()
+    base, pfx = _kernel_sources()  # _ce_prefix_source asserts every anchor occurs exactly once
+    for needle in ("const int64_t* __restrict__ prefix_targets,", "float prefix_weight = prefix_weight_ptr[0];",
+                   "total_loss += prefix_weight * (lse - z_p);", "S_w += prefix_weight;", "bool is_pfx",
+                   "term2 += prefix_weight;", "void ce_fwd_bwd_prefix_kernel("):
+        assert pfx.count(needle) == 1 and needle not in base, needle
+    assert pfx.count("{") == pfx.count("}") and "ce_fwd_bwd_kernel" not in pfx
+    print("  triton_kernels.py = PR #261's file + the prefix section; all six kernel edits applied once")
+
+
 def kernel_reference(logits, targets, mtp_w, prefix_targets, prefix_w, A=23.0, B=5.0, C=7.5):
-    """Transliteration of ce_fwd_bwd_kernel (fp64, no fp8/bf16 rounding): per-row loss and dloss/dlogit."""
+    """Transliteration of ce_fwd_bwd_prefix_kernel (fp64, no fp8/bf16 rounding): per-row loss and dloss/dlogit."""
     n_rows, V = logits.shape
     n_predict = len(mtp_w)
     losses = torch.zeros(n_rows, dtype=torch.float64)
@@ -119,7 +157,9 @@ def kernel_reference(logits, targets, mtp_w, prefix_targets, prefix_w, A=23.0, B
             if r + k < n_rows:
                 total += mtp_w[k] * (lse - z[targets[r + k]])
         ptgt = int(prefix_targets[r])
-        if 0 <= ptgt < V:
+        if not 0 <= ptgt < V:
+            ptgt = -1  # the kernel treats an out-of-range prefix target as "none"
+        if ptgt >= 0:
             total += prefix_w * (lse - z[ptgt])
         losses[r] = total
         S_w = sum(mtp_w) + (prefix_w if ptgt >= 0 else 0.0)  # kernel sums all mtp weights, even past the end
@@ -148,6 +188,7 @@ def test_ce_kernel_logic():
         prefix_targets[5] = targets[5]  # prefix target equal to the next-token target
         prefix_targets[6] = targets[7]  # prefix target equal to an MTP target
         prefix_targets[7] = -1
+        prefix_targets[8] = V + 3  # out of range: must behave exactly like -1
         losses, grad = kernel_reference(logits.detach(), targets, mtp_w, prefix_targets, prefix_w)
         # ground truth: sum_k w_k CE(z_r, t_{r+k}) + prefix_w CE(z_r, ptgt_r), via autograd
         z = 23.0 * torch.sigmoid((logits + 5.0) / 7.5)
@@ -157,7 +198,7 @@ def test_ce_kernel_logic():
             for k, w in enumerate(mtp_w):
                 if r + k < n_rows:
                     loss[r] = loss[r] - w * logp[r, targets[r + k]]
-            if prefix_targets[r] >= 0:
+            if 0 <= prefix_targets[r] < V:
                 loss[r] = loss[r] - prefix_w * logp[r, prefix_targets[r]]
         loss.sum().backward()
         assert torch.allclose(losses, loss.detach(), atol=1e-9)
@@ -181,7 +222,7 @@ def test_surplus_none_grads():
     x = torch.ones(3, requires_grad=True)
     F.apply(x, 2.0).sum().backward()
     assert torch.equal(x.grad, torch.ones(3))
-    print("  autograd accepts surplus None gradients (train_gpt.py's 8-arg call stays valid)")
+    print("  autograd accepts surplus None gradients (the prefix Function returns 13 for 10 inputs)")
 
 
 def test_prefix_schedule():
@@ -213,21 +254,36 @@ class _FlashRef:
         return torch.einsum("hts,shd->thd", att, v.float()).type_as(q)
 
 
+def _ce_ref(x, targets, mtp_weights, W, A, B, C, prefix_targets=None, prefix_weight=None):
+    logp = torch.log_softmax(A * torch.sigmoid((x.float() @ W.float() + B) / C), -1)
+    n = targets.size(0)
+    loss = torch.zeros(n)
+    for k, w in enumerate(mtp_weights.tolist()):
+        loss[: n - k] = loss[: n - k] - w * logp[: n - k].gather(1, targets[k:, None])[:, 0]
+    if prefix_targets is not None:
+        pfx = logp.gather(1, prefix_targets.clamp_min(0)[:, None])[:, 0]
+        loss = loss - prefix_weight * torch.where(prefix_targets >= 0, pfx, torch.zeros_like(pfx))
+    return loss
+
+
 class _FusedCERef:
-    """Same positional signature as triton_kernels.FusedSoftcappedCrossEntropy.apply; plain autograd."""
-    calls = []
+    """triton_kernels.FusedSoftcappedCrossEntropy.apply as #261 calls it: exactly 8 positional arguments."""
+    calls = 0
 
     @staticmethod
-    def apply(x, targets, mtp_weights, W, x_s, w_s, grad_s, grad_scale, A=23.0, B=5.0, C=7.5, prefix_targets=None, prefix_weight=None):
-        _FusedCERef.calls.append((A, B, C, prefix_targets is not None))
-        logp = torch.log_softmax(A * torch.sigmoid((x.float() @ W.float() + B) / C), -1)
-        n = targets.size(0)
-        loss = torch.zeros(n)
-        for k, w in enumerate(mtp_weights.tolist()):
-            loss[: n - k] = loss[: n - k] - w * logp[: n - k].gather(1, targets[k:, None])[:, 0]
-        valid = prefix_targets >= 0
-        pfx = logp.gather(1, prefix_targets.clamp_min(0)[:, None])[:, 0]
-        return loss - prefix_weight * torch.where(valid, pfx, torch.zeros_like(pfx))
+    def apply(x, targets, mtp_weights, W, x_s, w_s, grad_s, grad_scale):
+        _FusedCERef.calls += 1
+        return _ce_ref(x, targets, mtp_weights, W, 23.0, 5.0, 7.5)
+
+
+class _FusedCEPrefixRef:
+    """triton_kernels.FusedSoftcappedCrossEntropyPrefix.apply: the base arguments, then the prefix pair."""
+    calls = 0
+
+    @staticmethod
+    def apply(x, targets, mtp_weights, W, x_s, w_s, grad_s, grad_scale, prefix_targets, prefix_weight, A=23.0, B=5.0, C=7.5):
+        _FusedCEPrefixRef.calls += 1
+        return _ce_ref(x, targets, mtp_weights, W, A, B, C, prefix_targets, prefix_weight)
 
 
 def _fused_mlp_class():
@@ -281,7 +337,7 @@ def _load_trainer(flags: dict):
              dist=types.SimpleNamespace(get_world_size=lambda: 1), args=args, device=torch.device("cpu"),
              grad_scale=1.0, grad_accum_steps=1, world_size=1, rank=0,
              get_kernel=lambda name: types.SimpleNamespace(flash_attn_interface=_FlashRef),
-             FusedSoftcappedCrossEntropy=_FusedCERef, NorMuonAndAdam=_Opt, _sparse_comms_active=lambda: False,
+             FusedSoftcappedCrossEntropy=_FusedCERef, FusedSoftcappedCrossEntropyPrefix=_FusedCEPrefixRef, NorMuonAndAdam=_Opt, _sparse_comms_active=lambda: False,
              CANON_MASK=0, VAL_CE_CHUNKS=4, PREFIX_WEIGHT=0.0, PREFIX_HOLD_FRAC=0.2854, PREFIX_END_FRAC=0.6063,
              XSA=0, XSA_LAYERS="all", ATTN_GATE=1, MUON_LR=0.015, ADAM_LR=0.004,
              FUSED_MLP=0, FusedLinearReLUSquareFunction=_fused_mlp_class())
@@ -345,7 +401,12 @@ def _random_sound_mask(V, inp, tgt):
 
 def test_model_smoke():
     params = lambda m: {n for n, _ in m.named_parameters()}
+    _FusedCERef.calls = _FusedCEPrefixRef.calls = 0
     base = _smoke({})
+    # flags off: #261's 8-argument base CE, never the prefix variant, and none of this tree's state
+    assert _FusedCERef.calls == 1 and _FusedCEPrefixRef.calls == 0
+    extra = {"xsa_alphas", "prefix_table", "canon_mask"} & (params(base[3]) | {n for n, _ in base[3].named_buffers()})
+    assert not extra and "attn_gate_bank" in params(base[3]), extra
     # XSA at its zero init is an exact identity: train and eval losses match the baseline bit-for-bit
     xsa = _smoke({"XSA": 1})
     assert "xsa_alphas" in params(xsa[3])
@@ -359,7 +420,7 @@ def test_model_smoke():
     assert "attn_gate_bank" not in params(nogate[3]) and nogate[0] != base[0]
     # prefix weight adds a positive term to the training loss; eval is unchanged
     pfx = _smoke({"PREFIX_WEIGHT": 0.25})
-    assert pfx[0] > base[0] and pfx[1] == base[1]
+    assert pfx[0] > base[0] and pfx[1] == base[1] and _FusedCEPrefixRef.calls == 1
     # canonical mask: all-zero == no-op; a sound mask can only lower the eval loss; chunking is exact
     zero = lambda V, i, t: torch.zeros(V, V // 8, dtype=torch.uint8)
     cz = _smoke({"CANON_MASK": 1}, canon_fn=zero)
@@ -379,7 +440,7 @@ def test_model_smoke():
 
 
 if __name__ == "__main__":
-    for t in [test_surplus_none_grads, test_prefix_schedule, test_ce_kernel_logic, test_model_smoke, test_prefix_table, test_canonical_mask]:
+    for t in [test_kernels_file_is_base_plus_prefix_section, test_surplus_none_grads, test_prefix_schedule, test_ce_kernel_logic, test_model_smoke, test_prefix_table, test_canonical_mask]:
         print(t.__name__)
         t()
     print("all CPU checks passed")

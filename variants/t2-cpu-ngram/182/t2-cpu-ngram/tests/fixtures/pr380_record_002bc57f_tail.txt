@@ -1,0 +1,92 @@
+====================================================================================================
+Running Python 3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]
+Running PyTorch 2.10.0+cu128 compiled for CUDA 12.8
+Running Triton version 3.6.0
+Sat Oct  3 11:06:00 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.178.04             Driver Version: 580.178.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100 80GB HBM3          On  |   00000000:0A:00.0 Off |                    0 |
+| N/A   35C    P0            120W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100 80GB HBM3          On  |   00000000:18:00.0 Off |                    0 |
+| N/A   29C    P0            113W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100 80GB HBM3          On  |   00000000:23:00.0 Off |                    0 |
+| N/A   28C    P0            115W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100 80GB HBM3          On  |   00000000:2C:00.0 Off |                    0 |
+| N/A   34C    P0            114W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   4  NVIDIA H100 80GB HBM3          On  |   00000000:87:00.0 Off |                    0 |
+| N/A   35C    P0            121W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   5  NVIDIA H100 80GB HBM3          On  |   00000000:90:00.0 Off |                    0 |
+| N/A   29C    P0            115W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   6  NVIDIA H100 80GB HBM3          On  |   00000000:BE:00.0 Off |                    0 |
+| N/A   28C    P0            113W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   7  NVIDIA H100 80GB HBM3          On  |   00000000:C7:00.0 Off |                    0 |
+| N/A   35C    P0            122W /  700W |    1521MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+====================================================================================================
+attention heads=4 (qk, v) head widths by layer, in bank order={0: (64, 128), 2: (64, 128), 5: (64, 128), 1: (64, 64), 8: (64, 64), 3: (128, 128), 10: (128, 128)} seed=15 steps=725 stage boundaries=[(0, 204), (204, 434), (434, 672), (672, 715), (715, 725)]
+sampled softmax: P by step change [(0, 10240), (434, 14336), (593, 24576), (672, 0)]
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 202, 203, 204, 205, 432, 433, 434, 435, 591, 592, 593, 594, 670, 671, 672, 673, 713, 714, 715, 716, 717, 718] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 671
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/725 train_time:539ms step_avg:21.54ms
+step:50/725 train_time:807ms step_avg:16.14ms
+step:75/725 train_time:1095ms step_avg:14.60ms
+step:100/725 train_time:1392ms step_avg:13.92ms
+step:125/725 train_time:1679ms step_avg:13.43ms
+step:150/725 train_time:1976ms step_avg:13.17ms
+step:175/725 train_time:2263ms step_avg:12.93ms
+step:200/725 train_time:2561ms step_avg:12.80ms
+step:225/725 train_time:2850ms step_avg:12.67ms
+step:250/725 train_time:3153ms step_avg:12.61ms
+step:275/725 train_time:3447ms step_avg:12.53ms
+step:300/725 train_time:3780ms step_avg:12.60ms
+step:325/725 train_time:4048ms step_avg:12.45ms
+step:350/725 train_time:4347ms step_avg:12.42ms
+step:375/725 train_time:4646ms step_avg:12.39ms
+step:400/725 train_time:4945ms step_avg:12.36ms
+step:425/725 train_time:5243ms step_avg:12.34ms
+step:450/725 train_time:5546ms step_avg:12.33ms
+step:475/725 train_time:5858ms step_avg:12.33ms
+step:500/725 train_time:6171ms step_avg:12.34ms
+step:525/725 train_time:6480ms step_avg:12.34ms
+step:550/725 train_time:6793ms step_avg:12.35ms
+step:575/725 train_time:7104ms step_avg:12.36ms
+step:600/725 train_time:7416ms step_avg:12.36ms
+step:625/725 train_time:7742ms step_avg:12.39ms
+step:650/725 train_time:8072ms step_avg:12.42ms
+step:675/725 train_time:8508ms step_avg:12.60ms
+step:700/725 train_time:8774ms step_avg:12.53ms
+step:724/725 train_time:9126ms step_avg:12.60ms
+step:725/725 train_time:9139ms step_avg:12.61ms
+step:725/725 val_loss:3.2783 train_time:9667ms step_avg:13.33ms
+peak memory allocated: 48643 MiB reserved: 54618 MiB

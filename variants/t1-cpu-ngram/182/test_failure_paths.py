@@ -1,6 +1,6 @@
-"""CPU tests of the retrieval's failure paths and the host check (no GPU, no Triton, no built extension needed).
+"""CPU tests of the retrieval's failure paths, the host check and the TABLE_VOTE report's chain bookkeeping (no GPU, no Triton, no built extension needed).
 
-    cd variants/t1-cpu-ngram && python3 -m pytest -q 182/t1-cpu-ngram/test_failure_paths.py
+    cd variants/t1-cpu-ngram && python3 -m pytest -q 182
 
 Triton and the exact_match extension are stubbed where a module imports them; only pure-Python code paths run.
 """
@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 import torch
 
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # variants/t1-cpu-ngram
 sys.path.insert(0, ROOT)
 
 from track_1_short import host  # noqa: E402
@@ -228,3 +228,74 @@ def test_detect_runs_here():
     h = host.detect(gpus=8)
     assert h.allowed >= 1 and h.mem_total > 0
     assert "host:" in host.describe(h)
+
+
+# TABLE_VOTE: the run reports the loss of the chain refit without the table's links (train_gpt.py: vote_base_prob)
+def _vote_case(exact_counts, retrieval, n=64, seed=0):
+    g = torch.Generator().manual_seed(seed)
+    J = len(exact_counts.ORDERS)
+    N = torch.randint(0, 50, (n, J), generator=g).float()
+    C = (N * torch.rand(n, J, generator=g)).floor()
+    cell = torch.randint(0, 4 * retrieval.RET_CELLS, (n,), generator=g)
+    hints = retrieval.rows_part(cell, torch.rand(n, generator=g))
+    doc = [(torch.rand(n, generator=g), torch.randint(-1, 7, (n,), generator=g), 7) for _ in range(3)]
+    counts = np.zeros((n, 6), dtype=np.uint32)
+    counts[:, :3] = torch.randint(0, 40, (n, 3), generator=g).numpy()
+    counts[:, 3:] = (counts[:, :3] * torch.rand(n, 3, generator=g).numpy()).astype(np.uint32)
+    return (N, C), hints, doc, counts, torch.rand(n, generator=g) * 0.5, torch.randn(n, 8, generator=g), g
+
+
+def test_vote_report_base_chain_is_the_chain_without_the_table_links(exact_counts, retrieval):
+    ec = exact_counts
+    counts_nc, hints, doc, votes, p, hidden, g = _vote_case(ec, retrieval)
+    J, B = len(ec.ORDERS), retrieval.VOTE_BINS
+    base_groups = J * ec.NBINS + 4 * retrieval.RET_CELLS + 3 * 7
+    K0 = J + 1 + 3
+    theta, W, b = torch.randn(base_groups, generator=g).double(), torch.randn(8, K0, generator=g) * 0.1, torch.randn(K0, generator=g) * 0.1
+    base = ec.vote_base_prob(p, counts_nc, hints + doc, hidden, (theta, W, b), base_groups)
+    # by hand: the chain over the same links
+    Q, G, total = ec.components(*counts_nc, hints + doc)
+    assert total == base_groups
+    assert torch.equal(base, ec.chain_prob(p, Q, ec.gate_L(hidden, G, theta, W, b, base_groups)))
+    assert ((base > 0) & (base < 1)).all()
+    # the run's chain (the table's links between the hint rows' and the document's) with those links' weights at zero
+    cut, kcut = J * ec.NBINS + 4 * retrieval.RET_CELLS, J + 1
+    theta_f = torch.cat([theta[:cut], torch.full((3 * B,), -700.0, dtype=torch.float64), theta[cut:]])
+    W_f = torch.cat([W[:, :kcut], torch.zeros(8, 3), W[:, kcut:]], 1)
+    b_f = torch.cat([b[:kcut], torch.zeros(3), b[kcut:]])
+    Qf, Gf, total_f = ec.components(*counts_nc, hints + retrieval.table_part(votes, "cpu") + doc)
+    assert total_f == base_groups + 3 * B and Qf.shape[1] == K0 + 3
+    full = ec.chain_prob(p, Qf, ec.gate_L(hidden, Gf, theta_f, W_f, b_f, total_f))
+    assert torch.allclose(full, base, rtol=0, atol=1e-12)
+    with pytest.raises(AssertionError, match="groups"):
+        ec.vote_base_prob(p, counts_nc, hints + retrieval.table_part(votes, "cpu") + doc, hidden, (theta, W, b), base_groups)
+
+
+def test_fixed_vote_is_pr399s_formula(retrieval):
+    p = torch.tensor([0.2, 0.5, 0.9])
+    counts = np.array([[0, 0, 0, 0, 0, 0], [10, 0, 0, 4, 0, 0], [10, 5, 2, 10, 5, 2]], dtype=np.uint32)
+    out = retrieval.table_vote(p, counts)
+    k6, k10, k20 = retrieval.VOTE_K
+    assert out[0] == pytest.approx(0.2)                       # no candidates: unchanged
+    assert out[1].item() == pytest.approx((4 + k6 * 0.5) / (10 + k6))
+    want = (10 + k6 * 0.9) / (10 + k6)
+    want = (5 + k10 * want) / (5 + k10)
+    assert out[2].item() == pytest.approx((2 + k20 * want) / (2 + k20))
+    links = retrieval.table_part(counts, "cpu")
+    assert [n for _, _, n in links] == [retrieval.VOTE_BINS] * 3
+    assert links[0][1].tolist() == [-1, 3, 3] and links[0][0].tolist() == pytest.approx([0.0, 0.4, 1.0])
+
+
+def test_table_vote_flag_values(retrieval):
+    import subprocess
+    code = ("import sys, types, os; m = types.ModuleType('exact_match'); m.CELLS = 4; m.SlotIndex = m.StreamIndex = object; "
+            "sys.modules['exact_match'] = m; os.sched_getaffinity = getattr(os, 'sched_getaffinity', lambda p: {0}); "
+            "from track_1_short import retrieval as r; print(r.TABLE_VOTE, r.SLOT_SHARED_ARENA, r.STREAM_THREADS)")
+    def flag(value):
+        env = {k: v for k, v in os.environ.items() if k not in ("TABLE_VOTE", "SLOT_SHARED_ARENA", "STREAM_THREADS")}
+        if value is not None:
+            env["TABLE_VOTE"] = value
+        return subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert flag(None).stdout.split() == ["False", "False", "4"]  # every flag off by default
+    assert flag("0").stdout.split()[0] == "False" and flag("1").stdout.split()[0] == "True" and flag("chain").stdout.split()[0] == "True"
+    assert flag("fixed").returncode != 0 and "TABLE_VOTE=fixed" in flag("fixed").stderr

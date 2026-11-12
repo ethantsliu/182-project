@@ -480,6 +480,7 @@ def main():
             training_time_ms += 1000 * (time.perf_counter() - t0)
             model.eval()
             val_loss = 0
+            model_val_loss = 0  # the model's own loss, before the exact-count chain (reported only)
             with torch.no_grad():
                 for i, (batch, pull, rows) in enumerate(zip(val_batches, val_pulls, val_rows)):
                     ngram_table.land(pull)
@@ -490,16 +491,22 @@ def main():
                     link = rows_part(r[:, 0].long(), mix_q(r, batch.targets))
                     Q, G, _ = components(*exact_val[i], link + doc_chain.part(i))
                     L = gate_L(uncompiled_model.val_hidden[:len(Q)], G, *gate, groups)
+                    model_val_loss += loss.float().mean()
                     loss = -torch.log(chain_prob(torch.exp(-loss.float()), Q, L).clamp_min(1e-30)).float()
                     val_loss += loss.mean()
             val_loss /= val_steps
+            model_val_loss /= val_steps
             del val_batches, val_pulls
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
+            dist.reduce(model_val_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
-            if last_step:  # one machine-readable line for the sweep / significance scripts (182/t2-cpu-ngram)
+            if last_step:  # one machine-readable line for the sweep / significance scripts (182/t2-cpu-ngram/)
                 print0(f"endpoint_result: steps={step} seed={args.train_seed} val_loss={float(val_loss):.6f} "
                        f"train_time_ms={training_time_ms:.0f} target_loss={TARGET_LOSS} "
                        f"target_reached={float(val_loss) <= TARGET_LOSS}", console=True)
+                # Off the clock: how much of the result is the chain's (the model alone vs with the exact counts).
+                print0(f"val_loss_parts: model_only={float(model_val_loss):.6f} with_chain={float(val_loss):.6f} "
+                       f"chain_gain={float(model_val_loss) - float(val_loss):.6f}", console=True)
             # The clock is stopped: flush the log and collect the loop's garbage here.
             flush_log()
             gc.collect()
