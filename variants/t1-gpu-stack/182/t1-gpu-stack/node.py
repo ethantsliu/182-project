@@ -58,6 +58,8 @@ ARMS = {
     "optmaps3":     dict(env={"OPTIM_MAPS": "3"}, exact=False, what="three-map ANVIL cascade (one round less per bank)"),
     "opts4maps3":   dict(env={"OPTIM_MAPS": "3", "OPTIM_NORM": "s4"}, exact=False, what="three maps after a Schatten-4 scale"),
     "opts4":        dict(env={"OPTIM_NORM": "s4"}, exact=False, what="Schatten-4 cascade scale, four maps (loss only)"),
+    # r6-kernel (182/kernel-cost/README.md)
+    "router":       dict(env={"MOE_ROUTER_FUSED": "1"}, exact=True, what="fused MoE router kernels (182/kernel-cost; same math, not bitwise)"),
 }
 # What a millinat of val loss costs in train time on this stack, to price a loss change at a single step count:
 # #393 cut 999 -> 981 scheduled steps for about +3.0 millinats and -0.75 s. A sweep (AB_STEPS) measures it instead.

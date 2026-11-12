@@ -29,7 +29,9 @@ WORLD_SIZE = 8  # track_1_short/distributed.py asserts it
 # Our flags (track_1_short/folds.py) and the base PR's own knobs. A/B arms clear every one of them first.
 FLAG_KEYS = ("HOST_PREP", "DOC_COPY", "LAYER_ROPE", "COPY_MIX", "COPY_MIX_FIT",
              # r6-optim: track_1_short/optim/cascade_flags.py
-             "OPTIM_MOEFUSED", "OPTIM_MAPS", "OPTIM_NORM", "OPTIM_PROFILE")
+             "OPTIM_MOEFUSED", "OPTIM_MAPS", "OPTIM_NORM", "OPTIM_PROFILE",
+             # r6-kernel: track_1_short/perf/kernels/moe_router.py
+             "MOE_ROUTER_FUSED")
 BASE_KEYS = ("EXACT_LEVERS", "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED")
 
 _NUM = r"(?:[0-9]+(?:\.[0-9]*)?(?:e-?[0-9]+)?|nan|inf)"
