@@ -55,6 +55,8 @@ RESULT variant=t1-gpu-stack status=failed reason=<one line>          # with a no
 | `LAYER_ROPE=attn` | #385 (shikhar-srivastava) | depth-conditioned rotary gains on the attention input and residual, folded into the QKV columns (fp8 cache) and the O rows | yes |
 | `LAYER_ROPE=1` | #385 | the same, plus the MLP input and residual gains as activation scales on the dense and MoE layers | yes |
 | `DOC_COPY=1` | #378 (josusanmartin) | the next token after the longest earlier exact match in the document, fed in as an extra input (`doc_copy.py`) | yes |
+| `MOE_ROUTER_FUSED=1` | ours (round 6) | the MoE router logits, softmax and top-1 in one Triton kernel, and the router weight gradient accumulated inside the existing dx_combine pass (`perf/kernels/moe_router.py`; see `182/kernel-cost/README.md`) | no: same math, not bitwise (a bf16 logit tie can flip the chosen expert) |
+| `OPTIM_MOEFUSED=1`, `OPTIM_MAPS=3`, `OPTIM_NORM=s4`, `OPTIM_PROFILE=1` | ours (round 6) | the expert bank on the fused ANVIL tail; a three-map cascade; a Schatten-4 cascade scale; CUDA-event timing of the optimizer tail (`optim/cascade_flags.py`; see `182/optim-cost/README.md`) | MOEFUSED and PROFILE no; MAPS and NORM yes |
 
 Not here: #387's FA3 batch-axis change (it is #396's `fa3copy` lever, already on), the rest of #382 (its n-gram
 scatter overlaps `prescatter`, its sampled head is #393's), #390 (the pre-clock barrier, already in #397), and the

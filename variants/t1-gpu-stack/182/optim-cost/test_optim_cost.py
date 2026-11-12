@@ -31,7 +31,17 @@ sys.path.insert(0, VARIANT)
 sys.path.insert(0, HERE)
 
 import cascade_sim  # noqa: E402
-import cost_model  # noqa: E402
+def _load_by_path(name, path):
+    # Both optim-cost/ and kernel-cost/ have a cost_model.py; load each by path under its own name so one pytest
+    # session collecting both directories does not hand one test the other's module from sys.modules.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cost_model = _load_by_path("optim_cost_model", os.path.join(HERE, "cost_model.py"))  # noqa: E402
 from track_1_short.optim import cascade_flags  # noqa: E402
 
 

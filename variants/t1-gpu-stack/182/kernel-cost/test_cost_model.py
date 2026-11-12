@@ -11,7 +11,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "..")))
 
-import cost_model as cm  # noqa: E402
+def _load_by_path(name, path):
+    # Both optim-cost/ and kernel-cost/ have a cost_model.py; load each by path under its own name so one pytest
+    # session collecting both directories does not hand one test the other's module from sys.modules.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+cm = _load_by_path("kernel_cost_model", os.path.join(HERE, "cost_model.py"))  # noqa: E402
 
 
 def test_stage_ends_match_training_schedule():
