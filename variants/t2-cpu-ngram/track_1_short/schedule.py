@@ -7,7 +7,7 @@ import torch
 from track_1_short.config import SCHEDULE_GROWTH_STAGE, SCHEDULE_GROWTH_STEPS, TrainingStage, scaled_steps
 
 # The lr cooldown decays linearly to this absolute multiplier (record #360's code; its README says 0.20).
-# Track 2 (@ldmberman's adaptation) uses 0.10.
+# Track 2 (ldmberman's adaptation) uses 0.10.
 LR_FLOOR = float(os.environ.get("LR_FLOOR", "0.30"))
 assert 0 <= LR_FLOOR <= 1
 

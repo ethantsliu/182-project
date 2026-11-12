@@ -23,6 +23,19 @@ RANK_GIB = float(os.environ.get("HOST_RANK_GIB", "12"))
 HOST_CHECK = os.environ.get("HOST_CHECK", "1") == "1"
 
 
+def build_threads(per_gpu, env=None):
+    """Threads of rank 0's validation index builds. PR #380's rule by vCPUs per GPU (64 / 32 / 16), unless
+    VAL_BUILD_THREADS is set: each thread costs 0.25 GiB of scan arena in each of the three indexes, so 16 instead
+    of 64 saves 36 GiB of host RAM for a slower build (the build runs beside training, on the clock)."""
+    env = os.environ if env is None else env
+    if env.get("VAL_BUILD_THREADS"):
+        threads = int(env["VAL_BUILD_THREADS"])
+        if not 1 <= threads <= 256:
+            raise ValueError(f"VAL_BUILD_THREADS={threads}: expected 1..256")
+        return threads
+    return 64 if per_gpu >= 24 else 32 if per_gpu >= 16 else 16
+
+
 def _read(path, default=""):
     try:
         with open(path) as f:

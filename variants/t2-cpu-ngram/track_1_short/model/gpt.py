@@ -35,7 +35,7 @@ from track_1_short.token_norm import NORM_MAP
 # Layer topology (11 layers). Depth cut from record #360 (ANVIL2): layer 7 is removed whole -- its
 # residual scaling and x0 injection stay, so cache[7] still exists -- and layers 4 and 9 run
 # their MLP only. Layer 6 has had no attention since @YouJiacheng; it adds a gated skip from layer 3.
-# Track 2 (MODEL_LAYERS=16, @ldmberman's adaptation in the PR #380 thread) inserts five plain attention + MLP
+# Track 2 (MODEL_LAYERS=16, ldmberman's adaptation in the PR #380 thread) inserts five plain attention + MLP
 # layers (10-14) before the last layer; the early skip/injection sites and the late attention input are kept.
 NUM_LAYERS = MODEL_LAYERS
 LAST_LAYER = NUM_LAYERS - 1

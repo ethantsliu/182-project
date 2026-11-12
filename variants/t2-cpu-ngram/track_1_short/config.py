@@ -23,7 +23,7 @@ class Hyperparameters:
     val_files: str = os.path.join(data_path, "data/fineweb10B/fineweb_val_*.bin") # input .bin to eval validation loss on
     val_tokens: int = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
     # batch sizes
-    # Track 2 halves it (2 * 64 * 1024 * 8) to fit d_model 1024 in memory (@ldmberman, PR #380 thread).
+    # Track 2 halves it (2 * 64 * 1024 * 8) to fit d_model 1024 in memory (ldmberman, PR #380 thread).
     val_batch_size: int = int(os.environ.get("VAL_BATCH_SIZE", str(4 * 64 * 1024 * 8)))
     # schedule: the base step count of the main stages (SCHEDULE_GROWTH_STEPS are added on top), then
     # the extension stage. The override is for step-count sweeps (record #360's KX_STEPS).
@@ -62,7 +62,7 @@ TAPER_DURATION = 0.06
 SCHEDULE_GROWTH_STEPS = 0
 SCHEDULE_GROWTH_STAGE = 2
 MODEL_DIM = int(os.environ.get("MODEL_DIM", "512"))
-# 11 = the Track 1 topology; 16 = @ldmberman's Track 2 adaptation, which inserts five attention + MLP
+# 11 = the Track 1 topology; 16 = ldmberman's Track 2 adaptation, which inserts five attention + MLP
 # layers before the last one (model/gpt.py). Other depths are untested.
 MODEL_LAYERS = int(os.environ.get("MODEL_LAYERS", "11"))
 # MLP hidden size, cut from 4 * 768 = 3072 in record #360; Track 2 uses 4 * 1024 = 4096.
