@@ -12,12 +12,18 @@ pyo3 = { version = "0.27" }
 numpy = "0.27"
 rayon = "1.11"
 libc = "0.2"
+# EXACT_BACKEND=sa only (feature `sa`): libsais 2.10.4 via its raw bindings, pinned; needs rustc >= 1.85 (edition 2024)
+libsais-sys = { version = "=0.2.0", default-features = false, optional = true }
 
 [features]
 # maturin / pip build the extension module (the default); `cargo test --no-default-features` links libpython instead,
 # so the unit tests run (small tables: see the cfg(test) constants in src/slot.rs).
 default = ["extension-module"]
 extension-module = ["pyo3/extension-module"]
+# EXACT_BACKEND=sa: the suffix-array exact counts (src/sa.rs). Off by default, so the default build is unchanged.
+sa = ["dep:libsais-sys"]
+# libsais with OpenMP (needs libgomp/libomp at build time): the suffix sort on `threads` cores instead of one
+sa-openmp = ["sa", "libsais-sys/openmp"]
 
 [profile.release]
 lto = "thin"
