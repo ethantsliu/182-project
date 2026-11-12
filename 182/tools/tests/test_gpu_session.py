@@ -60,8 +60,11 @@ class SessionRepo(unittest.TestCase):
         self.repo = self.root / "repo"
         (self.repo / "182/tools").mkdir(parents=True)
         shutil.copy(Path(REPO) / "182/gpu_session.sh", self.repo / "182/gpu_session.sh")
-        for f in ("ab_run.py", "logparse.py", "stats.py", "summarize_session.py", "node_setup.sh"):
+        for f in ("ab_run.py", "logparse.py", "stats.py", "summarize_session.py", "node_setup.sh", "xab_run.py",
+                  "nvls_check.py"):
             shutil.copy(Path(TOOLS) / f, self.repo / "182/tools" / f)
+        shutil.copytree(Path(REPO) / "182/profile", self.repo / "182/profile",
+                        ignore=shutil.ignore_patterns("__pycache__", "tests"))
         (self.repo / "train_gpt.py").write_text(FAKE_TRAINER)
         (self.repo / "track_1_short").mkdir()
         (self.repo / "track_1_short/config.py").write_text("HADAMARD_FP8 = 0\n")
@@ -137,7 +140,8 @@ class TestGpuSession(SessionRepo):
         out = r.stdout + r.stderr
         self.assertEqual(r.returncode, 0, out)
         self.assertFalse(self.marker.exists(), "DRY_RUN launched torchrun")
-        phases = ("env", "tests", "sanity", "base", "t1gpu", "t1cpu", "t2cpu", "t2gpu", "gate", "attno", "hadamard", "bundle")
+        phases = ("env", "tests", "sanity", "base", "t1gpu", "profile", "nccl", "xab", "t1cpu", "t2cpu", "t2gpu", "gate",
+                  "attno", "hadamard", "bundle")
         pos = [out.index(f"== {p}: est. ") for p in phases]
         self.assertEqual(pos, sorted(pos))
         self.assertIn("phases: " + " ".join(phases), out)
@@ -335,7 +339,7 @@ class TestGpuSession(SessionRepo):
         r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
                            env=dict(env, DRY_RUN="1", QUICK="1"), capture_output=True, text=True, timeout=600)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("phases: env sanity base t1gpu bundle\n", r.stdout)
+        self.assertIn("phases: env sanity base t1gpu profile bundle\n", r.stdout)
         self.assertNotIn("== tests:", r.stdout)
         self.assertNotIn("== gate:", r.stdout)
         self.assertRegex(r.stdout, r"\n  t1gpu +13  \(2 run")      # QUICK: 2 runs of t1gpu unless T1GPU_RUNS is set
@@ -694,7 +698,7 @@ class TestSessionFlow(SessionRepo):
         self.assertEqual(r.returncode, 0, out)
         self.assertIn("+ (background, nice 19) check + prep of: t1gpu t1cpu t2cpu t2gpu", out)
         self.assertIn("+ bash variants/t1-gpu-stack/182/run_node.sh prep", out)
-        self.assertEqual(out.count("DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py"), 4 + 4 + 1 + 1)
+        self.assertEqual(out.count("DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py"), 4 + 4 + 1 + 1 + 1)  # + profile t1gpu
         self.assertEqual(out.count("train_gpt.py [CANON_MASK=1]"), 1)
         self.assertIn("    FAIL ram: 64 GiB available", out)          # the real check output: what this host lacks
         st = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "--ignored"], capture_output=True, text=True).stdout
@@ -702,6 +706,135 @@ class TestSessionFlow(SessionRepo):
         self.assertFalse(list(self.state.glob("*/runs")), "DRY_RUN ran a variant")
         self.assertFalse(list(self.state.glob("*/prepped")), "DRY_RUN ran a prep")
         self.assertFalse(self.marker.exists())
+
+
+
+class TestProfileNcclXab(SessionRepo):
+    """The profile, nccl and xab phases against the fake run_node.sh (FAKE_SEEDED=1: val/time from the seed plus the
+    arm's EXTRA_ENV shifts) and the fake root trainer."""
+
+    def experiment(self, name, body):
+        d = self.repo / "182/experiments.d"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{name}.sh").write_text(body)
+
+    def test_xab_runs_every_experiment_paired_resumes_and_summarizes(self):
+        self.add_variants("t1gpu")
+        self.experiment("moe", 'XAB_NAME=moe\nXAB_TREE=variants/t1-gpu-stack\n'
+                               'XAB_ARMS=("base:" "cap:FAKE_DVAL=0.001 FAKE_DVAL_SLOPE=0.0002 FAKE_DT=-0.25")\n'
+                               'XAB_SEEDS=4 ; XAB_EST_MIN=20 ; XAB_NOTE="expect -0.25 s; killed if Δval CI > 1 mnat"\n')
+        self.experiment("rootx", 'XAB_NAME=rootx\nXAB_TREE=.\nXAB_ARMS=("base:" "ao:FP8_ATTN_O=1 FAKE_ATTNO_DVAL=0.001")\n'
+                                 'XAB_SEEDS=2 ; XAB_EST_MIN=15 ; XAB_NOTE="root arm"\n')
+        self.experiment("broken", 'XAB_NAME=broken\nXAB_TREE=variants/nope\nXAB_ARMS=("base:" "x:A=1")\n')
+        rc, out = self.run_session("xab", "bundle", FAKE_SEEDED="1")
+        self.assertEqual(rc, 1, out)                       # the invalid file fails the phase; the other two ran
+        self.assertEqual(self.status("xab"), "FAIL rc=1")
+        self.assertIn("xab broken: INVALID", out)
+        self.assertIn("XAB_TREE=variants/nope: no such directory", (self.sd / "xab/broken.invalid").read_text())
+        calls = [c for c in self.calls("t1gpu") if c.startswith("run ")]
+        self.assertEqual(len(calls), 8)
+        self.assertEqual(sum("EXTRA_ENV=FAKE_DVAL=0.001" in c for c in calls), 4)
+        self.assertEqual((self.sd / "xab/moe/status.txt").read_text().strip(), "PASS")
+        rep = (self.sd / "xab/moe/report.txt").read_text()
+        self.assertIn("Δval  +1.50 ± 0.13 mnat (SE), 95% CI [+1.09, +1.91]", rep)
+        self.assertIn("net_s = Δtime + Δval x 164 ms/mnat = -0.004 s", rep)
+        # the root experiment went through ab_run.py: same seeds in both arms, the fake trainer's -0.5 s for FP8_ATTN_O
+        ends = self.ends("xab/rootx")
+        self.assertEqual({(e["arm"], e["seed"]) for e in ends}, {(a, s) for a in ("base", "ao") for s in (1, 2)})
+        rrep = (self.sd / "xab/rootx/report.txt").read_text()
+        self.assertIn("ao - base (n=2 seed pairs", rrep)
+        self.assertIn("Δval  +1.00 ± 0.00 mnat", rrep)
+        self.assertIn("Δtime -0.500 ± 0.000 s", rrep)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("== xab moe: PASS  (expect -0.25 s; killed if Δval CI > 1 mnat)", summary)
+        self.assertIn("== xab broken: INVALID experiments.d file", summary)
+        self.assertIn("ao - base (n=2 seed pairs", summary)
+        # resume: complete experiments are not re-run; XAB_SKIP drops one by name
+        rc, out = self.run_session("xab", FAKE_SEEDED="1", XAB_SKIP="broken")
+        self.assertIn("xab moe: complete earlier", out)
+        self.assertEqual(len([c for c in self.calls("t1gpu") if c.startswith("run ")]), 8)
+        (self.repo / "182/experiments.d/broken.sh").unlink()
+        rc, out = self.run_session("xab", FAKE_SEEDED="1", XAB_ONLY="rootx")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("xab moe: not selected", out)
+        self.assertEqual(self.status("xab"), "PASS")
+
+    def test_xab_skips_a_variant_whose_check_fails_and_dry_run_plans(self):
+        self.add_variants("t1gpu")
+        self.experiment("moe", 'XAB_NAME=moe\nXAB_TREE=variants/t1-gpu-stack\nXAB_ARMS=("base:" "cap:MOE_CAP=1")\n'
+                               'XAB_SEEDS=2 ; XAB_EST_MIN=17 ; XAB_NOTE="n"\n')
+        rc, out = self.run_session("xab", DRY_RUN="1")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"\n  xab +17  \(1 file\(s\) in 182/experiments\.d")
+        self.assertIn("EXTRA_ENV=MOE_CAP=1 bash variants/t1-gpu-stack/182/run_node.sh run   (cap)", out)
+        self.assertEqual(self.calls("t1gpu"), [])
+        rc, out = self.run_session("xab", FAKE_CHECK_FAIL="t1-gpu-stack")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue((self.sd / "xab/moe/status.txt").read_text().startswith("SKIP check: FAIL ram"))
+        self.assertEqual([c for c in self.calls("t1gpu") if c.startswith("run ")], [])
+
+    def test_nccl_skips_without_nvls_and_runs_when_forced(self):
+        self.add_variants("t1gpu")
+        rc, out = self.run_session("nccl", NCCL_TREES="t1gpu", NCCL_PROBE_TIMEOUT_S="20")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.status("nccl").startswith("SKIP NVLS: unavailable -- the forced-NVLS probe failed"), self.status("nccl"))
+        self.assertTrue((self.sd / "nccl/nvls_check.json").exists())
+        rc, out = self.run_session("nccl", "bundle", FORCE="1", FORCE_NCCL="1", NCCL_TREES="t1gpu", NCCL_SEEDS="1,2",
+                                   NCCL_PROBE_TIMEOUT_S="20", FAKE_SEEDED="1")
+        self.assertEqual(rc, 0, out)
+        calls = [c for c in self.calls("t1gpu") if c.startswith("run ")]
+        self.assertEqual(len(calls), 6)
+        self.assertEqual(sum(c.endswith("EXTRA_ENV=NCCL_NVLS_ENABLE=0") for c in calls), 2)
+        self.assertEqual(sum("'NCCL_ALGO=allreduce:nvls;reducescatter:nvls;allgather:nvls'" in c for c in calls), 2)
+        rep = (self.sd / "nccl/t1gpu/report.txt").read_text()
+        self.assertIn("nvls_off - base (n=2 seed pairs", rep)
+        self.assertIn("nvls_force - base (n=2 seed pairs", rep)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("== nccl (NVLink SHARP):", summary)
+        self.assertIn("NVLS: unavailable", summary)
+        self.assertIn("== nccl t1gpu: tree variants/t1-gpu-stack, baseline base, seeds 1,2", summary)
+
+    def test_profile_fails_loudly_when_the_trainer_bypasses_the_hook_and_skips_unready_trees(self):
+        self.add_variants("t1gpu")
+        # the fake run_node.sh never calls torchrun: nothing can be profiled, and the phase says so
+        rc, out = self.run_session("profile", "bundle", PROFILE_TREES="t1gpu")
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.status("profile"), "FAIL rc=1")
+        self.assertIn("did not start through 182/profile/shim/torchrun", (self.sd / "profile/t1gpu/run.txt").read_text())
+        self.assertIn("== profile t1gpu: no analysis", (self.sd / "summary.txt").read_text())
+        rc, out = self.run_session("profile", FORCE="1", PROFILE_TREES="t1gpu", FAKE_CHECK_FAIL="t1-gpu-stack")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.status("profile").startswith("SKIP t1gpu: check: FAIL ram"), self.status("profile"))
+        self.assertTrue(list(self.sd.glob("profile/t1gpu.attempt1/run.txt")))      # the failed attempt is kept
+
+    def test_profile_done_earlier_is_kept_and_summarized(self):
+        d = self.sd / "profile/root"
+        d.mkdir(parents=True)
+        rows = "\n".join(f"{1.0 / (i + 1):8.3f} {10.0:6.1f}% {1.0:6.1f} {100.0:8.1f}  gemm       kernel_{i}" for i in range(25))
+        (d / "analysis.txt").write_text("steps profiled: 20 (device 0); GPU window 30.00 ms/step\n\n"
+                                        "NCCL: 2.000 ms/step of kernels, 0.500 ms exposed\n\ntop 25 kernels by total time:\n"
+                                        f"{'ms/step':>8} header\n{rows}\n\nlargest idle gaps:\n  12.0 us in step 300\n")
+        rc, out = self.run_session("profile", "bundle", PROFILE_TREES="root")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("profile root: done earlier", out)
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("== profile root (torch.profiler; not a timing run", summary)
+        self.assertIn("kernel_11", summary)
+        self.assertNotIn("kernel_12", summary)              # the summary keeps the top 12; analysis.txt has all 25
+        self.assertIn("12.0 us in step 300", summary)
+
+    def test_skip_phases_and_quick(self):
+        env = {k: v for k, v in self.env.items() if k != "SESSION_DIR"}
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", SKIP_PHASES="nccl xab t1cpu"), capture_output=True, text=True, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("phases: env tests sanity base t1gpu profile t2cpu t2gpu gate attno hadamard bundle\n", r.stdout)
+        self.assertRegex(r.stdout, r"profile: \S+ steps 300:20 -> \S+/profile/root")   # run.sh's DRY_RUN plan (t1gpu absent)
+        self.assertRegex(r.stdout, r"\+ cd \S+ && PROFILE_STEPS=300:20 .*torchrun --standalone --nproc_per_node=8 \S+/hook\.py train_gpt\.py")
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh"), "gate"], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", SKIP_PHASES="bogus"), capture_output=True, text=True, timeout=600)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unknown phase 'bogus'", r.stderr)
 
 
 class TestSummarize(unittest.TestCase):
