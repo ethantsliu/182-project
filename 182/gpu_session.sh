@@ -1,70 +1,88 @@
 #!/usr/bin/env bash
-# One GPU session on the 8xH100 box -> one file to send back. Run from anywhere inside the repo.
+# One GPU session on the 8xH100 box: every method in this repo, most promising first -> one file to send back.
+# Run from anywhere inside the repo, inside tmux/screen. The script never commits or pushes.
 #
-#   bash 182/gpu_session.sh              # = all: env tests sanity gate hadamard t2 bundle
-#   QUICK=1 bash 182/gpu_session.sh      # = env sanity gate bundle: the decision gate only (n=4 still)
-#   bash 182/gpu_session.sh sanity gate  # just those phases (in the canonical order)
-#   DRY_RUN=1 bash 182/gpu_session.sh    # print every GPU/pip/download command; writes only to a temp dir
-#                                        # (with SESSION_DIR: previews a resume of that session from a copy)
+#   bash 182/gpu_session.sh              # = all: env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle
+#   QUICK=1 bash 182/gpu_session.sh      # = env sanity base t1gpu bundle (2 runs each): something real in < 45 min
+#   bash 182/gpu_session.sh t2cpu        # just those phases (always in the canonical order); `t2` = t2cpu
+#   DRY_RUN=1 bash 182/gpu_session.sh    # print the plan, the estimates and every GPU/pip/download command; writes
+#                                        # only to a temp dir (with SESSION_DIR: previews a resume from a copy)
 #
-# Resumable: re-run the same command after a crash or ctrl-C. A phase whose status is PASS is skipped
-# (FORCE=1 redoes it); the A/B phases resume inside ab_run.py at the first unfinished run. Every phase is
-# logged to 182/results/session-<sha>/ (gitignored); `all` always ends with the bundle, even after a failed
-# phase. An A/B phase stops after STOP_AFTER_FAILURES consecutive failed runs, or once one arm's first
-# ARM_FAILURES runs all failed (slots stay pending; re-run resumes them, probing that arm once more); a hadamard
-# variant that fails that way is abandoned and the other variants continue. One that finished unusable from
-# scattered failures (gate < 2 seed pairs) is FAIL, and the next re-run moves it to <phase>.attemptN and
-# re-plans it; one where an arm failed EVERY run is not re-planned (it would burn the same runs again): fix the
-# cause, then FORCE=1 (FORCE=1 always re-plans). Every GPU, test and download command runs under a wall-clock
-# limit that kills its whole process group. After ctrl-C, `bash 182/gpu_session.sh bundle` packs what exists.
-# Run it inside tmux/screen. The script never commits or pushes.
-#
-# Phases (est. node-minutes printed before each; GPU-minutes = 8x):
-#   env       git sha/status, node report (182/tools/node_setup.sh --mode report), driver >= 580 check,
-#             CPUs, RAM, /dev/shm; node_check.py (GEMM/NCCL); 9 data shards if missing. The stack check FAILs
-#             env (and the session skips to the bundle) unless torch 2.10.0+cu128 and triton 3.6.0 import,
-#             torchrun belongs to $PY's environment, and the pinned FA3 kernel loads with its sha256
-#             (ALLOW_STACK=1 downgrades that to a warning). Writes env/stack.json and env/pip_freeze.txt.
-#             When t2 is selected and the host can run it, starts the 103-shard download + exact_match build
-#             in the background (CPU/network only, overlaps the GPU phases).
+# Phases (node-minute estimates are printed up front and before each phase; GPU-minutes = 8x):
+#   env       git sha/status, node report (182/tools/node_setup.sh --mode report), driver >= 580 check, CPUs, RAM,
+#             /dev/shm; node_check.py (GEMM/NCCL); 9 data shards if missing. The ROOT stack check FAILs env unless
+#             torch 2.10.0+cu128 and triton 3.6.0 import, torchrun belongs to $PY's environment, and the pinned FA3
+#             kernel loads with its sha256 (ALLOW_STACK=1 downgrades that to a warning). A failed env skips the
+#             root phases (tests sanity base gate attno hadamard); the variant phases still run: each variant
+#             checks its own stack. Writes env/stack.json and env/pip_freeze.txt.
 #   tests     pytest 182/hadamard-fp8/tests, then again with HADAMARD_FP8=1
 #   sanity    182/hadamard-fp8/gpu_sanity.py (skipped if absent)
-#   gate      step 1 of 182/hadamard-fp8/README.md's workflow (the attribution/dump/offline steps are not run
-#             here): record vs FP8_OFF=1, GATE_SEEDS paired, interleaved (ab_run.py); prints the paired gap
-#             val(fp8) - val(bf16) mean +- SE and its 95% CI vs 0.5 mnat -> STOP / GAP / INCONCLUSIVE, but only
-#             once every gate slot has finished (INCOMPLETE otherwise: no decision)
-#   hadamard  only if the gate phase PASSed with decision GAP/INCONCLUSIVE and mean gap >= HADAMARD_MIN_GAP_MNAT
-#             (2.0: a loose prescreen for the default variants, which need ~3-4 mnat to pay at 0.164 s/mnat), and
-#             the HADAMARD_FP8 tests / sanity did not fail (FORCE_HADAMARD=1 bypasses all of that):
-#             record vs HADAMARD_FP8=1 per HADAMARD_VARIANTS (GEMMS@BLOCK), HADAMARD_SEEDS
-#   t2        variants/t2-cpu-ngram at its default 5800 steps, once (skipped with the reason if the host
-#             lacks ~390 GiB RAM, 144 GiB free /dev/shm, 24 vCPU/GPU, or the 103 shards)
+#   base      the root record (Track 1 #92, ANVIL2, official 39.9 s) as it is, BASE_RUNS times, unseeded: this
+#             node's own baseline and its spread, with the logs
+#   t1gpu     variants/t1-gpu-stack   (Track 1, GPU only; reported 30.67 s, n=12)          T1GPU_RUNS=4
+#   t1cpu     variants/t1-cpu-ngram   (Track 1, CPU retrieval; reported 9.653 s, n=16)     T1CPU_RUNS=4
+#   t2cpu     variants/t2-cpu-ngram   (Track 2, CPU retrieval; reported 221 s, one run)    T2CPU_RUNS=1
+#   t2gpu     variants/t2-gpu-port    (Track 2, GPU only; reported 14.34 min)              T2GPU_RUNS=1
+#             Each variant phase drives variants/<name>/182/run_node.sh: `check` (a FAIL line -> the phase is
+#             SKIPPED with the reasons, not a session failure; FORCE_CHECK=1 runs anyway), `prep` (data, builds;
+#             off the clock), then `run` N times, reading the final `RESULT ...` line of each run. A FAIL line
+#             that names `prep` is treated as fixable by prep; any other FAIL line blocks prep too. The preps of
+#             all selected variants run one after another in ONE low-priority background job from the start of
+#             the session (PREP_BACKGROUND=0: inline instead); a variant phase waits for that whole job, so only
+#             root phases overlap it (noted in the summary). Two consecutive failed runs stop a variant phase.
+#   gate      record vs FP8_OFF=1, GATE_SEEDS paired, interleaved (ab_run.py): the paired gap val(fp8) - val(bf16)
+#             mean +- SE and its 95% CI vs 0.5 mnat -> STOP / GAP / INCONCLUSIVE, only once every slot finished
+#   attno     record vs FP8_ATTN_O=1, ATTNO_SEEDS paired, interleaved: val delta in millinats with its 95% CI,
+#             time delta, and net seconds at 164 ms per millinat (120-250 band). Runs whatever the gate says;
+#             skipped with the reason while track_1_short/config.py at HEAD does not know FP8_ATTN_O.
+#   hadamard  LAST (one measurement on this node had it +3.17 s slower; it needs a 3-4 mnat fp8 gap to pay): only
+#             if the gate PASSed with decision GAP/INCONCLUSIVE and mean gap >= HADAMARD_MIN_GAP_MNAT (2.0), and
+#             the HADAMARD_FP8 tests / sanity did not fail (FORCE_HADAMARD=1 bypasses all of that): record vs
+#             HADAMARD_FP8=1 per HADAMARD_VARIANTS (GEMMS@BLOCK), HADAMARD_SEEDS
 #   bundle    summary.txt + tar.gz of every log -> 182/results/session-<date>-<sha>.tar.gz (prints the path)
 #
-# Knobs (env): PY (python), NPROC (8), CACHE (warm|cold; warm = one compile cache per arm), GATE_SEEDS
-# (1,2,3,4), HADAMARD_VARIANTS ("all@128 dw1,dw2@32"), HADAMARD_SEEDS (1,2), HADAMARD_MIN_GAP_MNAT (2.0),
-# FORCE_HADAMARD, TIMEOUT_S (1500 per A/B run), STOP_AFTER_FAILURES (3), ARM_FAILURES (2), T2_TIMEOUT_S (5400),
-# TESTS_TIMEOUT_S (1800 per pytest), SANITY_TIMEOUT_S (1200), DATA_TIMEOUT_S (3600, the 9-shard download),
-# T2_DATA_TIMEOUT_S (14400, the 103-shard download), T2_PREFETCH_WAIT_S (3600), COLD_RUN_MIN (9) / WARM_RUN_MIN (4)
-# (the estimates), T2_MIN_RAM_GIB (390), T2_MIN_SHM_GIB (144), T2_MIN_CPU_PER_GPU (24), QUICK, RUN_CMD (ab_run
-# --cmd template), SANITY_CMD, SKIP_DATA, ALLOW_STACK, T2_FORCE (ignore host checks), T2_INSTALL_RUST (auto: only
-# inside a container), SESSION_DIR, FORCE, DRY_RUN, SESSION_DOCKER=<image> (re-run this script inside that image,
-# e.g. modded-nanogpt from node_setup.sh --mode docker; SESSION_DOCKER_GPUS: --gpus value, default all, none = omit).
-# In docker mode every knob above that YOU set is forwarded into the container, except PY (the image's python is
-# used) and SESSION_DIR (mapped explicitly); defaults are computed inside the container. HF_HUB_OFFLINE and
-# HF_TOKEN are forwarded too.
+# Resumable: re-run the same command after a crash or ctrl-C. A phase whose status is PASS is skipped (FORCE=1
+# redoes it, keeping the old attempt); the A/B phases (base gate attno hadamard) resume inside ab_run.py at the
+# first unfinished run, a variant phase at its first run without a result (failed runs are retried). Every phase
+# is logged to 182/results/session-<sha>/ (gitignored). A failed or skipped phase never stops the phases after it,
+# and `all` always ends with the bundle. An A/B phase stops after STOP_AFTER_FAILURES consecutive failed runs, or
+# once one arm's first ARM_FAILURES runs all failed (slots stay pending; re-run resumes them); a hadamard variant
+# that fails that way is abandoned and the others continue. An A/B that finished unusable from scattered failures
+# is FAIL and the next re-run moves it to <phase>.attemptN and re-plans it; one where an arm failed EVERY run is
+# not re-planned (fix the cause, then FORCE=1). Every GPU, test and download command runs under a wall-clock limit
+# that kills its whole process group. After ctrl-C, `bash 182/gpu_session.sh bundle` packs what exists.
+#
+# Knobs (env): PY (python), NPROC (8), CACHE (warm|cold; warm = one compile cache per arm), BASE_RUNS (2),
+# T1GPU_RUNS / T1CPU_RUNS (4; 2 under QUICK), T2CPU_RUNS / T2GPU_RUNS (1), <PHASE>_SEEDS (comma list passed as
+# SEED to run i; default unseeded), <PHASE>_TIMEOUT_S (per variant run: 1500 Track 1, 5400 Track 2),
+# VARIANT_STOP_AFTER (2), CHECK_TIMEOUT_S (300), PREP_TIMEOUT_S (14400 per variant), PREP_WAIT_S (7200),
+# PREP_BACKGROUND (1), FORCE_CHECK, GATE_SEEDS (1,2,3,4), ATTNO_SEEDS (1,2,3,4), HADAMARD_VARIANTS ("all@128
+# dw1,dw2@32"), HADAMARD_SEEDS (1,2), HADAMARD_MIN_GAP_MNAT (2.0), FORCE_HADAMARD, TIMEOUT_S (1500 per A/B run),
+# STOP_AFTER_FAILURES (3), ARM_FAILURES (2), TESTS_TIMEOUT_S (1800 per pytest), SANITY_TIMEOUT_S (1200),
+# DATA_TIMEOUT_S (3600, the 9-shard download), COLD_RUN_MIN (9) / WARM_RUN_MIN (4) / T2CPU_RUN_MIN (20) /
+# T2GPU_RUN_MIN (25) (the estimates), QUICK, RUN_CMD (ab_run --cmd template), SANITY_CMD, SKIP_DATA, ALLOW_STACK,
+# SESSION_DIR, FORCE, DRY_RUN, SESSION_DOCKER=<image> (re-run this script inside that image, e.g. modded-nanogpt
+# from node_setup.sh --mode docker; SESSION_DOCKER_GPUS: --gpus value, default all, none = omit). In docker mode
+# every knob above that YOU set is forwarded into the container, except PY (the image's python is used) and
+# SESSION_DIR (mapped explicitly); defaults are computed inside the container. HF_HUB_OFFLINE and HF_TOKEN are
+# forwarded too. The image must carry what a variant needs (its `check` says what is missing).
 set -euo pipefail
 
-PHASES=(env tests sanity gate hadamard t2 bundle)
+PHASES=(env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle)
+ROOT_PHASES=" tests sanity base gate attno hadamard "   # need the record's stack (env checks it)
+VARIANT_PHASES=" t1gpu t1cpu t2cpu t2gpu "              # check their own stack (run_node.sh check)
+QUICK_PHASES=(env sanity base t1gpu bundle)
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
 cd "$REPO"
 
 # The knobs the user set, captured before any default is applied (docker mode forwards exactly these).
-FORWARD_VARS=(QUICK NPROC CACHE GATE_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS HADAMARD_MIN_GAP_MNAT FORCE_HADAMARD TIMEOUT_S
-  STOP_AFTER_FAILURES ARM_FAILURES T2_TIMEOUT_S TESTS_TIMEOUT_S SANITY_TIMEOUT_S DATA_TIMEOUT_S T2_DATA_TIMEOUT_S
-  T2_PREFETCH_WAIT_S COLD_RUN_MIN WARM_RUN_MIN T2_MIN_RAM_GIB T2_MIN_SHM_GIB T2_MIN_CPU_PER_GPU RUN_CMD SANITY_CMD
-  SKIP_DATA ALLOW_STACK T2_FORCE T2_INSTALL_RUST FORCE DRY_RUN HF_HUB_OFFLINE HF_TOKEN)
+FORWARD_VARS=(QUICK NPROC CACHE BASE_RUNS T1GPU_RUNS T1CPU_RUNS T2CPU_RUNS T2GPU_RUNS T1GPU_SEEDS T1CPU_SEEDS T2CPU_SEEDS
+  T2GPU_SEEDS T1GPU_TIMEOUT_S T1CPU_TIMEOUT_S T2CPU_TIMEOUT_S T2GPU_TIMEOUT_S VARIANT_STOP_AFTER CHECK_TIMEOUT_S
+  PREP_TIMEOUT_S PREP_WAIT_S PREP_BACKGROUND FORCE_CHECK GATE_SEEDS ATTNO_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS
+  HADAMARD_MIN_GAP_MNAT FORCE_HADAMARD TIMEOUT_S STOP_AFTER_FAILURES ARM_FAILURES TESTS_TIMEOUT_S SANITY_TIMEOUT_S
+  DATA_TIMEOUT_S COLD_RUN_MIN WARM_RUN_MIN T2CPU_RUN_MIN T2GPU_RUN_MIN RUN_CMD SANITY_CMD SKIP_DATA ALLOW_STACK FORCE
+  DRY_RUN HF_HUB_OFFLINE HF_TOKEN)
 USER_ENV=()
 for v in "${FORWARD_VARS[@]}"; do [[ -n "${!v+x}" ]] && USER_ENV+=(-e "$v=${!v}"); done
 SANITY_DEFAULT=0; [[ -z "${SANITY_CMD+x}" ]] && SANITY_DEFAULT=1
@@ -75,19 +93,30 @@ command -v "$PY" >/dev/null 2>&1 || PY=python3
 NPROC=${NPROC:-8}
 CACHE=${CACHE:-warm}
 GATE_SEEDS=${GATE_SEEDS:-1,2,3,4}
+ATTNO_SEEDS=${ATTNO_SEEDS:-1,2,3,4}
+BASE_RUNS=${BASE_RUNS:-2}
+# QUICK halves the Track 1 variant runs (2 is the least that shows a spread) unless the caller set them.
+if [[ "${QUICK:-0}" == 1 ]]; then T1GPU_RUNS=${T1GPU_RUNS:-2}; T1CPU_RUNS=${T1CPU_RUNS:-2}; fi
+T1GPU_RUNS=${T1GPU_RUNS:-4}; T1CPU_RUNS=${T1CPU_RUNS:-4}; T2CPU_RUNS=${T2CPU_RUNS:-1}; T2GPU_RUNS=${T2GPU_RUNS:-1}
+T1GPU_TIMEOUT_S=${T1GPU_TIMEOUT_S:-1500}; T1CPU_TIMEOUT_S=${T1CPU_TIMEOUT_S:-1500}
+T2CPU_TIMEOUT_S=${T2CPU_TIMEOUT_S:-5400}; T2GPU_TIMEOUT_S=${T2GPU_TIMEOUT_S:-5400}
+VARIANT_STOP_AFTER=${VARIANT_STOP_AFTER:-2}
+CHECK_TIMEOUT_S=${CHECK_TIMEOUT_S:-300}; PREP_TIMEOUT_S=${PREP_TIMEOUT_S:-14400}; PREP_WAIT_S=${PREP_WAIT_S:-7200}
+PREP_BACKGROUND=${PREP_BACKGROUND:-1}
 HADAMARD_VARIANTS=${HADAMARD_VARIANTS:-"all@128 dw1,dw2@32"}
 HADAMARD_SEEDS=${HADAMARD_SEEDS:-1,2}
 TIMEOUT_S=${TIMEOUT_S:-1500}      # a cold run is ~9 min; a hung NCCL run should not cost 40
 STOP_AFTER_FAILURES=${STOP_AFTER_FAILURES:-3}
 ARM_FAILURES=${ARM_FAILURES:-2}   # one arm crashing every run (the arms interleave, so the consecutive count misses it)
-T2_TIMEOUT_S=${T2_TIMEOUT_S:-5400}; TESTS_TIMEOUT_S=${TESTS_TIMEOUT_S:-1800}; SANITY_TIMEOUT_S=${SANITY_TIMEOUT_S:-1200}
-DATA_TIMEOUT_S=${DATA_TIMEOUT_S:-3600}; T2_DATA_TIMEOUT_S=${T2_DATA_TIMEOUT_S:-14400}
+TESTS_TIMEOUT_S=${TESTS_TIMEOUT_S:-1800}; SANITY_TIMEOUT_S=${SANITY_TIMEOUT_S:-1200}
+DATA_TIMEOUT_S=${DATA_TIMEOUT_S:-3600}
 RUN_CMD=${RUN_CMD:-"torchrun --standalone --nproc_per_node={nproc} {script}"}
 SANITY_CMD=${SANITY_CMD:-"$PY 182/hadamard-fp8/gpu_sanity.py"}
 COLD_RUN_MIN=${COLD_RUN_MIN:-9}   # one Track 1 run with a cold compile cache (~7 min compile + train + val)
 WARM_RUN_MIN=${WARM_RUN_MIN:-4}
-T2_MIN_RAM_GIB=${T2_MIN_RAM_GIB:-390}; T2_MIN_SHM_GIB=${T2_MIN_SHM_GIB:-144}; T2_MIN_CPU_PER_GPU=${T2_MIN_CPU_PER_GPU:-24}
-T2_SHARDS=103; T2_DIR=variants/t2-cpu-ngram
+# Guesses until a run exists: t2cpu ~7 min compile/capture + ~4 min train + the table build (its README);
+# t2gpu 14.34 min reported + compile + val.
+T2CPU_RUN_MIN=${T2CPU_RUN_MIN:-20}; T2GPU_RUN_MIN=${T2GPU_RUN_MIN:-25}
 export GIT_OPTIONAL_LOCKS=0       # `git status` must not rewrite the index (DRY_RUN writes nothing in the repo)
 [[ "$DRY_RUN" == 1 ]] && export PYTHONDONTWRITEBYTECODE=1
 SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)
@@ -178,7 +207,22 @@ xlog() {
 }
 skip() { echo "SKIP $*" > "$SD/status/$PHASE"; log "SKIP $PHASE: $*"; }
 status_of() { [[ -f "$SD/status/$1" ]] && head -n1 "$SD/status/$1" || echo none; }
-gpu_count() { if command -v nvidia-smi >/dev/null 2>&1; then nvidia-smi -L 2>/dev/null | grep -c GPU || true; else echo 0; fi; }
+
+# -------------------------------------------------------------------------------------------- variants
+variant_dir() {
+  case "$1" in
+    t1gpu) echo variants/t1-gpu-stack;; t1cpu) echo variants/t1-cpu-ngram;;
+    t2cpu) echo variants/t2-cpu-ngram;; t2gpu) echo variants/t2-gpu-port;;
+    *) return 1;;
+  esac
+}
+is_variant() { [[ "$VARIANT_PHASES" == *" $1 "* ]]; }
+knob() {  # knob PHASE SUFFIX [DEFAULT]: the value of e.g. T1GPU_RUNS
+  local v; v="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')_$2"; printf '%s' "${!v:-${3:-}}"
+}
+chain_alive() {  # the background prep job of this session is still working
+  [[ -f "$SD/prep_chain.pid" && ! -f "$SD/prep_chain.rc" ]] && kill -0 "$(cat "$SD/prep_chain.pid")" 2>/dev/null
+}
 
 # ------------------------------------------------------------------------------------------- estimates
 ab_estimate() {  # arms n -> node-minutes
@@ -188,14 +232,19 @@ ab_estimate() {  # arms n -> node-minutes
 # shellcheck disable=SC2086  # split on commas on purpose
 count_csv() { local IFS=,; set -- $1; echo $#; }
 n_variants() { local v n=0; for v in $HADAMARD_VARIANTS; do n=$((n + 1)); done; echo "$n"; }
-estimate() {
+estimate() {  # node-minutes; the A/B phases after `base` reuse its warm compile cache for the fp8 arm
+  local n
   case "$1" in
     env) echo 2;;
     tests) echo 8;;
     sanity) echo 3;;
+    base) ab_estimate 1 "$BASE_RUNS";;
+    t1gpu|t1cpu) n=$(knob "$1" RUNS); if (( n < 1 )); then echo 0; else echo $((COLD_RUN_MIN + (n - 1) * WARM_RUN_MIN)); fi;;  # compile once, then the on-disk cache
+    t2cpu) echo $(( $(knob t2cpu RUNS) * T2CPU_RUN_MIN ));;
+    t2gpu) echo $(( $(knob t2gpu RUNS) * T2GPU_RUN_MIN ));;
     gate) ab_estimate 2 "$(count_csv "$GATE_SEEDS")";;
-    hadamard) echo $(( $(ab_estimate $(( $(n_variants) + 1 )) "$(count_csv "$HADAMARD_SEEDS")") - COLD_RUN_MIN + WARM_RUN_MIN ));;  # baseline reuses the gate's cache
-    t2) echo 20;;  # ~7 min compile/capture + ~4 min train (t2 README) + the table build
+    attno) ab_estimate 2 "$(count_csv "$ATTNO_SEEDS")";;
+    hadamard) echo $(( $(ab_estimate $(( $(n_variants) + 1 )) "$(count_csv "$HADAMARD_SEEDS")") - COLD_RUN_MIN + WARM_RUN_MIN ));;  # baseline reuses the fp8 cache
     *) echo 0;;
   esac
 }
@@ -209,54 +258,6 @@ ensure_data() {  # ensure_data N: val shard + >= N train shards at the repo root
   x tmo "$DATA_TIMEOUT_S" "$PY" data/cached_fineweb10B.py "$1" || {
     log "FAIL: the $1-shard download did not finish (rc $?; limit DATA_TIMEOUT_S=${DATA_TIMEOUT_S}s). Check the network /"
     log "      Hugging Face access, re-run to resume it (finished shards are kept), or raise DATA_TIMEOUT_S."; return 1; }
-}
-
-t2_host_problems() {  # prints one line per reason the host cannot run t2; nothing if it can
-  local avail_gib shm_gib cpus ngpu lim cur
-  if [[ -r /proc/meminfo ]]; then
-    avail_gib=$(awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo || echo 0)
-    lim=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
-    if [[ "$lim" =~ ^[0-9]+$ ]]; then
-      cur=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0)
-      (( (lim - cur) / 1073741824 < avail_gib )) && avail_gib=$(( (lim - cur) / 1073741824 ))
-    fi
-  else
-    avail_gib=0
-  fi
-  shm_gib=$(df -Pk /dev/shm 2>/dev/null | awk 'NR==2 {print int($4 / 1048576)}' || true); shm_gib=${shm_gib:-0}
-  cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1); command -v nproc >/dev/null && cpus=$(nproc)
-  ngpu=$(gpu_count); [[ "$ngpu" -ge 1 ]] || ngpu=$NPROC
-  [[ "$avail_gib" -ge "$T2_MIN_RAM_GIB" ]] || echo "RAM available ${avail_gib} GiB < ${T2_MIN_RAM_GIB} GiB (retrieval tables + arenas + ranks)"
-  [[ "$shm_gib" -ge "$T2_MIN_SHM_GIB" ]] || echo "/dev/shm free ${shm_gib} GiB < ${T2_MIN_SHM_GIB} GiB (remount larger: sudo mount -o remount,size=200G /dev/shm; docker: --ipc=host)"
-  (( cpus / ngpu >= T2_MIN_CPU_PER_GPU )) || echo "$cpus CPUs for $ngpu GPUs < ${T2_MIN_CPU_PER_GPU}/GPU (LARGE_HOST)"
-  local have need free_gib
-  have=$(find data/fineweb10B -maxdepth 1 -name 'fineweb_train_*.bin' 2>/dev/null | wc -l | tr -d ' ' || true)
-  need=$(( (T2_SHARDS - ${have:-0}) * 19 / 100 + 5 ))   # 0.19 GiB per shard + slack
-  free_gib=$(df -Pk data 2>/dev/null | awk 'NR==2 {print int($4 / 1048576)}' || true)
-  [[ "${have:-0}" -ge "$T2_SHARDS" || "${free_gib:-0}" -ge "$need" ]] || echo "disk: ${free_gib:-?} GiB free under data/, the missing shards need ~$need GiB"
-  return 0
-}
-
-t2_prefetch() {  # data + exact_match build, run in the background from env (or inline from t2)
-  set -euo pipefail
-  tmo "$T2_DATA_TIMEOUT_S" "$PY" data/cached_fineweb10B.py "$T2_SHARDS" || {
-    echo "FAIL: the $T2_SHARDS-shard download did not finish (limit T2_DATA_TIMEOUT_S=${T2_DATA_TIMEOUT_S}s); re-run to resume it"; return 4; }
-  if ! (cd "$T2_DIR" && "$PY" -c "import exact_match" 2>/dev/null); then
-    if ! command -v cargo >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; then export PATH="$HOME/.cargo/bin:$PATH"; fi
-    if ! command -v cargo >/dev/null 2>&1; then
-      local inst=${T2_INSTALL_RUST:-auto}
-      [[ "$inst" == auto ]] && { [[ -f /.dockerenv ]] && inst=1 || inst=0; }
-      if [[ "$inst" == 1 ]]; then
-        curl -sSf --max-time 600 https://sh.rustup.rs | sh -s -- -y --profile minimal
-        export PATH="$HOME/.cargo/bin:$PATH"
-      else
-        echo "no cargo: exact_match (Rust) cannot build. Install rustup (https://rustup.rs) or set T2_INSTALL_RUST=1"; return 3
-      fi
-    fi
-    tmo 1800 "$PY" -m pip install -q "maturin>=1.9,<2"
-    tmo 3600 "$PY" -m pip install -q "./$T2_DIR/exact_match"
-  fi
-  echo "t2 prefetch done"
 }
 
 # The stack the record needs, checked with the interpreter and torchrun the session will actually use.
@@ -363,12 +364,11 @@ phase_env() {
     echo "CPUs $(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)"
     free -g 2>/dev/null || true
     df -h /dev/shm 2>/dev/null || true
-    echo; echo "## t2 host check"; t2_host_problems | sed 's/^/t2 blocker: /'
   } 2>&1 | tee "$d/env.txt"
   "$PY" -m pip freeze > "$d/pip_freeze.txt" 2>/dev/null || "$PY" -c 'import importlib.metadata as m
 for d in sorted(m.distributions(), key=lambda d: (d.metadata["Name"] or "").lower()): print(d.metadata["Name"] + "==" + d.version)' > "$d/pip_freeze.txt" 2>&1 || true
   if [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
-    log "WARN: modified tracked files. The gate/hadamard arms run the COMMITTED HEAD $SHA (ab_run pins refs), not the working tree."
+    log "WARN: modified tracked files. The base/gate/attno/hadamard arms run the COMMITTED HEAD $SHA (ab_run pins refs), not the working tree."
   fi
   drv=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 || true)
   if [[ -n "$drv" && "${drv%%.*}" -lt 580 ]]; then
@@ -387,25 +387,15 @@ for d in sorted(m.distributions(), key=lambda d: (d.metadata["Name"] or "").lowe
   fi
   xlog "$d/node_check.txt" tmo 300 torchrun --standalone --nproc_per_node="$NPROC" 182/tools/node_check.py || log "WARN: node_check.py failed (see $d/node_check.txt)"
   ensure_data 9 || return 1
-  if [[ " ${SELECTED:-} " == *" t2 "* && -z "$(t2_host_problems)" && ! -f "$SD/t2/prefetch.pid" ]]; then
-    mkdir -p "$SD/t2"
-    if [[ "$DRY_RUN" == 1 ]]; then log "+ (background) t2 prefetch: $PY data/cached_fineweb10B.py $T2_SHARDS; pip install ./$T2_DIR/exact_match"
-    else
-      local lowprio=(nice -n 19); command -v ionice >/dev/null 2>&1 && lowprio+=(ionice -c2 -n7)
-      # low priority: it overlaps the timed A/B runs (their data loaders and the hadamard step times)
-      nohup "${lowprio[@]}" bash -c "bash $(q "$SELF") --t2-prefetch; echo \$? > $(q "$SD/t2/prefetch.rc")" > "$SD/t2/prefetch.txt" 2>&1 &
-      echo $! > "$SD/t2/prefetch.pid"
-      log "t2: 103-shard download + exact_match build started in the background (pid $!, log $SD/t2/prefetch.txt)"
-    fi
-  fi
   [[ -n "$drv" || "$DRY_RUN" == 1 ]] || { log "FAIL: no GPU driver visible"; return 1; }
   if grep -q '^STACK PROBLEM: ' "$d/env.txt"; then
     if [[ "$DRY_RUN" == 1 ]]; then log "(dry run) env would FAIL on the stack check above (ALLOW_STACK=1 overrides)"
     elif [[ "${ALLOW_STACK:-0}" == 1 ]]; then log "WARN: ALLOW_STACK=1: running on a stack the record was not certified on (see STACK PROBLEM above)"
     else
-      log "FAIL: the stack is not the record's (STACK PROBLEM lines above; $d/stack.json). The GPU phases are skipped:"
+      log "FAIL: the stack is not the record's (STACK PROBLEM lines above; $d/stack.json). The root phases are skipped:"
       log "      results on another torch/triton/FA3 would not say anything about the record. Fix it (bash 182/tools/node_setup.sh"
       log "      --mode venv && source .venv-run/bin/activate), then re-run; or ALLOW_STACK=1 to run anyway."
+      log "      The variant phases still run: each variant checks its own stack."
       return 1
     fi
   fi
@@ -549,53 +539,143 @@ phase_hadamard() {
   return "$rc"
 }
 
-# ---------------------------------------------------------------------------------------------- phase: t2
-phase_t2() {
-  local d="$SD/t2" problems pid rc n rel
-  problems=$(t2_host_problems)
-  if [[ -n "$problems" ]]; then
-    mkdir -p "$d"; printf '%s\n' "$problems" > "$d/preflight.txt"
-    if [[ "${T2_FORCE:-0}" != 1 ]]; then skip "host cannot run t2: $(printf '%s' "$problems" | paste -sd ';' -) (T2_FORCE=1 overrides)"; return 0; fi
-    log "WARN: T2_FORCE=1, running despite: $problems"
-  fi
+# ------------------------------------------------------------------------------------ phases: variants
+# variant_prep PHASE: `check`, then `prep` unless a FAIL line that prep cannot fix (one not naming `prep`) says
+# the host cannot run this variant anyway. Writes <phase>/check_pre.txt, prep.txt and prep.rc (0 | blocked | rc).
+variant_prep() {
+  local p=$1 d="$SD/$1" s rc=0
+  s="$(variant_dir "$p")/182/run_node.sh"
   mkdir -p "$d"
-  if [[ -f "$d/prefetch.pid" ]]; then
-    pid=$(cat "$d/prefetch.pid")
-    local waited=0
-    # prefetch.rc is written when the background job ends (an unreaped zombie still answers kill -0)
-    while [[ ! -f "$d/prefetch.rc" ]] && kill -0 "$pid" 2>/dev/null; do
-      if (( waited >= ${T2_PREFETCH_WAIT_S:-3600} )); then
-        log "FAIL: the background prefetch (pid $pid) is still running after ${waited}s: $(tail -n2 "$d/prefetch.txt")"; return 1
+  [[ -f "$s" ]] || return 0
+  tmo "$CHECK_TIMEOUT_S" bash "$s" check > "$d/check_pre.txt" 2>&1 || true
+  if grep -E '^FAIL ' "$d/check_pre.txt" | grep -qv 'prep'; then echo blocked > "$d/prep.rc"; return 0; fi
+  tmo "$PREP_TIMEOUT_S" bash "$s" prep > "$d/prep.txt" 2>&1 || rc=$?
+  echo "$rc" > "$d/prep.rc"
+}
+
+prep_chain() {  # the background job: one variant after another, so two downloads never write the same shards
+  local p
+  for p in "$@"; do variant_prep "$p" || true; done
+  echo 0 > "$SD/prep_chain.rc"
+}
+
+variant_wait_prep() {  # wait for the WHOLE background job: a download or a cargo build must not overlap a timed variant run
+  local p=$1 d="$SD/$1" waited=0
+  while chain_alive; do
+    if (( waited >= PREP_WAIT_S )); then
+      if [[ -f "$d/prep.rc" ]]; then
+        log "WARN: the background prep job is still running after ${waited}s; $p's own prep finished, so it runs now, overlapping that job"
+        echo "$p started while the background prep job was still running (gave up waiting after ${waited}s)" >> "$SD/prep_overlap.txt"
+        return 0
       fi
-      (( waited % 300 == 0 )) && log "t2: waiting for the background prefetch (pid $pid; $d/prefetch.txt)"
-      sleep 30; waited=$((waited + 30))
-    done
-    rm -f "$d/prefetch.pid"
-  fi
-  if [[ -f "$d/prefetch.rc" ]]; then  # the background prefetch finished
-    rc=$(cat "$d/prefetch.rc"); rm -f "$d/prefetch.rc"
-    if [[ "$rc" != 0 ]]; then log "FAIL: t2 prefetch exited $rc: $(tail -n3 "$d/prefetch.txt")"; return 1; fi
-  elif [[ "$DRY_RUN" == 1 ]]; then
-    log "+ t2 prefetch: $PY data/cached_fineweb10B.py $T2_SHARDS; pip install ./$T2_DIR/exact_match"
-  else
-    t2_prefetch 2>&1 | tee "$d/prefetch.txt"
-  fi
-  if [[ "$DRY_RUN" != 1 ]]; then
-    n=$(find data/fineweb10B -maxdepth 1 -name 'fineweb_train_*.bin' 2>/dev/null | wc -l | tr -d ' ' || true)
-    [[ "$n" -eq "$T2_SHARDS" ]] || { log "FAIL: $n train shards, t2 needs all $T2_SHARDS (the exact-count corpus depends on it)"; return 1; }
-  fi
-  (cd "$T2_DIR" && x "$PY" -m track_1_short.memory_budget) > "$d/memory_budget.txt" 2>&1 || true
-  rc=0
-  (cd "$T2_DIR" && DATA_PATH=../.. xlog "$d/stdout.txt" tmo "$T2_TIMEOUT_S" torchrun --standalone --nproc_per_node="$NPROC" train_gpt_medium_cpu.py) || rc=$?
-  if [[ "$DRY_RUN" != 1 ]]; then
-    rel=$(grep -m1 -E '^logs/[0-9A-Za-z_.-]+\.txt$' "$d/stdout.txt" || true)
-    [[ -n "$rel" && -f "$T2_DIR/$rel" ]] && cp "$T2_DIR/$rel" "$d/"
-    grep -E '^(endpoint_result|step:[0-9]+/[0-9]+ val_loss)' "$d/stdout.txt" | tail -n2 || true
-    if [[ "$rc" == 0 ]] && ! grep -qE '^(endpoint_result|step:([0-9]+)/\2 val_loss)' "$d/stdout.txt"; then
-      log "FAIL: torchrun exited 0 but printed no final result (no endpoint_result / final val_loss line): $(tail -n2 "$d/stdout.txt")"
-      rc=1
+      log "FAIL: $p's prep has not finished after ${waited}s (PREP_WAIT_S); $d/prep.txt: $(tail -n2 "$d/prep.txt" 2>/dev/null || true)"
+      return 1
     fi
+    (( waited % 300 == 0 )) && log "$p: waiting for the background prep job (pid $(cat "$SD/prep_chain.pid"); logs $SD/<phase>/prep.txt)"
+    sleep "${PREP_POLL_S:-15}"; waited=$((waited + ${PREP_POLL_S:-15}))
+  done
+  if [[ ! -f "$d/prep.rc" ]]; then
+    log "$p: check + prep (inline; log $d/prep.txt)"
+    variant_prep "$p"
   fi
+}
+
+phase_variant() {
+  local p=$PHASE d="$SD/$PHASE" vdir s name n i tag rc crc=0 reasons prc seeds seed k fails=0 consec=0 t0 wall logp
+  vdir=$(variant_dir "$p"); s="$vdir/182/run_node.sh"; name=$(basename "$vdir")
+  n=$(knob "$p" RUNS); seeds=$(knob "$p" SEEDS)
+  if [[ ! -f "$s" ]]; then skip "$s is not in this checkout (this variant has no node script yet)"; return 0; fi
+  mkdir -p "$d"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    log "+ bash $s check   (CPU only; run for real, so the dry run shows what this host lacks)"
+    tmo "$CHECK_TIMEOUT_S" bash "$s" check 2>&1 | sed 's/^/    /' || log "    (check exited non-zero: on a real run a FAIL line here skips $p)"
+    log "+ bash $s prep    (data, builds; off the clock)"
+    for ((i = 1; i <= n; i++)); do
+      log "+ NPROC=$NPROC LOG_DIR=$d/logs bash $s run   (run $i/$n)"
+      env NPROC="$NPROC" LOG_DIR="$d/logs" DRY_RUN=1 bash "$s" run 2>&1 | sed 's/^/    /' || true
+    done
+    return 0
+  fi
+  if [[ "${FORCE:-0}" == 1 && -d "$d/runs" ]]; then
+    k=1; while [[ -e "$d/runs.attempt$k" ]]; do k=$((k + 1)); done
+    log "FORCE=1: previous runs moved to $d/runs.attempt$k"; mv "$d/runs" "$d/runs.attempt$k"
+  fi
+  mkdir -p "$d/runs" "$d/logs"
+  echo "$n" > "$d/planned"
+  variant_wait_prep "$p" || return 1
+  prc=$(cat "$d/prep.rc" 2>/dev/null || echo 0)
+  if [[ "$prc" != 0 && "$prc" != blocked ]]; then
+    log "FAIL: \`bash $s prep\` exited $prc (124 = PREP_TIMEOUT_S=${PREP_TIMEOUT_S}s); re-run to resume it. Tail of $d/prep.txt:"
+    tail -n5 "$d/prep.txt" 2>/dev/null | sed 's/^/    /' || true
+    return 1
+  fi
+  # the authoritative check, after prep
+  tmo "$CHECK_TIMEOUT_S" bash "$s" check > "$d/check.txt" 2>&1 || crc=$?
+  cat "$d/check.txt"
+  if [[ "$crc" != 0 ]]; then
+    reasons=$(grep -E '^FAIL ' "$d/check.txt" | paste -sd ';' - || true)
+    if [[ -z "$reasons" ]]; then
+      log "FAIL: \`bash $s check\` exited $crc without a FAIL line (a broken check, not a host verdict); see $d/check.txt"
+      return 1
+    fi
+    if [[ "${FORCE_CHECK:-0}" != 1 ]]; then skip "$name check: $reasons (FORCE_CHECK=1 runs anyway)"; return 0; fi
+    log "WARN: FORCE_CHECK=1, running $name despite: $reasons"
+  fi
+  for ((i = 1; i <= n; i++)); do
+    tag=$(printf '%02d' "$i")
+    if [[ -f "$d/runs/$tag.result" ]]; then
+      if "$PY" 182/tools/summarize_session.py --result-ok "$d/runs/$tag.result"; then log "run $i/$n: already done"; consec=0; continue; fi
+      k=1; while [[ -e "$d/runs/$tag.fail$k.result" ]]; do k=$((k + 1)); done   # keep the failed attempt, retry the run
+      mv "$d/runs/$tag.result" "$d/runs/$tag.fail$k.result"
+      [[ -f "$d/runs/$tag.out" ]] && mv "$d/runs/$tag.out" "$d/runs/$tag.fail$k.out"
+    fi
+    seed=""; [[ -n "$seeds" ]] && seed=$(printf '%s' "$seeds" | cut -d, -f"$i")
+    log "-- $p run $i/$n${seed:+ (SEED=$seed)} -- $(date '+%T')"
+    chain_alive && echo "$p run $i ran while the background prep job was still running" >> "$SD/prep_overlap.txt"
+    rc=0; t0=$(date +%s)
+    env NPROC="$NPROC" LOG_DIR="$d/logs" ${seed:+SEED="$seed"} "$PY" -c "$TMO_PY" "$(knob "$p" TIMEOUT_S)" bash "$s" run 2>&1 | tee "$d/runs/$tag.out" || rc=$?
+    wall=$(( $(date +%s) - t0 ))
+    if "$PY" 182/tools/summarize_session.py --parse-run "$d/runs/$tag.out" --rc "$rc" --wall-s "$wall" --seed "$seed" --variant-name "$name" > "$d/runs/$tag.result"; then
+      consec=0
+      logp=$("$PY" 182/tools/summarize_session.py --result-field log "$d/runs/$tag.result" || true)
+      [[ -n "$logp" && "$logp" != /* ]] && logp="$vdir/$logp"
+      if [[ -n "$logp" && -f "$logp" && "$(cd "$(dirname "$logp")" && pwd -P)" != "$(cd "$d/logs" && pwd -P)" ]]; then cp "$logp" "$d/logs/"; fi
+    else
+      fails=$((fails + 1)); consec=$((consec + 1))
+      log "run $i/$n FAILED (rc $rc): $("$PY" 182/tools/summarize_session.py --result-field reason "$d/runs/$tag.result" || true)"
+      if (( consec >= VARIANT_STOP_AFTER && i < n )); then
+        log "stopping $p: $consec consecutive failed runs; $((n - i)) run(s) not attempted (fix the cause, then re-run the same command)"
+        fails=$((fails + n - i)); break
+      fi
+    fi
+  done
+  "$PY" 182/tools/summarize_session.py --variant "$SD" "$p" || true
+  [[ "$fails" == 0 ]]
+}
+
+# ------------------------------------------------------------------------------------------ phase: base
+phase_base() {
+  local b="$SD/base" rc=0
+  mkdir -p "$SD"
+  ensure_data 9 || return 1
+  # One arm, named fp8 like the baseline arm of gate/attno/hadamard: they reuse its worktree and warm compile cache.
+  ab_plan_run ab "$b" --arm fp8=ref:HEAD --baseline fp8 --n "$BASE_RUNS" --seeds none || rc=$?
+  [[ "$DRY_RUN" == 1 || ! -f "$b/plan.json" ]] || "$PY" 182/tools/summarize_session.py --base "$SD" || true
+  return "$rc"
+}
+
+# ----------------------------------------------------------------------------------------- phase: attno
+phase_attno() {
+  local a="$SD/attno" rc=0
+  # The arms run the committed HEAD, so that is where the flag must exist. A grep, not an import: no torch needed.
+  if ! git grep -q FP8_ATTN_O HEAD -- track_1_short/config.py 2>/dev/null; then
+    skip "track_1_short/config.py at HEAD does not read FP8_ATTN_O (the flag has not been merged into this checkout)"; return 0
+  fi
+  mkdir -p "$SD"
+  ensure_data 9 || return 1
+  ab_plan_run ab "$a" --arm fp8=ref:HEAD --arm attn_o=ref:HEAD --env attn_o:FP8_ATTN_O=1 --baseline fp8 \
+    --n "$(count_csv "$ATTNO_SEEDS")" --seeds "$ATTNO_SEEDS" || rc=$?
+  [[ "$DRY_RUN" == 1 || ! -f "$a/plan.json" ]] || "$PY" 182/tools/summarize_session.py --attno "$SD" || true
   return "$rc"
 }
 
@@ -623,21 +703,26 @@ run_phase() {
   est=$(estimate "$p")
   log ""; log "== $p: est. $est node-min (~$((est * 8)) GPU-min) -- $(date '+%F %T')"
   rm -f "$SD/status/$p"
-  SELECTED="${SELECTED_PHASES[*]}" PHASE="$p" bash "$SELF" --run-phase "$p" || rc=$?
+  PHASE="$p" bash "$SELF" --run-phase "$p" || rc=$?
   if [[ "$rc" != 0 ]]; then echo "FAIL rc=$rc" > "$SD/status/$p"
   elif [[ ! -f "$SD/status/$p" ]]; then echo "PASS" > "$SD/status/$p"; fi
   log "== $p: $(status_of "$p")"
 }
 
 case "${1:-}" in
-  --run-phase) PHASE=$2; "phase_$2"; exit $?;;
-  --t2-prefetch) t2_prefetch; exit $?;;
-  -h|--help) sed -n '2,56p' "$SELF"; exit 0;;
+  --run-phase) PHASE=$2; if is_variant "$2"; then phase_variant; else "phase_$2"; fi; exit $?;;
+  --prep-chain) shift; prep_chain "$@"; exit $?;;
+  -h|--help) sed -n '2,68p' "$SELF"; exit 0;;
 esac
 
-WANT=("$@")
+WANT=()
+for w in "$@"; do [[ "$w" == t2 ]] && w=t2cpu; WANT+=("$w"); done   # t2: the old name of t2cpu
 if [[ ${#WANT[@]} -eq 0 ]]; then
-  if [[ "${QUICK:-0}" == 1 ]]; then WANT=(env sanity gate bundle); else WANT=(all); fi
+  # QUICK: the two results that need nothing exotic and matter most. `base` is this node's own reference (the one
+  # earlier measurement left no log), t1gpu is the fastest GPU-only tree (reported 30.67 s vs the 39.9 s record)
+  # and runs on the record's kind of host; the CPU-retrieval trees need a large-RAM host and long preps, and the
+  # fp8 A/Bs need 4 seed pairs to say anything. sanity (3 min) is the first time the fp8 kernels meet real H100s.
+  if [[ "${QUICK:-0}" == 1 ]]; then WANT=("${QUICK_PHASES[@]}"); else WANT=(all); fi
 fi
 SELECTED_PHASES=()
 for p in "${PHASES[@]}"; do
@@ -714,12 +799,54 @@ echo "invocation $(date '+%F %T') phases=${SELECTED_PHASES[*]}$([[ "$DRY_RUN" ==
 
 total=0; for p in "${SELECTED_PHASES[@]}"; do total=$((total + $(estimate "$p"))); done
 log "GPU session $SHA -> $SD"
-log "phases: ${SELECTED_PHASES[*]}   upper-bound estimate $total node-min (~$((total * 8)) GPU-min; hadamard/t2 may skip)"
+log "phases: ${SELECTED_PHASES[*]}"
+log "estimates (node-min on 8 GPUs; guesses until a run exists, variant preps not included):"
+for p in "${SELECTED_PHASES[@]}"; do
+  note=""
+  if [[ "${FORCE:-0}" != 1 && "$p" != bundle && "$(status_of "$p")" == PASS* ]]; then note="  (already PASS: skipped)"
+  elif is_variant "$p"; then note="  ($(knob "$p" RUNS) run(s) of $(variant_dir "$p"); skipped if its check FAILs)"
+  elif [[ "$p" == hadamard ]]; then note="  (only if the gate finds a gap)"
+  elif [[ "$p" == attno ]]; then note="  (skipped until FP8_ATTN_O is in this checkout)"; fi
+  log "$(printf '  %-9s %4s%s' "$p" "$(estimate "$p")" "$note")"
+done
+log "  total     $(printf '%4s' "$total") node-min upper bound (~$((total * 8)) GPU-min)"
 [[ "$DRY_RUN" == 1 ]] && log "DRY_RUN=1: GPU/pip/download commands are printed, not run; files go to $SD"
+
+# Variant preps (downloads, builds: CPU/network only) start now, in one low-priority background job in its own
+# process group, and overlap env/tests/sanity/base; every variant phase waits for the whole job before it times
+# anything.
+PREP_LIST=()
+for p in "${SELECTED_PHASES[@]}"; do
+  is_variant "$p" || continue
+  [[ "${FORCE:-0}" != 1 && "$(status_of "$p")" == PASS* ]] && continue
+  [[ -f "$(variant_dir "$p")/182/run_node.sh" ]] || continue
+  PREP_LIST+=("$p")
+done
+if [[ ${#PREP_LIST[@]} -gt 0 ]]; then
+  if [[ "$DRY_RUN" == 1 ]]; then
+    [[ "$PREP_BACKGROUND" == 1 ]] && log "+ (background, nice 19) check + prep of: ${PREP_LIST[*]}"
+  elif chain_alive; then
+    log "prep: the background job of an earlier invocation is still running (pid $(cat "$SD/prep_chain.pid")); not starting another"
+  else
+    rm -f "$SD/prep_chain.pid" "$SD/prep_chain.rc"
+    for p in "${PREP_LIST[@]}"; do rm -f "$SD/$p/prep.rc"; done   # prep is idempotent: every invocation re-runs it
+    if [[ "$PREP_BACKGROUND" == 1 ]]; then
+      LOWPRIO=(nice -n 19); command -v ionice >/dev/null 2>&1 && LOWPRIO+=(ionice -c2 -n7)
+      "$PY" -c 'import os, sys
+try: os.setsid()
+except OSError: pass
+os.execvp(sys.argv[1], sys.argv[1:])' "${LOWPRIO[@]}" \
+        bash "$SELF" --prep-chain "${PREP_LIST[@]}" > "$SD/prep_chain.txt" 2>&1 < /dev/null &
+      echo $! > "$SD/prep_chain.pid"
+      log "prep: check + prep of ${PREP_LIST[*]} started in the background (pid $!; logs $SD/<phase>/prep.txt)"
+    fi
+  fi
+fi
 
 CUR_PHASE=""
 on_interrupt() {
   [[ -n "$CUR_PHASE" ]] && echo "FAIL interrupted" > "$SD/status/$CUR_PHASE"
+  if chain_alive; then kill -TERM -- "-$(cat "$SD/prep_chain.pid")" 2>/dev/null || true; rm -f "$SD/prep_chain.pid"; fi   # preps resume on re-run
   log ""; log "interrupted during ${CUR_PHASE:-startup}. Re-run the same command to resume, or pack what exists:"
   log "  bash 182/gpu_session.sh bundle"
   exit 130
@@ -729,9 +856,12 @@ FAILED=()
 ENV_FAILED=0
 for p in "${SELECTED_PHASES[@]}"; do
   CUR_PHASE=$p
-  if [[ "$ENV_FAILED" == 1 && "$p" != bundle ]]; then
-    echo "SKIP env failed (stack/driver; see env above): nothing GPU-side ran" > "$SD/status/$p"
+  if [[ "$ENV_FAILED" == 1 && "$ROOT_PHASES" == *" $p "* ]]; then
+    echo "SKIP env failed (root stack/driver/data; see env above): no root phase ran" > "$SD/status/$p"
     log ""; log "== $p: SKIP (env failed: fix the stack and re-run, or ALLOW_STACK=1)"; continue
+  fi
+  if [[ "$p" != bundle && "$p" != env ]] && ! is_variant "$p" && chain_alive; then
+    echo "$p started while the background prep job (downloads/builds, nice 19) was still running" >> "$SD/prep_overlap.txt"
   fi
   run_phase "$p"
   [[ "$(status_of "$p")" == FAIL* ]] && FAILED+=("$p")
@@ -739,5 +869,6 @@ for p in "${SELECTED_PHASES[@]}"; do
 done
 log ""
 for p in "${SELECTED_PHASES[@]}"; do log "  $p: $(status_of "$p")"; done
+chain_alive && log "note: the background prep job (pid $(cat "$SD/prep_chain.pid")) is still running; it stops by itself"
 [[ -f "$SD/bundle_path" && " ${SELECTED_PHASES[*]} " == *" bundle "* ]] && log "SEND THIS FILE BACK: $(cat "$SD/bundle_path")"
 [[ ${#FAILED[@]} -eq 0 ]] || { log "failed phases: ${FAILED[*]}"; exit 1; }
