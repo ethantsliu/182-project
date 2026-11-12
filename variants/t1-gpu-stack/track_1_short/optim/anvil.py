@@ -8,6 +8,8 @@ import torch.distributed as dist
 from torch import Tensor, nn
 
 from track_1_short.model.moe import MOE_ANVIL_MARGIN
+from track_1_short.optim import cascade_flags as _cf
+from track_1_short.optim.step_profile import StepProfile
 from track_1_short.perf.bank_scalars import BankScalarStaging
 from track_1_short.perf.kernels import anvil_opt as _ok
 from track_1_short.perf.kernels.polar_express import XTX, XXT, ba_plus_cAA
@@ -312,6 +314,10 @@ class AnvilAndAdam:
         self._init_banks()
         self.bank_update = bank_update
         self.moe_publish = moe_publish
+        # OPTIM_PROFILE=1 (optim/cascade_flags.py): per-label wait / update timing; None leaves step() as it was.
+        self.profile = StepProfile(self.rank) if _cf.OPTIM_PROFILE else None
+        if self.rank == 0 and (_cf.OPTIM_FLAGGED_UPDATE or _cf.OPTIM_PROFILE):
+            print(_cf.describe(), flush=True)
 
         # Track async operations
         self._reduce_futures: dict[nn.Parameter, tuple] = {}
@@ -693,6 +699,8 @@ class AnvilAndAdam:
             sparse_update.launch_value_embeds()
 
         # ===== Phase 2: Process updates in work_order =====
+        # OPTIM_PROFILE: CUDA events on the compute stream around each wait and update (None when off or capturing).
+        prof = self.profile.begin() if self.profile is not None else None
         gather_futures = []
         deferred_futures = {}
         lm_head_gather_future = None
@@ -717,13 +725,19 @@ class AnvilAndAdam:
                 continue
             # Wait for reduce
             future, grad_chunk = self._reduce_futures[param]
+            if prof is not None:
+                prof.mark(label + ".issue")
             future.wait()
+            if prof is not None:
+                prof.mark(label + ".ready")
 
             # Apply update based on optim type
             if p_cfg.optim == "adam":
                 p_slice = self._adam_update(param, grad_chunk, p_cfg)
             else:
                 p_slice = self._anvil_update(p_cfg, grad_chunk)
+            if prof is not None:
+                prof.mark(label + ".done")
             # MoE: the expert bank leaves as its owners' fp8 rows and scales (the bf16 replica is gathered only
             # before its readers, land_bf16_replicas); deferred like a bank gather when `moe_bank` is deferred.
             if label == "moe_bank":
@@ -759,6 +773,8 @@ class AnvilAndAdam:
         for fut in gather_futures:
             fut.wait()
 
+        if prof is not None:
+            prof.end()
         self._reduce_futures.clear()
 
         # Clear grads for updated params
@@ -871,8 +887,28 @@ class AnvilAndAdam:
         return v_chunk.mul_(eq_scale.type_as(v_chunk))
 
 
+# OPTIM_MAPS=3 (optim/cascade_flags.py): the cascade's maps under the flagged update; ANVIL_MAPS otherwise.
+CASCADE_MAPS = _cf.ANVIL_MAPS3 if _cf.OPTIM_MAPS == 3 else ANVIL_MAPS
+
+
+def anvil_bank_update_flagged(bank: AnvilBank):
+    """anvil_bank_update under OPTIM_MOEFUSED / OPTIM_MAPS / OPTIM_NORM: every bank, the expert bank included, runs the
+    fused tail (anvil_opt.pre_fused + anvil_opt.polar_flagged) at its own margin, with CASCADE_MAPS and the chosen
+    normalization; steps 2 and 3 are anvil_bank_update's."""
+    x = torch.empty_like(bank.grad)
+    _ok.pre_fused(bank.grad, bank.velocity, x, bank.momentum, bank.fast_beta, bank.fast_weight)
+    v_chunk = _ok.polar_flagged(x, bank.split_baddbmm, CASCADE_MAPS, bank.margin, _cf.OPTIM_NORM_S4)
+    v_chunk = AnvilAndAdam._rail_equalizer(v_chunk, bank.lane_energy, bank.beta2, bank.red_dim)
+    AnvilAndAdam._sign_aligned_decay_update(
+        bank.p_slice.view(torch.uint16), bank.mantissa, v_chunk, bank.eff_wd, bank.eff_lr, bank.velocity[1],
+    )
+
+
 def anvil_bank_update(bank: AnvilBank):
     """One bank's ANVIL update, from its reduce-scattered gradient (the body the optimizer-tail graphs capture)."""
+    if _cf.OPTIM_FLAGGED_UPDATE:
+        anvil_bank_update_flagged(bank)
+        return
     # 1. Twin-rail Nesterov momentum + ANVIL whitening cascade
     if bank.label != "moe_bank":
         # The same arithmetic as anvil_cascade, byte for byte (anvil_opt.py): the rails, the Nesterov blend and the
