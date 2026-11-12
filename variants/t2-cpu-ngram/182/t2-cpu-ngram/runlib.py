@@ -1,4 +1,4 @@
-"""Shared helpers for sweep_steps.py and significance.py: launch one run, parse its result, one-sided t-test.
+"""Shared helpers for node.py, sweep_steps.py and significance.py: parse a run's output, the data preflight, one-sided t-test.
 
 Standard library only (scipy is used to cross-check the t-test when it is installed).
 """
@@ -6,18 +6,20 @@ import json
 import math
 import os
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-ENTRY = "train_gpt_medium_cpu.py"
 TARGET = 2.92
 
 _ENDPOINT_KV = re.compile(r"^endpoint_result: (.*)$", re.M)
-_ENDPOINT_JSON = re.compile(r"^endpoint_result:(\{.*\})$", re.M)  # @ldmberman's attachment format
+_ENDPOINT_JSON = re.compile(r"^endpoint_result:(\{.*\})$", re.M)  # ldmberman's attachment format
 _VAL_LINE = re.compile(r"^step:(\d+)/(\d+) val_loss:([\d.]+) train_time:(\d+)ms", re.M)
-_LOG_PATH = re.compile(r"^(logs/[0-9a-f-]+\.txt)$", re.M)
+LOG_PATH = re.compile(r"^(logs/[0-9a-f-]+\.txt)$", re.M)
+_STEP = re.compile(r"^step:(\d+)/(\d+) ", re.M)
+_PEAK = re.compile(r"^peak memory allocated: (\d+) MiB reserved: (\d+) MiB", re.M)
+_HOST = re.compile(r"^host memory: rank 0 peak RSS ([\d.]+) GiB, node in use ([\d.]+) GiB", re.M)
+_PARTS = re.compile(r"^val_loss_parts: model_only=([\d.]+)", re.M)
+_BUILT = re.compile(r"^validation index built in ([\d.]+) s", re.M)
 
 
 def parse_result(text: str) -> dict | None:
@@ -35,7 +37,9 @@ def parse_result(text: str) -> dict | None:
     elif (m := _ENDPOINT_JSON.findall(text)):
         j = json.loads(m[-1])
         out = dict(steps=j["steps"], val_loss=j["val_loss"], train_time_ms=j["train_time_ms"], seed=j.get("seed"))
-    if out is not None and (p := _LOG_PATH.search(text)):
+    if out is not None and not math.isfinite(out["val_loss"]):
+        return None  # a diverged run has no result
+    if out is not None and (p := LOG_PATH.search(text)):
         out["log"] = p.group(1)
     return out
 
@@ -44,14 +48,12 @@ FULL_TRAIN_SHARDS = 103  # data/cached_fineweb10B.py's default: all of fineweb10
 
 
 def resolve_data_path(env: dict, repo: Path = REPO) -> str:
-    """The DATA_PATH the run will use (config.py: DATA_PATH, default ".", resolved against the run's cwd, the
-    variant folder). The shards live at the repository root, two levels up, so when DATA_PATH is unset
-    and the variant folder holds no shards, ../.. is used instead of letting the run start without data."""
+    """The DATA_PATH the run will use (config.py resolves it against the run's cwd, the variant folder). Unset,
+    it is ../..: the shards live at the repository root, two levels up, where run_node.sh prep downloads them.
+    Only a variant folder that holds shards of its own keeps config.py's default, "."."""
     if "DATA_PATH" in env:
         return env["DATA_PATH"]
-    here = list((repo / "data" / "fineweb10B").glob("fineweb_train_*.bin"))
-    root = list((repo / ".." / ".." / "data" / "fineweb10B").glob("fineweb_train_*.bin"))
-    return "../.." if not here and root else "."
+    return "." if list((repo / "data" / "fineweb10B").glob("fineweb_train_*.bin")) else "../.."
 
 
 def check_shards(data_path: str, repo: Path = REPO) -> tuple[int, str | None]:
@@ -61,41 +63,44 @@ def check_shards(data_path: str, repo: Path = REPO) -> tuple[int, str | None]:
     base = (repo / data_path / "data" / "fineweb10B").resolve()
     n_train = len(list(base.glob("fineweb_train_*.bin")))
     if n_train == 0 or not list(base.glob("fineweb_val_*.bin")):
-        return n_train, f"no FineWeb train/val shards under {base} (set DATA_PATH; README: Commands)"
+        return n_train, f"no FineWeb train/val shards under {base} (bash 182/run_node.sh prep downloads them to the repository root)"
     if n_train != FULL_TRAIN_SHARDS:
         return n_train, (f"{n_train} train shards under {base}, not {FULL_TRAIN_SHARDS}: the exact-count corpus, "
-                         f"and so the val loss, will differ from @ldmberman's run")
+                         f"and so the val loss, will differ from ldmberman's run")
     return n_train, None
 
 
-def launch(scheduled_iterations: int, seed: int | None, out_file: Path, nproc: int = 8, extra_env: dict | None = None,
-           dry_run: bool = False) -> dict | None:
-    """One fresh torchrun of the Track 2 entry point (PR #380's chain is fitted at the endpoint, so every
-    sweep point is its own run). stdout+stderr go to out_file; returns the parsed result."""
-    env = dict(os.environ, NUM_SCHEDULED_ITERATIONS=str(scheduled_iterations), **(extra_env or {}))
-    env["DATA_PATH"] = resolve_data_path(env)
-    n_train, problem = check_shards(env["DATA_PATH"])
-    if problem and not dry_run:
-        if n_train == 0 or os.environ.get("ALLOW_PARTIAL_SHARDS", "0") != "1":
-            raise SystemExit(f"[run] {problem}" + ("" if n_train == 0 else "; ALLOW_PARTIAL_SHARDS=1 to run anyway"))
-        print(f"[run] WARNING: {problem}", file=sys.stderr)
-    if seed is not None:
-        env["TRAIN_SEED"] = str(seed)
-    cmd = ["torchrun", "--standalone", f"--nproc_per_node={nproc}", ENTRY]
-    shown = " ".join(f"{k}={env[k]}" for k in ("DATA_PATH", "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED", *(extra_env or {})) if k in env)
-    print(f"[run] {shown} {' '.join(cmd)}  > {out_file}", flush=True)
-    if dry_run:
-        return None
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_file, "w") as f:
-        proc = subprocess.run(cmd, cwd=REPO, env=env, stdout=f, stderr=subprocess.STDOUT)
-    text = out_file.read_text()
-    result = parse_result(text)
-    if proc.returncode != 0 or result is None:
-        print(f"[run] FAILED (exit {proc.returncode}); see {out_file}", file=sys.stderr)
-        return None
-    result.update(scheduled_iterations=scheduled_iterations, seed=seed, out=str(out_file))
-    return result
+def parse_details(text: str) -> dict:
+    """The rest of what one run's output says: memory peaks, the loss before the chain, index build times."""
+    out = {}
+    if (m := _PEAK.search(text)):
+        out.update(peak_alloc_mib=int(m.group(1)), peak_reserved_mib=int(m.group(2)))
+    if (m := _HOST.search(text)):
+        out.update(rank0_rss_gib=float(m.group(1)), host_used_gib=float(m.group(2)))
+    if (m := _PARTS.search(text)):
+        out["model_only"] = float(m.group(1))
+    builds = [float(x) for x in _BUILT.findall(text)]
+    if builds:
+        out["index_build_s"] = builds
+    return out
+
+
+_ERROR = re.compile(r"(Error|Exception|HOST CHECK|out of memory|Killed|Segmentation|SIGBUS|SIGKILL|Signal \d+|exitcode)", re.I)
+
+
+def failure_reason(text: str, returncode: int) -> str:
+    """One line for a failed run: its last error-looking output line (torchrun's own wrap-up lines aside)."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for line in reversed(lines):
+        if _ERROR.search(line) and "ChildFailedError" not in line and not line.startswith(("Traceback", "File ", "raise ")):
+            return f"exit {returncode}: {line[:240]}"
+    last = runlib_last_step(text)
+    return f"exit {returncode}, no error line" + (f" (last step line: {last})" if last else "")
+
+
+def runlib_last_step(text: str) -> str | None:
+    steps = _STEP.findall(text)
+    return f"{steps[-1][0]}/{steps[-1][1]}" if steps else None
 
 
 def load_jsonl(path: Path) -> list[dict]:
