@@ -199,6 +199,14 @@ class NgramTable:
         self.grads_in_flight = None
         self.landing = None  # a started land: (pull, received, work, served), until complete_land
 
+    def release_training_state(self):
+        """After the last training step: drop what only training reads (the live cycle's unapplied gradients,
+        which may point into the step graphs' pool, and the per-slot gradient buffer). The shard and the cache
+        stay: validation lands its rows from the shard."""
+        self.pending = []
+        self.grads_in_flight = None
+        self.grad_per_slot = None
+
     # ---- pulling rows into the cache ----
 
     def request(self, want: Tensor, want_host: np.ndarray) -> RowPull:

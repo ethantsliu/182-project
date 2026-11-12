@@ -1,5 +1,6 @@
 """The GPT model: embeddings, 11 transformer blocks with MUDD skip connections (16 on Track 2), and the loss."""
 import math
+import os
 from dataclasses import dataclass
 
 import torch
@@ -119,8 +120,12 @@ FP8_ATTN_X_SCALE = 8.0 / 448.0
 FP8_ATTN_GRAD_SCALE = 1.0 / 448.0
 
 # Validation computes the loss over slabs of this many rows (record #360), so its [rows, vocab] fp32
-# logits (6.6 GB per slab) stay small next to the rank's 16 GB n-gram shard.
-EVAL_CE_SLAB_ROWS = 32768
+# logits (6.6 GB per slab) stay small next to the rank's 16 GB n-gram shard. Every step of the slab loop
+# is row-local, so the slab size changes no token's loss beyond float rounding, only the size of the logit block. Read at trace
+# time: train_gpt.py halves it (and torch.compile recompiles on the changed value) when the final
+# validation runs out of memory. EVAL_CE_SLAB_ROWS sets the starting size.
+EVAL_CE_SLAB_ROWS = int(os.environ.get("EVAL_CE_SLAB_ROWS", "32768"))
+assert EVAL_CE_SLAB_ROWS > 0
 CPLM = True  # PR #379's copy-sink pointer, its record settings (QK norm, an 8192-token validation band)
 if CPLM:
     from track_1_short.cplm_copy import copy_sink_probs_fused
@@ -149,6 +154,46 @@ class ForwardScheduleConfig:
     train_max_seq_len: int  # longest attention segment in a training batch
     # Training only: the candidate set when this step's loss is a sampled softmax; None = full softmax.
     sampled_loss: SampledLoss | None = None
+
+def eval_slab_losses(lm_head, x, input_seq, target_seq, canon_mask, slab_rows):
+    """Validation's plain next-token CE (no copy sink) over slabs of `slab_rows` rows; per-token losses [T]."""
+    shifts = torch.arange(8, dtype=torch.uint8, device=x.device)
+    slab_losses = []
+    for lo in range(0, x.size(0), slab_rows):
+        hi = min(lo + slab_rows, x.size(0))
+        # The softcap runs in bf16 and upcasts after, as record #360.
+        logits = (23 * torch.sigmoid((lm_head(x[lo:hi]) + 5) / 7.5)).float()
+        # Drop the tokens the tokenizer would never emit after input_seq. -60 is well below
+        # the 0..23 the softcap leaves, so a dropped token contributes nothing to the softmax.
+        dropped = (canon_mask[input_seq[lo:hi], :, None] >> shifts & 1).view(logits.shape).bool()
+        logits = logits.masked_fill(dropped, -60.0)
+        slab_losses.append(F.cross_entropy(logits, target_seq[lo:hi], reduction="none"))
+    return torch.cat(slab_losses)
+
+
+def cplm_eval_slab_losses(lm_head, xf, input_seq, target_seq, canon_mask, p_copy, a_sink, copy_gate_lambda, slab_rows):
+    """Validation's copy-sink mixture loss over slabs of `slab_rows` rows; per-token losses [T]. p_copy and
+    a_sink are per row, computed once over all rows by the caller."""
+    shifts = torch.arange(8, dtype=torch.uint8, device=xf.device)
+    slab_losses = []
+    for lo in range(0, xf.size(0), slab_rows):
+        hi = min(lo + slab_rows, xf.size(0))
+        raw = lm_head(xf[lo:hi])
+        logits = (23 * torch.sigmoid((raw + 5) / 7.5)).float()
+        dropped = (canon_mask[input_seq[lo:hi], :, None] >> shifts & 1).view(logits.shape).bool()
+        dropped[:, COPY_TOKEN_ID] = False  # the <copy> gate is not a token: never masked
+        logits = logits.masked_fill(dropped, -60.0)
+        # Copy mass on tokens the mask rules out is simply lost (the mixture then sums to <= 1 over the
+        # feasible tokens), so the mask never overstates the copy branch.
+        lse = logits.logsumexp(-1)
+        p_lm = torch.exp(logits.gather(1, target_seq[lo:hi, None])[:, 0] - lse)
+        pc, asink = p_copy[lo:hi], a_sink[lo:hi]
+        alpha = copy_gate_lambda * torch.exp(logits[:, COPY_TOKEN_ID] - lse)
+        p_t = p_lm / (1.0 - alpha).clamp_min(1e-6)  # LM over the real vocab
+        p = p_t * (1.0 - alpha * (1.0 - asink)) + alpha * pc
+        slab_losses.append(-torch.log(p + 1e-9))
+    return torch.cat(slab_losses)
+
 
 class GPT(nn.Module):
     """Training runs every projection in fp8 (the attention QKV, the MLP, the lm_head loss); validation
@@ -868,19 +913,8 @@ class GPT(nn.Module):
         else:
             # Every step is row-local, so slabs of EVAL_CE_SLAB_ROWS rows give the same per-token losses
             # as one pass; only the [rows, vocab] logit block shrinks.
-            x = x.view(-1, x.size(-1))
-            shifts = torch.arange(8, dtype=torch.uint8, device=x.device)
-            slab_losses = []
-            for lo in range(0, x.size(0), EVAL_CE_SLAB_ROWS):
-                hi = min(lo + EVAL_CE_SLAB_ROWS, x.size(0))
-                # The softcap runs in bf16 and upcasts after, as record #360.
-                logits = (23 * torch.sigmoid((self.lm_head(x[lo:hi]) + 5) / 7.5)).float()
-                # Drop the tokens the tokenizer would never emit after input_seq. -60 is well below
-                # the 0..23 the softcap leaves, so a dropped token contributes nothing to the softmax.
-                dropped = (self.canon_mask[input_seq[lo:hi], :, None] >> shifts & 1).view(logits.shape).bool()
-                logits = logits.masked_fill(dropped, -60.0)
-                slab_losses.append(F.cross_entropy(logits, target_seq[lo:hi], reduction="none"))
-            loss_per_token = torch.cat(slab_losses)
+            loss_per_token = eval_slab_losses(self.lm_head, x.view(-1, x.size(-1)), input_seq, target_seq,
+                                              self.canon_mask, EVAL_CE_SLAB_ROWS)
         return loss_per_token
 
     def _cplm_loss(self, x, input_seq, target_seq, mtp_weights, prefix_weight, sampled_loss, seqlens):
@@ -909,25 +943,8 @@ class GPT(nn.Module):
                 xf, target_seq, mtp_weights, self.prefix_table[target_seq], prefix_weight, p_copy, a_sink,
                 self.copy_col_full, self.copy_gate_lambda, gate, self.lm_head.weight, self._lm_head_f8_col, self._lm_head_f8_row,
                 self.lm_head.x_s, self.lm_head.w_s, self.lm_head.grad_s, None)
-        shifts = torch.arange(8, dtype=torch.uint8, device=xf.device)
-        slab_losses = []
-        for lo in range(0, xf.size(0), EVAL_CE_SLAB_ROWS):
-            hi = min(lo + EVAL_CE_SLAB_ROWS, xf.size(0))
-            raw = self.lm_head(xf[lo:hi])
-            logits = (23 * torch.sigmoid((raw + 5) / 7.5)).float()
-            dropped = (self.canon_mask[input_seq[lo:hi], :, None] >> shifts & 1).view(logits.shape).bool()
-            dropped[:, COPY_TOKEN_ID] = False  # the <copy> gate is not a token: never masked
-            logits = logits.masked_fill(dropped, -60.0)
-            # Copy mass on tokens the mask rules out is simply lost (the mixture then sums to <= 1 over the
-            # feasible tokens), so the mask never overstates the copy branch.
-            lse = logits.logsumexp(-1)
-            p_lm = torch.exp(logits.gather(1, target_seq[lo:hi, None])[:, 0] - lse)
-            pc, asink = p_copy[lo:hi], a_sink[lo:hi]
-            alpha = self.copy_gate_lambda * torch.exp(logits[:, COPY_TOKEN_ID] - lse)
-            p_t = p_lm / (1.0 - alpha).clamp_min(1e-6)  # LM over the real vocab
-            p = p_t * (1.0 - alpha * (1.0 - asink)) + alpha * pc
-            slab_losses.append(-torch.log(p + 1e-9))
-        return torch.cat(slab_losses)
+        return cplm_eval_slab_losses(self.lm_head, xf, input_seq, target_seq, self.canon_mask, p_copy, a_sink,
+                                     self.copy_gate_lambda, EVAL_CE_SLAB_ROWS)
 
     # -------------------------------------------------------------------------
     # Setup and run-level hooks main() calls on the uncompiled model.

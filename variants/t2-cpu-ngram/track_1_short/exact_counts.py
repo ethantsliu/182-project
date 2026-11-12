@@ -219,6 +219,17 @@ class ExactCounts:  # one rank's corpus share on its GPU and the query table (bu
             raise RuntimeError("loading the exact-count corpus failed") from self.load_error
         self._count(self.q_tok, self.q_tgt, segment_starts(self.q_tok, self.q_chunk), self.out, self.n)
 
+    def release(self) -> int:
+        """Drop the GPU buffers once the counts have been read (train_gpt.py, after the clock stops, before the
+        final validation forward): the corpus share, the query table, the queries and `out`. Returns the bytes
+        dropped. Only call it with the device synchronized: the counting kernels read these buffers."""
+        held = [t for t in (self.corpus, self.tab, self.filt, self.out, self.q_chunk) if t is not None]
+        if self.q_tok is not None:
+            held.append(self.q_tok._base if self.q_tok._base is not None else self.q_tok)  # q_tok and q_tgt: one tensor
+        freed = sum(t.numel() * t.element_size() for t in held)
+        self.corpus = self.tab = self.filt = self.out = self.q_chunk = self.q_tok = self.q_tgt = None
+        return freed
+
 
 def context_counts(out, offs):  # N, C at query positions offs (the kernel leaves 0 where the context leaves the segment)
     N = out[offs, :len(ORDERS)].float()

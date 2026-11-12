@@ -31,6 +31,9 @@ class Anything:
     def __getitem__(self, k):
         return Anything(self._name + "[]")
 
+    def __iter__(self):  # empty: with __getitem__ alone, iterating (torch's has_triton() does) never ends
+        return iter(())
+
     def __mro_entries__(self, bases):
         return (object,)
 
