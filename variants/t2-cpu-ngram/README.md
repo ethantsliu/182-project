@@ -17,7 +17,11 @@ bash variants/t2-cpu-ngram/182/run_node.sh prep    # 103 shards (~20 GiB), the R
 bash variants/t2-cpu-ngram/182/run_node.sh run     # one timed run; the last line is RESULT variant=t2-cpu-ngram ...
 ```
 
-- `check` exits 1 on any FAIL and each FAIL line carries its fix. Most are fixed by `prep`. The ones `prep` cannot
+- `check` exits 1 on any FAIL and each FAIL line carries its fix. A torch other than 2.10.0+cu128 or a triton
+  other than 3.6.0 is a FAIL (fix: `bash 182/tools/node_setup.sh --mode venv`, which makes `.venv-run`). The node
+  that ran torch 2.11 trained all 5800 steps and then ran out of memory, so `run` checks the stack even with
+  `SKIP_CHECK=1`, and the trainer stops before touching a GPU on another stack. `ALLOW_STACK=1` overrides all
+  three (unsupported). Most are fixed by `prep`. The ones `prep` cannot
   fix are the host's: fewer than 8 GPUs, no CUDA 13 runtime or headers, under ~390 GiB of available RAM, or a
   `/dev/shm` with under 144 GiB free (`sudo mount -o remount,size=200G /dev/shm`; in docker `--ipc=host`).
 - `prep` is idempotent and resumable. It needs `cargo`; `INSTALL_RUST=1` lets it install rustup. Limits:
@@ -25,11 +29,13 @@ bash variants/t2-cpu-ngram/182/run_node.sh run     # one timed run; the last lin
 - `run` repeats the check, then runs `train_gpt_medium_cpu.py` on 8 GPUs with `DATA_PATH=../..`. Expect roughly
   20 minutes: compile and CUDA-graph capture (PR #380 says ~7 min at the Track 1 size), prefaulting ~250 GiB of
   index memory, then the timed part. On success the last line is
-  `RESULT variant=t2-cpu-ngram val_loss=<f> train_time_s=<f> steps=<n> target=2.92 hit=<0|1> log=<path>`; on
-  failure it is `RESULT variant=t2-cpu-ngram status=failed reason=<one line>` with a nonzero exit.
+  `RESULT variant=t2-cpu-ngram val_loss=<f> train_time_s=<f> steps=<n> target=2.92 hit=<0|1> torch=<v> log=<path>`;
+  on failure it is `RESULT variant=t2-cpu-ngram status=failed torch=<v> reason=<one line>` with a nonzero exit.
+  `torch=` is what the trainer printed on its `stack: torch=<v> triton=<v> cuda=<v>` line (else the version
+  installed for that Python); the run log's header has the same versions.
 - Settings, all optional: `NPROC` (8; other counts are untested), `SEED` (unset means a random init, as in a record
   run), `STEPS` (see below), `EXTRA_ENV="K=V ..."` or plain exported variables, `LOG_DIR`, `DRY_RUN=1` (print the
-  command and exit), `RUN_TIMEOUT_S` (5400), `SKIP_CHECK=1`. The full list is at the top of
+  command and exit), `RUN_TIMEOUT_S` (5400), `SKIP_CHECK=1` (the stack is still checked), `ALLOW_STACK=1`. The full list is at the top of
   `182/t2-cpu-ngram/node.py`. The Python used is `$PY`, else the active virtualenv, else `.venv-run`, else `python3`.
 - Files of a run go to `LOG_DIR` (default `182/t2-cpu-ngram/results/node/<time>-run/`): `stdout.txt`, the run log
   (source, environment, every step line) and `summary.txt`. Every finished run is also appended to
@@ -107,6 +113,9 @@ With no variable set, `train_gpt.py` here is PR #380's Track 1 run plus extra lo
 | Failure paths: a short corpus read raises instead of looping; a failed index build raises on every rank instead of being queried half-built; a failed table create removes its `/dev/shm` file | `exact_counts.py`, `retrieval.py` | none unless something fails |
 | The exact-count kernels widen to int64 before multiplying the block index | `exact_counts.py` | none at 8 GPUs (a rank's corpus share is under 2³¹ tokens); matters with 4 or fewer |
 | `PRINT_EVERY`; the run log also holds `train_gpt.py` when the entry point is the wrapper | `train_gpt.py`, `run_log.py` | 25, as before |
+| `FINAL_VAL_RELEASE` (1): after the clock stops, drop what the final validation never reads before its forward (see "Memory at d=1024") | `final_val.py` (new), `train_gpt.py`, `exact_counts.py`, `step_graphs.py`, `ngram_table.py` | off the clock; no token's loss changes |
+| `EVAL_CE_SLAB_ROWS` (32768, as before): rows per validation loss slab. On a CUDA out-of-memory error the final validation retries the batch with half the slab, down to 2048 | `model/gpt.py`, `final_val.py` | only after an OOM, which used to end the run |
+| Stack guard: another torch/triton is a `check` FAIL, also under `SKIP_CHECK=1`, and the trainer exits before any GPU work (`ALLOW_STACK=1` overrides); `stack:` line, `torch=` in the RESULT line | `node.py`, `train_gpt_medium_cpu.py` | none on the pinned stack |
 | Node runner, sweep, significance test, CPU tests | `182/` | not part of the run |
 
 Not ported: the hierarchical and adaptive output heads in ldmberman's attachment (~770 lines); the 2.8769 run
@@ -120,9 +129,45 @@ shards, so it could never run).
 - **GPU, per rank: ~59.8 GiB peak allocated of 79.6 GiB** (ldmberman's log: 61242 MiB allocated, 70578 MiB
   reserved). The n-gram table shard is 20.3 GiB because its width is `MODEL_DIM`. Exact counts take ~6.3 GiB.
   Activations and CUDA-graph pools are ~28.6 GiB, a constant fitted to that log. Checked on the Track 1 log, which
-  it was not fitted to: 47.6 GiB predicted, 47.5 logged.
-- Reserved memory leaves ~9 GiB of headroom, which is why `VAL_BATCH_SIZE` is halved to 1048576.
+  it was not fitted to: 47.6 GiB predicted, 47.5 logged. That log does not say whether its peak was reached in
+  training or in the final validation.
 - **Host:** see "Smaller hosts". Building the model is a transient ~12.6 GiB across the 8 ranks.
+
+### The final validation
+On our node (torch 2.11, not the pinned 2.10) the run trained all 5800 steps and then died with a CUDA
+out-of-memory error inside a model forward, with 73 GiB in use and 5.7 GiB of that in CUDA-graph pools. The only
+model forward after the last step is the final validation's (`train_gpt.py`, the `eval_forward` call in the
+`with torch.no_grad()` loop). The training steps are graph replays and nothing else runs a forward unless
+`run_evals` is set, which it is not. That forward runs on 131072 tokens per rank, 8 times a training step, and
+until now it ran with everything training had left behind still allocated. From shapes (`memory_budget.py`,
+printed at startup):
+
+| At the final validation forward, per rank | GiB |
+|---|---|
+| The chain's fit steps: hidden states kept per fit step plus their concatenation (90 steps x 16384 tokens x 1024, bf16, twice) | 5.62 |
+| The exact counts: corpus share and table | 6.25 |
+| The exact counts' queries and `out` | 1.66 |
+| The training step graphs' private pool (the node's OOM message) | 5.7 |
+| The forward: the layer cache and MLP hidden at 131072 tokens | 6.25 |
+| The forward: one 32768-row loss slab, fused (bf16 matmul output + fp32 logits) | 9.21 |
+| The same slab unfused (every step materialized) | 18.42 |
+
+The first four are what `FINAL_VAL_RELEASE=1` (the default) now drops after the clock stops and before the
+forward: about 13.5 GiB plus the step graphs' pool (the graphs are reset, `p.grad` is cleared, then
+`torch.cuda.empty_cache()`). The validation reads none of them, so the loss is unchanged. The trainer prints
+the measured allocation before and after the release (`memory before the final validation`, `final validation
+memory release: ... GiB freed`). If the forward still runs out of memory, it retries that batch with half the
+loss slab (32768, then 16384, down to 2048 rows). Each slab is row-local: the same tokens, the same per-token
+formula, so the same mean up to float rounding (`182/t2-cpu-ngram/tests/test_final_val.py`). Measured on CPU:
+eager is bit for bit at every slab size of 2 rows and up. Through inductor, half a slab moved one token's loss by at
+most 3.8e-6 nats and the batch mean by 2e-8, because a different row count can change how a reduction is split.
+On the GPU, inductor's kernel choice and cuBLAS's GEMM algorithm can also depend on the row count, so expect the
+same rounding-level effect, unmeasured. Each retry prints one line and recompiles the eval graph, off the clock.
+A retry only happens where the run used to die.
+
+Not known without the node's log: how much of the 73 GiB was the forward itself, and why torch 2.11 needed more
+than ldmberman's 61.2 GiB peak. The pinned stack is the first fix. ldmberman's 70.6 GiB reserved left ~9 GiB of headroom,
+which is why `VAL_BATCH_SIZE` is halved to 1048576. Do not raise it.
 
 ## Track 2 rules notes
 - Same rules as Track 1 at 2.92: p < 0.01 that the mean is ≤ 2.92, train and val streams unchanged. The README sets
@@ -166,5 +211,8 @@ unless `--no-seed-point`. It solves for the mean that gives p < 0.01 with 6 runs
 - `prep` on Linux: the 103-shard download, the Rust build, the FA3 prefetch. The command lines are tested, not
   their execution.
 - The `val_loss_parts:` line (two lines in the validation loop, off the clock).
+- The final-validation release on a GPU: that `CUDAGraph.reset()` plus `empty_cache()` really returns the step
+  graphs' pool (the trainer prints how much was freed), and the OOM retry's recompile under CUDA. Both are tested
+  on CPU with stand-ins only.
 - `VAL_BUILD_THREADS` below the default, the small-host path, and any `NPROC` other than 8.
 - The slope of loss against steps, and any effect of `COORD_DESCENT_TUNING`.
