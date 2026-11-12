@@ -29,9 +29,11 @@ That is exactly hadamard_ref.rotate with the b x b Q, since the 128-tiles start 
 Why not a factored full-128 rotation (H_128 = H_16 (x) H_8: one K=16 dot plus 3 butterfly stages): a
 butterfly pairs elements 8, 4, 2 apart along the rotated dim, which in Triton is reshape -> permute ->
 tl.split -> add/sub -> tl.join -> permute per stage. On an MMA-layout register tile those permutes lower to
-convert_layout round trips through shared memory (a 128 x 128 fp32 tile is 64 KB, in an epilogue that is
-already at the 227 KB limit), and the H_8 factor cannot be a dot instead (K = 8 < 16). Expected cost is
-above the dense H_16 dot it saves, so only the block-diagonal variants exist.
+convert_layout round trips through shared memory (in an epilogue that is already at the 227 KB limit), and
+the H_8 factor cannot be a dot instead (K = 8 < 16). Expected cost is above the dense H_16 dot it saves, so
+only the block-diagonal variants exist. Compile-only numbers for a standalone quantize kernel
+(182/tools/triton_cpu/butterfly_probe.py): H_16 dot + 3 butterfly stages is 864 SASS instructions and 39
+barriers per tile with 32 KB of shared memory, the dense block dot 520 and 5.
 
 Invariants: token counts, the hidden size and the model dim are multiples of HADAMARD_TILE (a partial
 tile would rotate padding into dropped lanes); every cast is preceded by an explicit clamp.
