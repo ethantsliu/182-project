@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 import unittest
 
-from _paths import REPO, TOOLS
+from _paths import FIXTURES, REPO, TOOLS
 import summarize_session as ss
 import stats
 
@@ -29,6 +29,9 @@ t = 40.0
 if os.environ.get("FP8_OFF"):
     val -= float(os.environ.get("FAKE_GAP", "0"))
     t += 10.0
+if os.environ.get("FP8_ATTN_O") == "1":
+    val += float(os.environ.get("FAKE_ATTNO_DVAL", "0"))
+    t -= 0.5
 if os.environ.get("HADAMARD_FP8") == "1":
     t += 3.0 if os.environ.get("HADAMARD_BLOCK", "128") == "128" else 1.0
 total = 100
@@ -74,8 +77,29 @@ class SessionRepo(unittest.TestCase):
         self.env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", PY=sys.executable,
                         SESSION_DIR=str(self.sd), RUN_CMD=f"{sys.executable} {{script}}", SKIP_DATA="1",
                         TMPDIR=str(self.root))
-        for k in ("DRY_RUN", "FORCE", "FORCE_HADAMARD", "GATE_SEEDS", "HADAMARD_VARIANTS", "HADAMARD_SEEDS", "SESSION_DOCKER"):
-            self.env.pop(k, None)
+        self.state = self.root / "fakestate"
+        self.env.update(FAKE_STATE=str(self.state), PREP_POLL_S="1")
+        for k in list(self.env):
+            if k in ("DRY_RUN", "FORCE", "FORCE_HADAMARD", "FORCE_CHECK", "GATE_SEEDS", "ATTNO_SEEDS", "HADAMARD_VARIANTS",
+                     "HADAMARD_SEEDS", "SESSION_DOCKER", "QUICK", "BASE_RUNS", "PREP_BACKGROUND", "ALLOW_STACK") \
+                    or k.startswith(("T1GPU_", "T1CPU_", "T2CPU_", "T2GPU_")):
+                self.env.pop(k)
+
+    VARIANTS = dict(t1gpu="t1-gpu-stack", t1cpu="t1-cpu-ngram", t2cpu="t2-cpu-ngram", t2gpu="t2-gpu-port")
+
+    def add_variants(self, *phases):
+        """The fake node script as variants/<name>/182/run_node.sh (untracked, like a fresh checkout's would be tracked)."""
+        for ph in phases or self.VARIANTS:
+            d = self.repo / "variants" / self.VARIANTS[ph] / "182"
+            d.mkdir(parents=True)
+            shutil.copy(Path(FIXTURES) / "fake_run_node.sh", d / "run_node.sh")
+
+    def calls(self, phase):
+        f = self.state / self.VARIANTS[phase] / "calls"
+        return f.read_text().split("\n")[:-1] if f.exists() else []
+
+    def result(self, phase, name):
+        return json.loads((self.sd / phase / "runs" / name).read_text())
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -113,8 +137,20 @@ class TestGpuSession(SessionRepo):
         out = r.stdout + r.stderr
         self.assertEqual(r.returncode, 0, out)
         self.assertFalse(self.marker.exists(), "DRY_RUN launched torchrun")
-        pos = [out.index(f"== {p}: est. ") for p in ("env", "tests", "sanity", "gate", "hadamard", "t2", "bundle")]
+        phases = ("env", "tests", "sanity", "base", "t1gpu", "t1cpu", "t2cpu", "t2gpu", "gate", "attno", "hadamard", "bundle")
+        pos = [out.index(f"== {p}: est. ") for p in phases]
         self.assertEqual(pos, sorted(pos))
+        self.assertIn("phases: " + " ".join(phases), out)
+        # the estimates come first, one per phase, with a total: base 9+4, t1gpu 9+3*4, t2cpu 20, gate 2*9+2*3*4
+        head = out[:out.index("== env: est. ")]
+        self.assertRegex(head, r"\n  base +13\n")
+        self.assertRegex(head, r"\n  t1gpu +21  \(4 run\(s\) of variants/t1-gpu-stack; skipped if its check FAILs\)")
+        self.assertRegex(head, r"\n  t2cpu +20 ")
+        self.assertRegex(head, r"\n  gate +42\n")
+        self.assertRegex(head, r"\n  total +\d+ node-min upper bound")
+        self.assertRegex(out, r"\+ .*ab_run\.py run .*/base --no-report")
+        self.assertIn("SKIP t1gpu: variants/t1-gpu-stack/182/run_node.sh is not in this checkout", out)
+        self.assertIn("SKIP attno: track_1_short/config.py at HEAD does not read FP8_ATTN_O", out)
         self.assertIn("node_check.py", out)
         self.assertRegex(out, r"\+ .*-m pytest 182/hadamard-fp8/tests")
         self.assertRegex(out, r"\+ .*ab_run\.py run .*/gate --no-report")
@@ -299,24 +335,64 @@ class TestGpuSession(SessionRepo):
         r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
                            env=dict(env, DRY_RUN="1", QUICK="1"), capture_output=True, text=True, timeout=600)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("phases: env sanity gate bundle ", r.stdout)
+        self.assertIn("phases: env sanity base t1gpu bundle\n", r.stdout)
         self.assertNotIn("== tests:", r.stdout)
-        self.assertNotIn("t2 prefetch", r.stdout)
+        self.assertNotIn("== gate:", r.stdout)
+        self.assertRegex(r.stdout, r"\n  t1gpu +13  \(2 run")      # QUICK: 2 runs of t1gpu unless T1GPU_RUNS is set
+        total = int(__import__("re").search(r"total +(\d+) node-min", r.stdout).group(1))
+        self.assertLess(total, 45)
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", QUICK="1", T1GPU_RUNS="3"), capture_output=True, text=True, timeout=600)
+        self.assertRegex(r.stdout, r"\n  t1gpu +17  \(3 run")
 
     def test_hung_command_is_timed_out(self):
         rc, out = self.run_session("sanity", SANITY_CMD="sleep 60", SANITY_TIMEOUT_S="1")
         self.assertEqual(rc, 1, out)
         self.assertEqual(self.status("sanity"), "FAIL rc=124")
 
-    def test_t2_skips_with_reason_on_small_host(self):
-        rc, out = self.run_session("t2", T2_MIN_RAM_GIB="100000")
+    def test_base_runs_the_record_and_the_ab_phases_reuse_its_worktree(self):
+        rc, out = self.run_session("base", "gate", "bundle", FAKE_GAP="0", BASE_RUNS="3")
         self.assertEqual(rc, 0, out)
-        self.assertRegex(self.status("t2"), r"^SKIP host cannot run t2: RAM available \d+ GiB < 100000 GiB")
-        self.assertFalse(self.marker.exists())
+        ends = self.ends("base")
+        self.assertEqual([(e["arm"], e["status"], e["seed"]) for e in ends], [("fp8", "ok", None)] * 3)   # unseeded, as certifications are
+        self.assertEqual(sorted(p.name.split("-")[0] for p in (self.sd / "work/wt").iterdir()), ["bf16", "fp8"])
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertRegex(summary, r"base: root record #92 ANVIL2 +\| 3/3 ok +\| 3\.27\d\d ± 0\.00\d\d +\| 40\.20 ± 0\.00 +\| 39\.9 s \(official\) +\| 39\.9 s, <= 3\.28 +\| \d/3 runs")
+        self.assertIn("== base: baseline=fp8 n/arm=3 seeds=none", summary)
+        self.assertRegex(summary, r"t1gpu: t1-gpu-stack \(PR #397\) +\| not run +\| - ")
+        rc, out = self.run_session("base", BASE_RUNS="3")
+        self.assertIn("== base: already PASS", out)
+
+    def test_attno_skips_until_the_flag_is_committed_then_reports_net_seconds(self):
+        rc, out = self.run_session("attno")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(self.status("attno").startswith("SKIP track_1_short/config.py at HEAD does not read FP8_ATTN_O"), self.status("attno"))
+        self.assertFalse((self.sd / "attno/plan.json").exists())
+        # in the working tree only: still skipped (the arms run the committed HEAD)
+        (self.repo / "track_1_short/config.py").write_text("FP8_ATTN_O = 0\n")
+        rc, out = self.run_session("attno")
+        self.assertTrue(self.status("attno").startswith("SKIP"), self.status("attno"))
+        self.git("commit", "-qam", "attn_o flag")
+        rc, out = self.run_session("attno", "bundle", FAKE_ATTNO_DVAL="0.001")   # no gate needed
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.status("attno"), "PASS")
+        plan = json.loads((self.sd / "attno/plan.json").read_text())
+        self.assertEqual({a["name"]: a["env"] for a in plan["arms"]}, {"fp8": {}, "attn_o": {"FP8_ATTN_O": "1"}})
+        self.assertEqual({(e["arm"], e["seed"]) for e in self.ends("attno")}, {(a, s) for a in ("fp8", "attn_o") for s in (1, 2, 3, 4)})
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("ATTN_O (attn_o - fp8, n=4 seed pairs; + = FP8_ATTN_O=1 worse / slower):", summary)
+        self.assertIn("val delta        +1.00 ± 0.00 millinats (SE), 95% CI [+1.00, +1.00]", summary)
+        self.assertIn("train_time delta -0.500 ± 0.000 s (SE)", summary)
+        # net = -0.500 + 1.00 * 0.164 = -0.336 s; band: -0.500 + 0.120 .. -0.500 + 0.250
+        self.assertIn("164 ms per millinat = -0.336 s", summary)
+        self.assertIn("120-250 ms per millinat band: -0.380 to -0.250 s", summary)
+        self.assertIn("the flag pays on this node", summary)
+        self.assertIn(summary[summary.index("ATTN_O (attn_o"):summary.index("-> the 95%")], out)
 
 
 class TestSessionFlow(SessionRepo):
-    """The session-flow fixes: docker env forwarding, read-only DRY_RUN, the stack gate, timeouts, t2 results."""
+    """The session flow: docker env forwarding, read-only DRY_RUN, the root stack gate, timeouts, and the variant
+    phases against fake run_node.sh scripts (check fail => skipped; prep; run failures; RESULT parsing; resume)."""
 
     def fake_stack(self, torch="2.10.0+cu128", triton="3.6.0"):
         pf = self.root / "pyfake"
@@ -336,14 +412,14 @@ class TestSessionFlow(SessionRepo):
         env = {k: v for k, v in self.env.items() if k not in ("RUN_CMD", "SANITY_CMD", "PY")}
         self.stub("docker", "exit 0\n")
         r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh"), "sanity", "gate"], cwd=self.repo,
-                           env=dict(env, DRY_RUN="1", SESSION_DOCKER="img", PY=sys.executable, T2_MIN_RAM_GIB="10",
+                           env=dict(env, DRY_RUN="1", SESSION_DOCKER="img", PY=sys.executable, T2CPU_RUNS="2",
                                     HADAMARD_MIN_GAP_MNAT="1.5"),
                            capture_output=True, text=True, timeout=60)
         out = r.stdout + r.stderr
         self.assertEqual(r.returncode, 0, out)
         self.assertIn("--init", out)
         self.assertIn("TINI_KILL_PROCESS_GROUP=1", out)
-        self.assertIn("T2_MIN_RAM_GIB=10", out)
+        self.assertIn("T2CPU_RUNS=2", out)
         self.assertIn("HADAMARD_MIN_GAP_MNAT=1.5", out)
         self.assertNotIn("SANITY_CMD", out)          # the default is computed inside the container, with its python
         self.assertNotIn("RUN_CMD", out)
@@ -455,30 +531,167 @@ class TestSessionFlow(SessionRepo):
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
-    def test_t2_exit_0_without_result_fails(self):
-        t2 = self.repo / "variants/t2-cpu-ngram"
-        t2.mkdir(parents=True)
-        (t2 / "exact_match.py").write_text("")
-        (t2 / "train_gpt_medium_cpu.py").write_text("print('started, then nothing')\n")
-        d = self.repo / "data/fineweb10B"
-        d.mkdir(parents=True)
-        for i in range(1, 104):
-            (d / f"fineweb_train_{i:06d}.bin").touch()
-        (d / "fineweb_val_000000.bin").touch()
-        self.stub("torchrun", 'shift 2; exec "$PY" "$@"\n')
-        (self.repo / "data/cached_fineweb10B.py").write_text("print('have them')\n")
-        rc, out = self.run_session("t2", "bundle", T2_MIN_RAM_GIB="0", T2_MIN_SHM_GIB="0", T2_MIN_CPU_PER_GPU="0")
+    def test_variant_runs_results_resume_and_summary(self):
+        self.add_variants("t1gpu")
+        fail = dict(FAKE_RUN_FAIL="t1-gpu-stack:2", T1GPU_RUNS="3", T1GPU_SEEDS="5,6,7", NPROC="4")
+        rc, out = self.run_session("t1gpu", "bundle", **fail)
         self.assertEqual(rc, 1, out)
-        self.assertIn("printed no final result", out)
-        self.assertTrue(self.status("t2").startswith("FAIL"))
-        self.assertIn("== t2: FAIL", (self.sd / "summary.txt").read_text())
-
-    def test_skipped_t2_prints_no_result_line(self):
-        rc, out = self.run_session("t2", "bundle", T2_MIN_RAM_GIB="100000")
-        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.status("t1gpu"), "FAIL rc=1")
+        self.assertIn("failed phases: t1gpu", out)
+        self.assertEqual(self.calls("t1gpu")[:3], ["check", "prep", "check"])       # check, prep, then the check that decides
+        logs = self.sd / "t1gpu/logs"
+        self.assertEqual(self.calls("t1gpu")[3:], [f"run NPROC=4 SEED={s} LOG_DIR={logs}" for s in (5, 6, 7)])
+        r1, r2, r3 = (self.result("t1gpu", f"0{i}.result") for i in (1, 2, 3))
+        self.assertEqual((r1["ok"], r1["val_loss"], r1["train_time_s"], r1["steps"], r1["target"], r1["hit"], r1["seed"]),
+                         (True, 3.271, 30.1, 1100, 3.28, 1, "5"))
+        self.assertEqual((r2["ok"], r2["rc"], r2["reason"]), (False, 1, "CUDA out of memory on rank 3"))
+        self.assertTrue(r3["ok"])
+        self.assertIn("run 2/3 FAILED (rc 1): CUDA out of memory on rank 3", out)
+        self.assertEqual(sorted(p.name for p in logs.iterdir()), ["run1.txt", "run3.txt"])
         summary = (self.sd / "summary.txt").read_text()
-        self.assertIn("t2: SKIP host cannot run t2", summary)
-        self.assertNotIn("== t2: no result", summary)
+        self.assertRegex(summary, r"t1gpu: t1-gpu-stack \(PR #397\) +\| 2/3 ok +\| 3\.2720 ± 0\.0014 +\| 30\.20 ± 0\.14 +\| 30\.67 s, n=12 +\| 39\.9 s, <= 3\.28 +\| 2/2 runs")
+        self.assertIn("== t1gpu: t1-gpu-stack (PR #397), 2/3 run(s) ok  [FAIL rc=1]", summary)
+        self.assertIn("run 1: val_loss=3.2710 train_time_s=30.100 steps=1100 target=3.28 hit=1 seed=5", summary)
+        self.assertIn("run 2: FAILED (rc 1): CUDA out of memory on rank 3", summary)
+        # resume: only the failed run is retried (the 4th invocation of the fake), with its seed; the attempt is kept
+        rc, out = self.run_session("t1gpu", "bundle", T1GPU_RUNS="3", T1GPU_SEEDS="5,6,7")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("run 1/3: already done", out)
+        self.assertIn("run 3/3: already done", out)
+        self.assertEqual(self.status("t1gpu"), "PASS")
+        self.assertEqual([c for c in self.calls("t1gpu") if c.startswith("run")][3:], [f"run NPROC=8 SEED=6 LOG_DIR={logs}"])
+        self.assertEqual(self.result("t1gpu", "02.result")["val_loss"], 3.274)
+        self.assertFalse(self.result("t1gpu", "02.fail1.result")["ok"])
+        self.assertTrue((self.sd / "t1gpu/runs/02.fail1.out").exists())
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertIn("3/3 ok", summary)
+        self.assertIn("1 earlier failed attempt(s) were retried", summary)
+        with tarfile.open((self.sd / "bundle_path").read_text().strip()) as tf:
+            names = tf.getnames()
+        self.assertTrue(any(n.endswith("t1gpu/logs/run4.txt") for n in names))
+        self.assertTrue(any(n.endswith("t1gpu/check.txt") for n in names))
+        # PASS: not re-run; FORCE=1 redoes it and keeps the old runs
+        rc, out = self.run_session("t1gpu", T1GPU_RUNS="3")
+        self.assertIn("== t1gpu: already PASS", out)
+        rc, out = self.run_session("t1gpu", T1GPU_RUNS="1", FORCE="1")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue((self.sd / "t1gpu/runs.attempt1/03.result").exists())
+        self.assertEqual(sorted(p.name for p in (self.sd / "t1gpu/runs").iterdir()), ["01.out", "01.result"])
+
+    def test_variant_check_fail_is_a_skip_and_later_phases_run(self):
+        self.add_variants()
+        rc, out = self.run_session("t1gpu", "t1cpu", "t2", "t2gpu", "bundle", FAKE_CHECK_FAIL="t1-cpu-ngram,t2-cpu-ngram",
+                                   FAKE_CHECK_WARN="t2-gpu-port", T1GPU_RUNS="1", T1CPU_RUNS="1")
+        self.assertEqual(rc, 0, out)                      # a skipped variant is not a session failure
+        self.assertIn("phases: t1gpu t1cpu t2cpu t2gpu bundle", out)   # t2 is the old name of t2cpu
+        want = "SKIP t1-cpu-ngram check: FAIL ram: 64 GiB available, needs 390 GiB (use a larger host) (FORCE_CHECK=1 runs anyway)"
+        self.assertEqual(self.status("t1cpu"), want)
+        self.assertTrue(self.status("t2cpu").startswith("SKIP t2-cpu-ngram check: FAIL ram"))
+        self.assertEqual((self.status("t1gpu"), self.status("t2gpu")), ("PASS", "PASS"))
+        self.assertNotIn("prep", self.calls("t1cpu"))     # a FAIL that prep cannot fix: no download for a host that cannot run it
+        self.assertFalse([c for c in self.calls("t1cpu") if c.startswith("run")])
+        self.assertIn("prep", self.calls("t2gpu"))
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertRegex(summary, r"t1cpu: t1-cpu-ngram \(PR #381\) +\| SKIPPED +\| - ")
+        self.assertRegex(summary, r"t2gpu: t2-gpu-port \(PR #261\) +\| 1/1 ok \(ONE run\) +\| 2\.9171 +\| 860\.50 +\| 860\.5 s \(14\.34 min\) +\| 17\.35 min \(1041 s\), <= 2\.92 +\| 1/1 runs")
+        self.assertIn("  t1cpu " + want, summary)
+        self.assertIn("check: WARN vcpu: 12 per GPU, 24 recommended", summary)
+        self.assertNotIn("== t1cpu:", summary)
+        # FORCE_CHECK=1 runs it anyway
+        rc, out = self.run_session("t1cpu", FAKE_CHECK_FAIL="t1-cpu-ngram", T1CPU_RUNS="1", FORCE_CHECK="1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WARN: FORCE_CHECK=1, running t1-cpu-ngram despite: FAIL ram", out)
+        self.assertEqual(self.status("t1cpu"), "PASS")
+
+    def test_prep_fixes_a_check_that_names_prep_background_and_inline(self):
+        self.add_variants("t1gpu", "t2gpu")
+        need = dict(FAKE_NEEDS_PREP="t1-gpu-stack,t2-gpu-port", T1GPU_RUNS="1")
+        rc, out = self.run_session("t1gpu", PREP_BACKGROUND="0", **need)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("t1gpu: check + prep (inline", out)
+        self.assertEqual(self.calls("t1gpu")[:3], ["check", "prep", "check"])
+        self.assertNotIn("FAIL data", (self.sd / "t1gpu/check.txt").read_text())
+        self.assertIn("FAIL data: 0 of 9 shards", (self.sd / "t1gpu/check_pre.txt").read_text())
+        # background: one job preps both; the first variant phase waits for the whole job before it times anything
+        rc, out = self.run_session("t1gpu", "t2gpu", FORCE="1", FAKE_PREP_SLEEP="2", **need)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("prep: check + prep of t1gpu t2gpu started in the background", out)
+        self.assertIn("t1gpu: waiting for the background prep job", out)
+        self.assertEqual(self.calls("t2gpu")[:2], ["check", "prep"])
+        self.assertEqual((self.status("t1gpu"), self.status("t2gpu")), ("PASS", "PASS"))
+        self.assertFalse((self.sd / "prep_overlap.txt").exists())
+        self.assertEqual((self.sd / "prep_chain.rc").read_text().strip(), "0")
+
+    def test_prep_failure_fails_the_phase_with_its_tail(self):
+        self.add_variants("t1gpu", "t2gpu")
+        rc, out = self.run_session("t1gpu", "t2gpu", "bundle", FAKE_PREP_FAIL="t1-gpu-stack", T1GPU_RUNS="1")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("prep` exited 5", out)
+        self.assertIn("download failed: 401", out)
+        self.assertEqual((self.status("t1gpu"), self.status("t2gpu")), ("FAIL rc=1", "PASS"))   # independent phases go on
+        self.assertFalse(self.state.joinpath("t1-gpu-stack/runs").exists())
+        self.assertIn("download failed: 401", (self.sd / "summary.txt").read_text())
+
+    def test_two_consecutive_failed_runs_stop_a_variant(self):
+        self.add_variants("t1gpu")
+        rc, out = self.run_session("t1gpu", "bundle", FAKE_RUN_FAIL="t1-gpu-stack:all")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("stopping t1gpu: 2 consecutive failed runs; 2 run(s) not attempted", out)
+        self.assertEqual(self.state.joinpath("t1-gpu-stack/runs").read_text().strip(), "2")
+        summary = (self.sd / "summary.txt").read_text()
+        self.assertRegex(summary, r"t1gpu: t1-gpu-stack \(PR #397\) +\| 0/4 ok +\| - ")
+        self.assertIn("2 planned run(s) never started", summary)
+
+    def test_run_without_result_line_or_timed_out_is_failed(self):
+        self.add_variants("t1gpu", "t1cpu")
+        rc, out = self.run_session("t1gpu", "t1cpu", FAKE_RUN_NORESULT="t1-gpu-stack", T1GPU_RUNS="1",
+                                   T1CPU_RUNS="1", FAKE_RUN_SLEEP="30", T1CPU_TIMEOUT_S="1", T1GPU_TIMEOUT_S="60")
+        self.assertEqual(rc, 1, out)
+        r = self.result("t1gpu", "01.result")
+        self.assertEqual((r["ok"], r["rc"]), (False, 0))
+        self.assertIn("no RESULT line; last output line: started, then nothing", r["reason"])
+        r = self.result("t1cpu", "01.result")
+        self.assertEqual((r["ok"], r["rc"]), (False, 124))
+        self.assertTrue(r["reason"].startswith("timed out"), r["reason"])
+
+    def test_broken_check_fails_and_missing_script_skips(self):
+        self.add_variants("t1gpu")
+        rc, out = self.run_session("t1gpu", "t2gpu", FAKE_CHECK_CRASH="t1-gpu-stack")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("exited 2 without a FAIL line (a broken check, not a host verdict)", out)
+        self.assertEqual(self.status("t1gpu"), "FAIL rc=1")
+        self.assertTrue(self.status("t2gpu").startswith("SKIP variants/t2-gpu-port/182/run_node.sh is not in this checkout"))
+
+    def test_wrong_root_stack_skips_root_phases_but_variants_run(self):
+        self.add_variants("t1gpu")
+        env = self.fake_stack(torch="2.9.1+cu126")
+        rc, out = self.run_session("env", "base", "t1gpu", "attno", "bundle", T1GPU_RUNS="1", **env)
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(self.status("env").startswith("FAIL"))
+        self.assertTrue(self.status("base").startswith("SKIP env failed"), self.status("base"))
+        self.assertTrue(self.status("attno").startswith("SKIP env failed"), self.status("attno"))
+        self.assertEqual(self.status("t1gpu"), "PASS")
+        self.assertIn("The variant phases still run", out)
+        self.assertEqual(out[out.index("failed phases:"):].strip(), "failed phases: env")
+
+    def test_dry_run_with_variants_touches_nothing(self):
+        self.add_variants()
+        self.git("add", "-A")
+        self.git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "variants")
+        env = {k: v for k, v in self.env.items() if k != "SESSION_DIR"}
+        r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh")], cwd=self.repo,
+                           env=dict(env, DRY_RUN="1", FAKE_CHECK_FAIL="t2-cpu-ngram"), capture_output=True, text=True, timeout=600)
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 0, out)
+        self.assertIn("+ (background, nice 19) check + prep of: t1gpu t1cpu t2cpu t2gpu", out)
+        self.assertIn("+ bash variants/t1-gpu-stack/182/run_node.sh prep", out)
+        self.assertEqual(out.count("DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py"), 4 + 4 + 1 + 1)
+        self.assertIn("    FAIL ram: 64 GiB available", out)          # the real check output: what this host lacks
+        st = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain", "--ignored"], capture_output=True, text=True).stdout
+        self.assertEqual(st, "")
+        self.assertFalse(list(self.state.glob("*/runs")), "DRY_RUN ran a variant")
+        self.assertFalse(list(self.state.glob("*/prepped")), "DRY_RUN ran a prep")
+        self.assertFalse(self.marker.exists())
 
 
 class TestSummarize(unittest.TestCase):
@@ -716,25 +929,70 @@ class TestSummarize(unittest.TestCase):
             self.assertIn("probably truncated", r.stderr)
             self.assertNotIn("Traceback", r.stderr)
 
-    def test_t2_without_train_time(self):
-        with tempfile.TemporaryDirectory() as d:
-            Path(d, "stdout.txt").write_text("endpoint_result: steps=5800 val_loss=2.95\n")
-            out = "\n".join(ss.t2_lines(d))
-        self.assertIn("train_time=nan s", out)
-        self.assertIn("does NOT reproduce", out)
+    def test_parse_result_contract(self):
+        ok = "noise\nRESULT variant=t1-gpu-stack val_loss=3.27743 train_time_s=30.67 steps=1100 target=3.28 hit=1 log=logs/a.txt\n"
+        r = ss.parse_run(ok, 0, 77, "3", "t1-gpu-stack")
+        self.assertEqual((r["ok"], r["val_loss"], r["train_time_s"], r["steps"], r["hit"], r["log"], r["wall_s"], r["seed"]),
+                         (True, 3.27743, 30.67, 1100, 1, "logs/a.txt", 77, "3"))
+        self.assertNotIn("note", r)
+        # the LAST RESULT line counts; a failed line carries its reason whole
+        r = ss.parse_run(ok + "RESULT variant=t1-gpu-stack status=failed reason=val loss is nan at step 900\n", 1)
+        self.assertEqual((r["ok"], r["reason"]), (False, "val loss is nan at step 900"))
+        self.assertFalse(ss.parse_run(ok, 3)["ok"])                                  # a result with a non-zero exit is not a result
+        self.assertIn("exit code 3", ss.parse_run(ok, 3)["reason"])
+        for bad in ("RESULT variant=x val_loss=nan train_time_s=30 steps=1 target=3.28 hit=0 log=l",
+                    "RESULT variant=x val_loss=3.27 steps=1 target=3.28 hit=1 log=l",
+                    "RESULT variant=x val_loss=3.27 train_time_s=fast steps=1 target=3.28 hit=1 log=l",
+                    "step:1100/1100 val_loss:3.2774 train_time:30670ms", ""):
+            r = ss.parse_run(bad, 0)
+            self.assertFalse(r["ok"], bad)
+            self.assertTrue(r["reason"], bad)
+        r = ss.parse_run(ok.replace("hit=1", "hit=0"), 0, variant="t2-gpu-port")
+        self.assertTrue(r["ok"])
+        self.assertIn("expected t2-gpu-port", r["note"])
+        self.assertIn("hit=0 disagrees", ss.parse_result(ok.replace("hit=1", "hit=0"))["note"])
 
-    def test_t2_vs_reference(self):
+    def test_methods_table_is_empty_for_a_session_without_methods_and_honest_about_one_run(self):
         with tempfile.TemporaryDirectory() as d:
-            Path(d, "stdout.txt").write_text(
-                "logs/ab.txt\nstep:5800/5800 val_loss:2.8790 train_time:225000ms step_avg:38.79ms\n"
-                "endpoint_result: steps=5800 seed=None val_loss=2.879012 train_time_ms=225000\n")
-            out = "\n".join(ss.t2_lines(d))
-        self.assertIn("val_loss=2.8790", out)
-        self.assertIn("Δval +2.1 mnat", out)
-        self.assertIn("Δtime +4.0 s", out)
-        self.assertIn("reproduces", out)
-        self.assertNotIn("NOT", out)
+            self.assertEqual(ss.methods_table(d, {"env": "PASS"}), [])
+            os.makedirs(os.path.join(d, "t2cpu/runs"))
+            Path(d, "t2cpu/runs/01.result").write_text(json.dumps(ss.parse_run(
+                "RESULT variant=t2-cpu-ngram val_loss=2.9212 train_time_s=230.4 steps=5800 target=2.92 hit=0 log=l", 0)))
+            Path(d, "t2cpu/runs/02.result").write_text('{"ok": tr')            # torn write
+            Path(d, "t2cpu/planned").write_text("2\n")
+            text = "\n".join(ss.methods_table(d, {"t2cpu": "FAIL rc=1", "t1cpu": "SKIP t1-cpu-ngram check: FAIL ram: 64 GiB"}))
+            self.assertRegex(text, r"t2cpu: t2-cpu-ngram +\| 1/2 ok \(ONE run\) +\| 2\.9212 +\| 230\.40 +\| 221 s, 1 run +\| 17\.35 min \(1041 s\), <= 2\.92 +\| 0/1 runs")
+            self.assertRegex(text, r"t1cpu: t1-cpu-ngram \(PR #381\) +\| SKIPPED ")
+            self.assertRegex(text, r"base: root record #92 ANVIL2 +\| not run ")
+            self.assertIn("not measured by us", text)
+            self.assertIn("One run is one run", text)
+            self.assertIn("t1cpu SKIP t1-cpu-ngram check: FAIL ram: 64 GiB", text)
+            lines = "\n".join(ss.variant_lines(d, "t2cpu"))
+            self.assertIn("run 2: FAILED (rc ?): unreadable result file", lines)
 
+    def test_attno_net_matches_hand_computation(self):
+        dv, dt = [0.4, -0.2, 0.9, 0.1], [-0.30, -0.10, -0.25, -0.15]     # attn_o - fp8: millinats, seconds
+        groups = {"fp8": [], "attn_o": []}
+        for rep, (v, t) in enumerate(zip(dv, dt)):
+            groups["fp8"].append(dict(idx=2 * rep, rep=rep, status="ok", val_loss=3.278, train_time_s=40.0, details={}))
+            groups["attn_o"].append(dict(idx=2 * rep + 1, rep=rep, status="ok", val_loss=3.278 + v / 1000, train_time_s=40.0 + t, details={}))
+        ab = dict(arms=["fp8", "attn_o"], baseline="fp8", groups=groups, env={"fp8": {}, "attn_o": {"FP8_ATTN_O": "1"}})
+        text = "\n".join(ss.attno_lines(ab))
+        net = [t + v * 0.164 for v, t in zip(dv, dt)]
+        m, sd = stats.mean_sd(net)
+        h = 3.182446305284263 * sd / 2
+        self.assertIn(f"= {m:+.3f} s, 95% CI [{m - h:+.3f}, {m + h:+.3f}]", text)
+        mv, sdv = stats.mean_sd(dv)
+        self.assertIn(f"val delta        {mv:+.2f} ± {sdv / 2:.2f} millinats (SE), 95% CI [{mv - 3.182446305284263 * sdv / 2:+.2f}, {mv + 3.182446305284263 * sdv / 2:+.2f}]", text)
+        lo, hi = (sum(dt) / 4 + mv * p for p in (0.120, 0.250))
+        self.assertIn(f"band: {lo:+.3f} to {hi:+.3f} s", text)
+        self.assertIn("the flag pays on this node", text)                  # CI of the net is below 0
+        # one usable pair: said so, no CI
+        groups["attn_o"] = groups["attn_o"][:1]
+        one = "\n".join(ss.attno_lines(ab))
+        self.assertIn("n=1 seed pair: ONE pair, no confidence interval, not a result", one)
+        groups["attn_o"][0]["status"] = "failed"
+        self.assertIn("no complete seed pair", "\n".join(ss.attno_lines(ab)))
 
 if __name__ == "__main__":
     unittest.main()
