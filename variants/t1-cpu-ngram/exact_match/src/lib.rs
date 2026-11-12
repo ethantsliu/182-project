@@ -5,6 +5,8 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 use rayon::prelude::*;
 use std::{fs::File, io::Read};
 
+#[cfg(feature = "sa")]
+mod sa;
 mod slot;
 mod stream;
 mod sys;
@@ -158,5 +160,7 @@ fn prefault<T>(v: &mut [T]) {
 fn exact_match(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CELLS", CELLS)?;
     m.add_class::<stream::StreamIndex>()?;
+    #[cfg(feature = "sa")]
+    m.add_class::<sa::SuffixCounts>()?;
     m.add_class::<slot::SlotIndex>()
 }

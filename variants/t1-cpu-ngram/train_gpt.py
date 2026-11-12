@@ -48,6 +48,7 @@ from track_1_short.distributed import setup_distributed
 from track_1_short.doc_cache import NBINS as DOC_BINS, ORDERS as DOC_ORDERS, DocChain
 from track_1_short.exact_counts import (NBINS, ORDERS, SCAN_HINT_MARKS, SCAN_HINTS, SCAN_HINTS_SKIP, ChainFit, ExactCounts, chain_prob, components,
                                          context_counts, gate_L, vote_base_prob)
+from track_1_short.exact_counts_sa import EXACT_BACKEND, SuffixExactCounts
 from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT
 from track_1_short.model.prefix_prediction import build_prefix_table_bucket
 from track_1_short.ngram_table import (
@@ -250,8 +251,9 @@ def main():
     F = sum(training_schedule.lookup(s)[0].batch_size // env.world_size for s in fit_steps)
     V, S, i = args.val_tokens, F // len(fit_steps), torch.arange(args.val_tokens + env.world_size * F, device=env.device)
     q_chunk = torch.where(i < V, i // val_cache.chunk * val_cache.chunk, V + (i - V) // S * S)  # query segments: chunks, fit steps
-    exact = ExactCounts(glob.glob(args.train_files), exclude, env.rank, env.world_size, env.device, q_chunk, pinned=LARGE_HOST,
-                        n_val=V if SCAN_HINTS else 0)
+    exact_cls = SuffixExactCounts if EXACT_BACKEND == "sa" else ExactCounts  # EXACT_BACKEND=sa: exact_counts_sa.py
+    exact = exact_cls(glob.glob(args.train_files), exclude, env.rank, env.world_size, env.device, q_chunk, pinned=LARGE_HOST,
+                      n_val=V if SCAN_HINTS else 0)
     if SCAN_HINTS:  # this rank's validation positions and the 2- and 3-token rows' cell tags (as online_cache.lower's)
         own_val = torch.cat([torch.arange(o, o + val_cache.chunk, device=env.device) for o in val_cache.offsets])
         hint_tags = (RET_CELLS * 3, RET_CELLS * 2)
