@@ -14,7 +14,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from runlib import TARGET, launch, mean_std, one_sided_p, parse_result
+import node
+from runlib import TARGET, mean_std, one_sided_p, parse_result
 
 HERE = Path(__file__).resolve().parent
 
@@ -53,7 +54,6 @@ def main():
     ap.add_argument("--alpha", type=float, default=0.01)
     ap.add_argument("--markdown", type=Path, help="also write the table here (e.g. the record folder's statistics.md)")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--nproc", type=int, default=8)
     a = ap.parse_args()
 
     rows = []
@@ -66,9 +66,14 @@ def main():
         rows.append(r)
     if a.steps is not None:
         seeds = a.seeds if a.seeds is not None else [None] * a.runs
+        if (reason := node.preflight(a.dry_run)):
+            sys.exit(reason)
         for i, seed in enumerate(seeds):
             tag = f"seed{seed}" if seed is not None else f"run{i}"
-            r = launch(a.steps, seed, HERE / "results" / f"sig_steps{a.steps}_{tag}.out", nproc=a.nproc, dry_run=a.dry_run)
+            overrides = {"NUM_SCHEDULED_ITERATIONS": str(a.steps), **({} if seed is None else {"TRAIN_SEED": str(seed)})}
+            r, line = node.run_once(overrides, HERE / "results" / "significance" / f"steps{a.steps}_{tag}", a.dry_run)
+            if not a.dry_run:
+                print(line)
             if r is not None:
                 rows.append(r)
                 print(f"[done] {len(rows)}: val_loss={r['val_loss']:.4f} train_time={r['train_time_ms'] / 1000:.1f}s")

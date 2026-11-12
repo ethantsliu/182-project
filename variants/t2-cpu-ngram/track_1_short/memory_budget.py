@@ -1,7 +1,7 @@
 """Back-of-envelope host-RAM and per-GPU memory budget, printed at startup (and runnable offline).
 
 Why: Track 2 doubles model_dim, and the hashed n-gram table's width is model_dim (ngram_table.NGRAM_DIM),
-so its per-GPU shard goes from ~10 GiB (d=512) to ~20 GiB (d=1024). @ldmberman's d=1024 run peaked at
+so its per-GPU shard goes from ~10 GiB (d=512) to ~20 GiB (d=1024). ldmberman's d=1024 run peaked at
 61242 MiB allocated / 70578 MiB reserved of an H100's 80 GiB with the validation batch halved.
 
 The large terms are counted from shapes (model/gpt.py, ngram_table.py, value_embed_pull.py,
@@ -35,7 +35,7 @@ TRAIN_SHARDS = 103          # fineweb10B train shards, when all are downloaded
 CALIBRATION = [
     # Track 1, records/track_1_short/2026-10-03_ExactCountChain (PR #380): d=512, 11 layers, mlp 1792, val batch 2097152
     dict(model_dim=512, layers=11, mlp_hidden=1792, val_batch=4 * 64 * 1024 * 8, total_steps=725, peak_mib=48643),
-    # Track 2, @ldmberman's adaptation (PR #380 thread, 2026-10-04): d=1024, 16 layers, mlp 4096, val batch 1048576
+    # Track 2, ldmberman's adaptation (PR #380 thread, 2026-10-04): d=1024, 16 layers, mlp 4096, val batch 1048576
     dict(model_dim=1024, layers=16, mlp_hidden=4096, val_batch=2 * 64 * 1024 * 8, total_steps=5800, peak_mib=61242),
 ]
 
@@ -135,7 +135,7 @@ def report(model_dim, layers, mlp_hidden, val_batch, total_steps, n_shards=TRAIN
     lines.append(f"  gpu  {'peak allocated, estimated':<46s} {total_gpu / GiB:7.2f} GiB of {cap / GiB:.1f} GiB"
                  f"{'  WARNING: over 90% of the GPU' if total_gpu > 0.9 * cap else ''}")
     if model_dim > 512 and val_batch > CALIBRATION[-1]["val_batch"]:
-        lines.append("  gpu  WARNING: the validation forward is in the calibrated constant only; @ldmberman halved "
+        lines.append("  gpu  WARNING: the validation forward is in the calibrated constant only; ldmberman halved "
                      "VAL_BATCH_SIZE to 1048576 to fit d=1024, so a larger one likely runs out of memory")
     lines += [f"  host {k:<46s} {v / GiB:7.2f} GiB" for k, v in host.items()]
     total, avail = mem_total_available()

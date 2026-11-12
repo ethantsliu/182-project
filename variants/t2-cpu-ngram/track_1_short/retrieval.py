@@ -23,7 +23,7 @@ from exact_match import CELLS as RET_CELLS, SlotIndex, StreamIndex
 from track_1_short import host
 
 per_gpu = len(os.sched_getaffinity(0)) // int(os.environ.get("LOCAL_WORLD_SIZE", "1"))  # vCPUs per GPU, before any pinning
-VAL_BUILD_THREADS = 64 if per_gpu >= 24 else 32 if per_gpu >= 16 else 16  # rank 0's validation index build, on cores every rank sets aside
+VAL_BUILD_THREADS = host.build_threads(per_gpu)  # rank 0's validation index build, on cores every rank sets aside: 64 / 32 / 16 by vCPUs per GPU
 LARGE_HOST = per_gpu >= 24  # >= 24 vCPUs per GPU
 
 @dataclass(frozen=True)

@@ -2,7 +2,7 @@
 
   cd variants/t2-cpu-ngram && python -m pytest -q 182/t2-cpu-ngram/tests
 
-The reference numbers come from @ldmberman's Track 2 run log (PR #380 thread, 2026-10-04) and from PR #380's
+The reference numbers come from ldmberman's Track 2 run log (PR #380 thread, 2026-10-04) and from PR #380's
 Track 1 code (git fetch upstream pull/380/head; built the same way, it gives the same numbers).
 """
 import json
@@ -123,6 +123,9 @@ def test_data_path_defaults_to_repo_root(tmp_path):
     assert runlib.resolve_data_path({}, repo) == "../.."  # the README layout: shards at the repo root
     assert runlib.resolve_data_path({"DATA_PATH": "/x"}, repo) == "/x"
     assert runlib.check_shards("../..", repo) == (103, None)
+    assert runlib.resolve_data_path({}, tmp_path / "variants" / "empty") == "../.."  # also before any download
+    _shards(repo, 1)
+    assert runlib.resolve_data_path({}, repo) == "."  # a variant folder with shards of its own
 
 
 def test_shard_preflight(tmp_path):
@@ -133,13 +136,3 @@ def test_shard_preflight(tmp_path):
     empty = tmp_path / "noval"
     _shards(empty, 103, val=False)
     assert runlib.check_shards(".", empty)[1].startswith("no FineWeb")
-
-
-def test_launch_refuses_partial_download(tmp_path, monkeypatch):
-    _shards(tmp_path, 12)
-    monkeypatch.setattr(runlib, "REPO", tmp_path)
-    monkeypatch.setattr(runlib, "resolve_data_path", lambda env, repo=tmp_path: ".")
-    monkeypatch.setattr(runlib, "check_shards", lambda dp, repo=tmp_path: (12, "12 train shards, not 103"))
-    monkeypatch.delenv("ALLOW_PARTIAL_SHARDS", raising=False)
-    with pytest.raises(SystemExit):
-        runlib.launch(4000, 0, tmp_path / "out.txt")
