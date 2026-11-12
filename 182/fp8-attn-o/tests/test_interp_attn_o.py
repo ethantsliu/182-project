@@ -209,7 +209,8 @@ def _load_attention(source: str, name: str):
 
 def _base_source():
     """The base commit's attention.py: from git, or from the file FP8_ATTN_O_BASE_ATTENTION names (the triton-cpu image
-    has no git; e.g. `git show bfa81d4:track_1_short/model/attention.py > /tmp/base_attention.py`, mounted in)."""
+    has no git and a worktree's .git is not mounted: `git show bfa81d4:track_1_short/model/attention.py >
+    base_attention.py` in the repo root, then FP8_ATTN_O_BASE_ATTENTION=/repo/base_attention.py through run.sh)."""
     path = os.environ.get("FP8_ATTN_O_BASE_ATTENTION")
     if path:
         return pathlib.Path(path).read_text()

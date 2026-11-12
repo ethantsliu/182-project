@@ -14,6 +14,8 @@ specializations (==1, %16) that launcher builds. Nothing runs; no tensor is read
              passes, mlp.quantize_grad (dpost / dw2 / both), quantize_weights_rotated (W1 col, W2 row):
              through the launchers, with HADAMARD_BLOCK / HADAMARD_GEMMS patched per variant;
              hadamard_t_quant (x_t) via its Python body (its registered CPU kernel is a torch reference)
+  attn_o     FP8_ATTN_O (perf/kernels/attn_o.py): fp8_dual_quant of y (e4m3, 768 / 384 wide) and g (e5m2), with and
+             without the amax atomic; quantize_attn_o_weights (static, exact) over the strided vo_bank view
 Geometry: the record's D = 768, H = MLP_HIDDEN_DIM read from the tree's model/gpt.py (2816), L = 12 bank
 slots, and every per-rank token count the training stages reach (batch_size / 8: 16384, 32768, 40960,
 49152), plus the validation batch (262144) for the bf16 forward. Per kernel it prints whether those token
@@ -285,6 +287,35 @@ def hadamard_calls(H, tokens):
     return calls
 
 
+def attn_o_calls(tokens):
+    """(name, geometry or None, fn) for FP8_ATTN_O (perf/kernels/attn_o.py): the plain dual-layout quantize of y (e4m3,
+    H*v = 768 and the half-V layers' 384) and of g (e5m2, 768), with and without the amax atomic, and the o_w cache
+    quantize (static scale; exact scale with the amax pass) over the strided [7, 768, 768] vo_bank view."""
+    from track_1_short.perf.kernels import attn_o
+    from track_1_short.perf.kernels.fp8_attention_quant import AMAX_PARTS
+
+    E4, E5, BF = torch.float8_e4m3fn, torch.float8_e5m2, torch.bfloat16
+    E = torch.empty
+    L = 7
+    vo = E(16, D, D, dtype=BF)
+    calls = []
+    for exact in (False, True):
+        calls.append((f"attn_o quantize_attn_o_weights exact={int(exact)}", None,
+                      lambda exact=exact: attn_o.quantize_attn_o_weights(
+                          vo[1:2 * L:2], torch.ones(L), torch.zeros(L, AMAX_PARTS), E(L, D, D, dtype=E4),
+                          E(L, D, D, dtype=E4), exact=exact, record_amax=exact)))
+    for T in tokens:
+        for slot in SCALAR_SLOTS:
+            s = _scalars(slot)
+            geo = f"T={T} slot={slot}"
+            for n, fmt, what in ((768, E4, "y"), (384, E4, "y half-V"), (768, E5, "g")):
+                for amax in (None, s["amax"]):
+                    calls.append((f"attn_o fp8_dual_quant {what} {'e5m2' if fmt == E5 else 'e4m3'} amax={int(amax is not None)}",
+                                  geo, lambda T=T, n=n, fmt=fmt, sc=s["scale"], amax=amax:
+                                  attn_o.fp8_dual_quant(E(T, n, dtype=BF), sc, fmt, amax)))
+    return calls
+
+
 def run_launchers():
     """{call name: [(geometry, records, host error)]}, in call order."""
     import shim
@@ -294,6 +325,7 @@ def run_launchers():
     calls = record_calls(H, tokens, val_tokens)
     if not ARGS.record_only:  # the Hadamard modules exist only in this tree, not in upstream
         calls += hadamard_calls(H, tokens)
+        calls += attn_o_calls(tokens)
     if ARGS.only:
         calls = [c for c in calls if re.search(ARGS.only, c[0])]
     results = {}
