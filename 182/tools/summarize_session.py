@@ -17,7 +17,9 @@ val(fp8) - val(FP8_OFF=1) in mnat (+ = fp8 worse), mean +- SE, 95% t-CI against 
 once every gate slot has finished. attno gets the paired val delta in millinats with its 95% CI, the time delta,
 and the net seconds at SEC_PER_MNAT. The hadamard phase compares each variant's step-time cost with the most the
 rotation could buy back (gate gap x SEC_PER_MNAT). A header shows the stack the session ran on (git sha/dirty,
-torch, triton, CUDA, driver, FA3, SLOW GPUs) with mismatches marked.
+torch, triton, CUDA, driver, FA3, SLOW GPUs) with mismatches marked. The profile phase shows the head of each
+tree's 182/profile/analyze.py report (category table, NCCL exposure, top kernels); nccl the NVLS verdict, the
+bandwidth probes and its A/B per tree; xab one paired A/B table per 182/experiments.d entry (xab_run.py report).
 
 Stdlib only (reuses logparse/stats/ab_run from this folder), so it runs anywhere.
 """
@@ -62,7 +64,8 @@ METHODS = {
 PRIOR_NODE_RUNS = ("earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780, "
                    "1194 steps; t1-gpu-stack 30.957 s, val_loss 3.276481, 1053 steps (981 scheduled)")
 VARIANT_PHASES = ("t1gpu", "t1cpu", "t2cpu", "t2gpu")
-PHASE_ORDER = ["env", "tests", "sanity", "base", *VARIANT_PHASES, "gate", "attno", "hadamard", "bundle"]
+PHASE_ORDER = ["env", "tests", "sanity", "base", "t1gpu", "profile", "nccl", "xab", "t1cpu", "t2cpu", "t2gpu", "gate", "attno",
+               "hadamard", "bundle"]
 RESULT_RE = re.compile(r"^RESULT (.*)$", re.M)
 HIDDEN_ENV = {"DATA_PATH", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TRAIN_SEED"}
 
@@ -641,6 +644,79 @@ def hadamard_lines(root: str, name: str = "hadamard") -> list[str]:
     return [] if ab is None else ab_table(name, ab, buyback_mnat=gate_gap(root))
 
 
+def profile_lines(root: str, top: int = 12) -> list[str]:
+    """Per profiled tree: analyze.py's report up to its first `top` kernels (the full one is profile/<t>/analysis.txt)."""
+    d = os.path.join(root, "profile")
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for t in sorted(n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n)) and ".attempt" not in n):
+        txt, skip = _read(os.path.join(d, t, "analysis.txt")), _read(os.path.join(d, t, "skip.txt")).strip()
+        if skip:
+            out += ["", f"== profile {t}: {skip}"]
+            continue
+        if not txt.strip():
+            tail = [ln for ln in _read(os.path.join(d, t, "run.txt")).splitlines() if ln.strip()][-3:]
+            out += ["", f"== profile {t}: no analysis" + (" ; tail of run.txt:" if tail else "")] + ["  " + ln[:200] for ln in tail]
+            continue
+        res = [ln for ln in _read(os.path.join(d, t, "run.txt")).splitlines() if ln.startswith("profiled run (NOT a timing run)")]
+        lines, k = [], None   # k counts kernel rows inside the top-kernels table
+        for ln in txt.splitlines():
+            if ln.startswith("top ") and "kernels by total time" in ln:
+                k = -1           # the next line is the column header
+            elif k is not None:
+                if not ln.strip():
+                    k = None
+                else:
+                    k += 1
+                    if k > top:
+                        continue
+            lines.append(ln)
+        out += ["", f"== profile {t} (torch.profiler; not a timing run; full report profile/{t}/analysis.txt):"]
+        out += ["  " + ln for ln in res[-1:] + lines]
+    return out
+
+
+def _xab_dirs(d: str) -> list[str]:
+    return sorted(os.path.join(d, n) for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, "plan.json"))) \
+        if os.path.isdir(d) else []
+
+
+def nccl_lines(root: str) -> list[str]:
+    d = os.path.join(root, "nccl")
+    if not os.path.isdir(d):
+        return []
+    import xab_run  # here: xab_run imports this module
+    chk = _read(os.path.join(d, "nvls_check.txt")).splitlines()
+    out = ["", "== nccl (NVLink SHARP):"]
+    out += ["  " + ln.strip() for ln in chk if ln.startswith(("## fabric", "## multicast", "## probe", "NVLS: "))
+            or re.match(r"^\s+(all_reduce|reduce_scatter|all_gather)_\d+MiB|^\s+default vs NVLS off", ln)]
+    for ln in _read(os.path.join(d, "skipped.txt")).splitlines():
+        out.append(f"  skipped: {ln}")
+    for x in _xab_dirs(d):
+        out += ["  " + ln for ln in xab_run.report_lines(x, f"nccl {os.path.basename(x)}")]
+    return out
+
+
+def xab_lines(root: str) -> list[str]:
+    d = os.path.join(root, "xab")
+    if not os.path.isdir(d):
+        return []
+    import xab_run
+    out = []
+    for n in sorted(os.listdir(d)):
+        p = os.path.join(d, n)
+        if n.endswith(".invalid"):
+            out += ["", f"== xab {n[:-8]}: INVALID experiments.d file: {_read(p).strip()[:300]}"]
+        elif os.path.isdir(p) and ".attempt" not in n:
+            spec = dict(ln.split(" ", 1) for ln in _read(os.path.join(p, "spec.txt")).splitlines() if " " in ln and not ln.startswith("arm "))
+            st = _read(os.path.join(p, "status.txt")).strip()
+            out += ["", f"== xab {n}: {st or 'no status'}" + (f"  ({spec['note']})" if spec.get("note") else "")]
+            if os.path.isfile(os.path.join(p, "plan.json")):
+                out += ["  " + ln for ln in xab_run.report_lines(p, n)]
+    return out
+
+
 def summarize(root: str) -> str:
     lines = []
     meta = os.path.join(root, "meta.txt")
@@ -668,6 +744,7 @@ def summarize(root: str) -> str:
         if os.path.isdir(os.path.join(root, phase)) and not smap.get(phase, "").startswith("SKIP"):
             lines += [""] + variant_lines(root, phase, smap.get(phase, ""))
             lines += phase_tail_lines(root, phase, ["prep.txt"], smap.get(phase, "")) if not load_variant(root, phase)["runs"] else []
+    lines += profile_lines(root) + nccl_lines(root) + xab_lines(root)
     for phase in attempts + ["base", "gate", "attno", "hadamard"]:  # earlier attempts (re-planned after failing) first
         kind = phase.split(".")[0]
         if kind == "hadamard":

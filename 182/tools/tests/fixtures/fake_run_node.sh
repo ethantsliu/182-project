@@ -30,7 +30,9 @@ case "${1:-}" in
       echo "+ cd $here && DATA_PATH=../.. torchrun --standalone --nproc_per_node=${NPROC:-8} train_gpt.py${CANON_MASK:+ [CANON_MASK=$CANON_MASK]}"; exit 0
     fi
     n=$(( $(cat "$st/runs" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$st/runs"
-    echo "run NPROC=${NPROC:-} SEED=${SEED:-} LOG_DIR=${LOG_DIR:-}${CANON_MASK:+ CANON_MASK=$CANON_MASK}${CONFIG:+ CONFIG=$CONFIG}" >> "$st/calls"
+    echo "run NPROC=${NPROC:-} SEED=${SEED:-} LOG_DIR=${LOG_DIR:-}${CANON_MASK:+ CANON_MASK=$CANON_MASK}${CONFIG:+ CONFIG=$CONFIG}${EXTRA_ENV:+ EXTRA_ENV=$EXTRA_ENV}" >> "$st/calls"
+    # EXTRA_ENV="K=V ..." (shell words), as the real run_node.sh scripts read it
+    if [[ -n "${EXTRA_ENV:-}" ]]; then eval "extra=($EXTRA_ENV)"; for kv in "${extra[@]}"; do export "${kv?}"; done; fi
     if has "${FAKE_RUN_FAIL:-}" "$name:$n" || has "${FAKE_RUN_FAIL:-}" "$name:all"; then
       echo "Traceback (most recent call last):"
       echo "RESULT variant=$name status=failed reason=CUDA out of memory on rank 3"; exit 1
@@ -38,6 +40,12 @@ case "${1:-}" in
     if has "${FAKE_RUN_NORESULT:-}" "$name"; then echo "started, then nothing"; exit 0; fi
     sleep "${FAKE_RUN_SLEEP:-0}"
     mkdir -p "${LOG_DIR:?}"; log="$LOG_DIR/run$n.txt"; echo "fake log $n" > "$log"
+    if [[ "${FAKE_SEEDED:-0}" == 1 ]]; then   # val/time from the seed (same seed -> same noise in every arm) + the arm's shift
+      v=$(python3 -c "import sys; s=int(sys.argv[1]); print(f'{3.2750 + 0.0003 * (s % 5) + float(sys.argv[2]) + s * float(sys.argv[4]):.6f} {30.0 + 0.1 * (s % 3) + float(sys.argv[3]):.3f}')" \
+          "${SEED:-0}" "${FAKE_DVAL:-0}" "${FAKE_DT:-0}" "${FAKE_DVAL_SLOPE:-0}")
+      [[ -n "${FAKE_FAIL_ARM_ENV:-}" ]] && has "$FAKE_FAIL_ARM_ENV" "${FAKE_ARM:-}" && { echo "RESULT variant=$name status=failed reason=arm ${FAKE_ARM} broke"; exit 1; }
+      echo "RESULT variant=$name val_loss=${v% *} train_time_s=${v#* } steps=1100 target=3.28 hit=1 log=$log"; exit 0
+    fi
     case "$name" in
       t2-*) echo "RESULT variant=$name val_loss=2.9171 train_time_s=860.5 steps=5800 target=2.92 hit=1 log=$log";;
       *)    echo "RESULT variant=$name val_loss=3.27${n}0 train_time_s=30.${n}0 steps=1100 target=3.28 hit=$(( n < 8 ? 1 : 0 )) log=$log";;

@@ -2,8 +2,9 @@
 # One GPU session on the 8xH100 box: every method in this repo, most promising first -> one file to send back.
 # Run from anywhere inside the repo, inside tmux/screen. The script never commits or pushes.
 #
-#   bash 182/gpu_session.sh              # = all: env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle
-#   QUICK=1 bash 182/gpu_session.sh      # = env sanity base t1gpu bundle (2 runs each): something real in < 45 min
+#   bash 182/gpu_session.sh              # = all: env tests sanity base t1gpu profile nccl xab t1cpu t2cpu t2gpu gate
+#                                        #   attno hadamard bundle
+#   QUICK=1 bash 182/gpu_session.sh      # = env sanity base t1gpu profile bundle (2 runs each): something real in < 45 min
 #   bash 182/gpu_session.sh t2cpu        # just those phases (always in the canonical order); `t2` = t2cpu
 #   DRY_RUN=1 bash 182/gpu_session.sh    # print the plan, the estimates and every GPU/pip/download command; writes
 #                                        # only to a temp dir (with SESSION_DIR: previews a resume from a copy)
@@ -30,6 +31,23 @@
 #             all selected variants run one after another in ONE low-priority background job from the start of
 #             the session (PREP_BACKGROUND=0: inline instead); a variant phase waits for that whole job, so only
 #             root phases overlap it (noted in the summary). Two consecutive failed runs stop a variant phase.
+#   profile   where the step time goes (182/profile/README.md): one run per PROFILE_TREES entry (t1gpu root) with
+#             torch.profiler over PROFILE_STEPS (300:20) of the timed loop, on all ranks, through 182/profile/run.sh
+#             (no trainer edits: a torchrun shim starts the trainer through 182/profile/hook.py). Writes
+#             profile/<tree>/analysis.txt (per-category ms/step, NCCL exposed vs overlapped, idle gaps, top 25
+#             kernels, per-rank table) and trace_rank0.json.gz. Not timing runs. The root tree is skipped if env
+#             failed; a variant tree whose `check` FAILs (after prep, if the FAIL names it) is skipped.
+#   nccl      NVLink SHARP A/B: 182/tools/nvls_check.py first (nvidia-smi topo -m, fabric state, per-GPU multicast
+#             support, three NCCL bandwidth probes); NVLS unavailable -> SKIP (FORCE_NCCL=1 runs anyway). Then per
+#             NCCL_TREES entry (t1gpu root) a paired, interleaved A/B over NCCL_SEEDS of NCCL_ARMS ('|'-separated
+#             NAME:K=V..., default base | nvls_off: NCCL_NVLS_ENABLE=0 | nvls_force: NCCL_NVLS_ENABLE=1 +
+#             NCCL_ALGO per collective): Δval mnat and Δtime with 95% CIs, net seconds. NCCL 2.27.5 (torch 2.10
+#             cu128) defaults NCCL_NVLS_ENABLE to 2 = NVLS on where supported, so `base` already has it.
+#   xab       every 182/experiments.d/*.sh (format: 182/experiments.d/README.md): a paired A/B of its XAB_ARMS over
+#             seeds 1..XAB_SEEDS on XAB_TREE, interleaved by seed: a variant tree through its run_node.sh run with
+#             EXTRA_ENV (182/tools/xab_run.py), the root (".") through ab_run.py. Δval (mnat, 95% CI), Δtime, net_s
+#             per arm. XAB_ONLY / XAB_SKIP (comma lists of XAB_NAMEs) pick experiments; an invalid file is reported
+#             and the others still run. Resumable per experiment.
 #   gate      record vs FP8_OFF=1, GATE_SEEDS paired, interleaved (ab_run.py): the paired gap val(fp8) - val(bf16)
 #             mean +- SE and its 95% CI vs 0.5 mnat -> STOP / GAP / INCONCLUSIVE, only once every slot finished
 #   attno     record vs FP8_ATTN_O=1, ATTNO_SEEDS paired, interleaved: val delta in millinats with its 95% CI,
@@ -67,12 +85,17 @@
 # every knob above that YOU set is forwarded into the container, except PY (the image's python is used) and
 # SESSION_DIR (mapped explicitly); defaults are computed inside the container. HF_HUB_OFFLINE and HF_TOKEN are
 # forwarded too, and INSTALL_RUST (lets a CPU-retrieval prep install rustup). The image must carry what a variant needs (its `check` says what is missing).
+# profile/nccl/xab knobs: PROFILE_TREES ("t1gpu root"; a variant phase name, root, or a repo-relative dir), PROFILE_STEPS
+# (300:20), PROFILE_RUN_MIN (5, the estimate per tree), PROFILE_TIMEOUT_S (1800), PROFILE_BUNDLE_MB (150: a bigger
+# trace_rank0.json.gz stays out of the bundle), NCCL_TREES ("t1gpu root"), NCCL_ARMS,
+# NCCL_SEEDS (1,2,3,4), NCCL_PROBE_TIMEOUT_S (300 per probe), FORCE_NCCL, XAB_ONLY, XAB_SKIP, XAB_TIMEOUT_S (1500 per
+# run), SKIP_PHASES (phase names dropped from the selection, e.g. "nccl xab").
 set -euo pipefail
 
-PHASES=(env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle)
+PHASES=(env tests sanity base t1gpu profile nccl xab t1cpu t2cpu t2gpu gate attno hadamard bundle)
 ROOT_PHASES=" tests sanity base gate attno hadamard "   # need the record's stack (env checks it)
 VARIANT_PHASES=" t1gpu t1cpu t2cpu t2gpu "              # check their own stack (run_node.sh check)
-QUICK_PHASES=(env sanity base t1gpu bundle)
+QUICK_PHASES=(env sanity base t1gpu profile bundle)     # profile is cheap (one run per tree); nccl and xab are not
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
 cd "$REPO"
@@ -83,7 +106,8 @@ FORWARD_VARS=(QUICK NPROC CACHE BASE_RUNS T1GPU_RUNS T1CPU_RUNS T2CPU_RUNS T2GPU
   PREP_TIMEOUT_S PREP_WAIT_S PREP_BACKGROUND FORCE_CHECK GATE_SEEDS ATTNO_SEEDS HADAMARD_VARIANTS HADAMARD_SEEDS
   HADAMARD_MIN_GAP_MNAT FORCE_HADAMARD TIMEOUT_S STOP_AFTER_FAILURES ARM_FAILURES TESTS_TIMEOUT_S SANITY_TIMEOUT_S
   DATA_TIMEOUT_S COLD_RUN_MIN WARM_RUN_MIN T2CPU_RUN_MIN T2GPU_RUN_MIN RUN_CMD SANITY_CMD SKIP_DATA ALLOW_STACK FORCE
-  DRY_RUN HF_HUB_OFFLINE HF_TOKEN INSTALL_RUST)
+  DRY_RUN HF_HUB_OFFLINE HF_TOKEN INSTALL_RUST PROFILE_TREES PROFILE_STEPS PROFILE_RUN_MIN PROFILE_TIMEOUT_S PROFILE_BUNDLE_MB
+  NCCL_TREES NCCL_ARMS NCCL_SEEDS NCCL_PROBE_TIMEOUT_S FORCE_NCCL XAB_ONLY XAB_SKIP XAB_TIMEOUT_S SKIP_PHASES)
 USER_ENV=()
 for v in "${FORWARD_VARS[@]}"; do [[ -n "${!v+x}" ]] && USER_ENV+=(-e "$v=${!v}"); done
 SANITY_DEFAULT=0; [[ -z "${SANITY_CMD+x}" ]] && SANITY_DEFAULT=1
@@ -121,7 +145,14 @@ WARM_RUN_MIN=${WARM_RUN_MIN:-4}
 # Guesses until a run exists: t2cpu ~7 min compile/capture + ~4 min train + the table build (its README);
 # t2gpu 14.34 min reported + compile + val.
 T2CPU_RUN_MIN=${T2CPU_RUN_MIN:-20}; T2GPU_RUN_MIN=${T2GPU_RUN_MIN:-25}
-export GIT_OPTIONAL_LOCKS=0       # `git status` must not rewrite the index (DRY_RUN writes nothing in the repo)
+PROFILE_TREES=${PROFILE_TREES-t1gpu root}; PROFILE_STEPS=${PROFILE_STEPS:-300:20}
+PROFILE_RUN_MIN=${PROFILE_RUN_MIN:-5}; PROFILE_TIMEOUT_S=${PROFILE_TIMEOUT_S:-1800}; PROFILE_BUNDLE_MB=${PROFILE_BUNDLE_MB:-150}
+NCCL_TREES=${NCCL_TREES-t1gpu root}; NCCL_SEEDS=${NCCL_SEEDS:-1,2,3,4}; NCCL_PROBE_TIMEOUT_S=${NCCL_PROBE_TIMEOUT_S:-300}
+# base: NCCL as it is (2.27.5 defaults NCCL_NVLS_ENABLE=2: NVLS wherever supported). nvls_off: what NVLS buys now.
+# nvls_force: NVLS forced for the three collectives that support it (NCCL >= 2.24 per-collective syntax).
+NCCL_ARMS=${NCCL_ARMS:-"base:|nvls_off:NCCL_NVLS_ENABLE=0|nvls_force:NCCL_NVLS_ENABLE=1 NCCL_ALGO='allreduce:nvls;reducescatter:nvls;allgather:nvls'"}
+XAB_TIMEOUT_S=${XAB_TIMEOUT_S:-1500}
+export GIT_OPTIONAL_LOCKS=0      # `git status` must not rewrite the index (DRY_RUN writes nothing in the repo)
 [[ "$DRY_RUN" == 1 ]] && export PYTHONDONTWRITEBYTECODE=1
 SHA=$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)
 
@@ -249,8 +280,30 @@ estimate() {  # node-minutes; the A/B phases after `base` reuse its warm compile
     gate) ab_estimate 2 "$(count_csv "$GATE_SEEDS")";;
     attno) ab_estimate 2 "$(count_csv "$ATTNO_SEEDS")";;
     hadamard) echo $(( $(ab_estimate $(( $(n_variants) + 1 )) "$(count_csv "$HADAMARD_SEEDS")") - COLD_RUN_MIN + WARM_RUN_MIN ));;  # baseline reuses the fp8 cache
+    profile) n=0; for t in $PROFILE_TREES; do n=$((n + 1)); done; echo $((n * PROFILE_RUN_MIN));;
+    # warm runs: the variant's on-disk cache from t1gpu, the root arms share base's cache (NCCL env compiles nothing)
+    nccl) n=0; for t in $NCCL_TREES; do n=$((n + 1)); done; echo $((3 + n * $(nccl_arm_count) * $(count_csv "$NCCL_SEEDS") * WARM_RUN_MIN));;
+    xab) xab_estimate;;
     *) echo 0;;
   esac
+}
+# shellcheck disable=SC2086  # split on '|' on purpose
+nccl_arm_count() { local IFS='|'; set -- $NCCL_ARMS; echo $#; }
+xab_selected() {  # xab_selected NAME: XAB_ONLY / XAB_SKIP allow it
+  [[ -z "${XAB_ONLY:-}" || ",$XAB_ONLY," == *",$1,"* ]] && [[ ",${XAB_SKIP:-}," != *",$1,"* ]]
+}
+xab_files() { local f; for f in "$REPO"/182/experiments.d/*.sh; do [[ -f "$f" ]] && printf '%s\n' "$f"; done; return 0; }
+xab_estimate() {  # sum of XAB_EST_MIN over the valid, selected experiments
+  local f t=0 e
+  while IFS= read -r f; do
+    e=$( XS_OK=0; eval "$("$PY" "$REPO/182/tools/xab_run.py" spec "$f" --repo "$REPO" 2>/dev/null)"
+         if [[ "$XS_OK" == 1 ]] && xab_selected "$XS_NAME"; then echo "$XS_EST"; else echo 0; fi )
+    t=$((t + ${e:-0}))
+  done < <(xab_files)
+  echo "$t"
+}
+tree_of() {  # tree_of NAME: a variant phase name, root, or a repo-relative directory -> the directory
+  case "$1" in root|.) echo .;; *) if is_variant "$1"; then variant_dir "$1"; else echo "$1"; fi;; esac
 }
 
 # ------------------------------------------------------------------------------------------- phase: env
@@ -685,6 +738,197 @@ phase_attno() {
   return "$rc"
 }
 
+# ------------------------------------------------------------------- helpers: variant readiness, one paired A/B
+# variant_ready TREE LOGDIR: 0 when TREE's run_node.sh `check` passes (running `prep` once if every FAIL names it);
+# otherwise 1 with READY_WHY. Waits for the session's background prep job first (two preps must not write the same
+# shards). FORCE_CHECK=1 ignores a failed check, as in the variant phases.
+variant_ready() {
+  local tree=$1 ld=$2 s="$1/182/run_node.sh" waited=0 rc
+  READY_WHY=""
+  mkdir -p "$ld"
+  [[ -f "$s" ]] || { READY_WHY="$s is not in this checkout"; return 1; }
+  if [[ "$DRY_RUN" == 1 ]]; then log "+ bash $s check   (then prep, if a FAIL line names prep)"; return 0; fi
+  while chain_alive && (( waited < PREP_WAIT_S )); do sleep "${PREP_POLL_S:-15}"; waited=$((waited + ${PREP_POLL_S:-15})); done
+  tmo "$CHECK_TIMEOUT_S" bash "$s" check > "$ld/check.txt" 2>&1 && return 0
+  if [[ "${FORCE_CHECK:-0}" == 1 ]]; then log "WARN: FORCE_CHECK=1: running $tree despite its check ($ld/check.txt)"; return 0; fi
+  if ! grep -q '^FAIL ' "$ld/check.txt"; then READY_WHY="\`bash $s check\` failed without a FAIL line ($ld/check.txt)"; return 1; fi
+  if ! grep -E '^FAIL ' "$ld/check.txt" | grep -qv prep; then
+    log "$tree: its check names prep; running it (log $ld/prep.txt)"
+    rc=0; tmo "$PREP_TIMEOUT_S" bash "$s" prep > "$ld/prep.txt" 2>&1 || rc=$?
+    [[ "$rc" == 0 ]] || { READY_WHY="\`bash $s prep\` exited $rc ($ld/prep.txt)"; return 1; }
+    tmo "$CHECK_TIMEOUT_S" bash "$s" check > "$ld/check.txt" 2>&1 && return 0
+  fi
+  READY_WHY="check: $(grep -E '^FAIL ' "$ld/check.txt" | paste -sd ';' - || true)"
+  return 1
+}
+
+# xab_tree LABEL TREE OUT SEEDS ARM...: one paired, interleaved A/B (ARM = NAME:K=V K=V, the first the baseline).
+# A variant tree runs through 182/tools/xab_run.py (its run_node.sh run, the arm's env in EXTRA_ENV); the root (".")
+# through ab_run.py (ab_plan_run; extra plan args in XAB_AB_EXTRA). Re-plans after FORCE=1 or an unusable finish
+# (the old attempt is kept as OUT.attemptN). Writes OUT/report.txt and OUT/summary.json; returns xab_run.py check's
+# code (0 complete and usable, 3 pending, 4 unusable, 5 an arm failed every run).
+xab_tree() {
+  local label=$1 tree=$2 out=$3 seeds=$4 rc=0 a nm kv base="" args=() k why; shift 4
+  if [[ "$tree" == . ]]; then
+    for a in "$@"; do
+      nm=${a%%:*}; [[ -z "$base" ]] && base=$nm
+      args+=(--arm "$nm=ref:HEAD")
+      while IFS= read -r kv; do [[ -n "$kv" ]] && args+=(--env "$nm:$kv"); done \
+        < <("$PY" -c 'import shlex, sys; print("\n".join(shlex.split(sys.argv[1])))' "${a#*:}")
+    done
+    ab_plan_run ab "$out" "${args[@]}" --baseline "$base" --n "$(count_csv "$seeds")" --seeds "$seeds" \
+      ${XAB_AB_EXTRA[@]+"${XAB_AB_EXTRA[@]}"} || rc=$?
+  else
+    if [[ -f "$out/plan.json" ]]; then
+      rc=0; why=$("$PY" 182/tools/xab_run.py check "$out") || rc=$?
+      if [[ "${FORCE:-0}" == 1 || "$rc" == 4 ]]; then
+        k=1; while [[ -e "$out.attempt$k" ]]; do k=$((k + 1)); done
+        log "re-planning: previous attempt moved to $out.attempt$k ($([[ "$rc" == 4 ]] && echo "unusable: $why" || echo FORCE=1))"
+        x mv "$out" "$out.attempt$k"
+      elif [[ "$rc" == 5 ]]; then
+        log "NOT re-running $(basename "$out"): $why. Fix the cause, then FORCE=1."
+      else
+        log "plan exists: $out/plan.json (resuming: $why)"
+      fi
+    fi
+    args=()
+    for a in "$@"; do args+=(--arm "$a"); done
+    rc=0
+    if [[ "$DRY_RUN" == 1 ]]; then
+      "$PY" 182/tools/xab_run.py run --out "$out" --tree "$tree" --name "$label" --seeds "$seeds" --nproc "$NPROC" "${args[@]}" --dry-run
+      return 0
+    fi
+    "$PY" 182/tools/xab_run.py run --out "$out" --tree "$tree" --name "$label" --seeds "$seeds" --nproc "$NPROC" \
+      --timeout-s "$XAB_TIMEOUT_S" --stop-after-failures "$STOP_AFTER_FAILURES" --arm-failures "$ARM_FAILURES" "${args[@]}" || rc=$?
+  fi
+  [[ "$DRY_RUN" == 1 ]] && return 0
+  [[ -f "$out/plan.json" ]] || return 1
+  "$PY" 182/tools/xab_run.py report "$out" --label "$label" --json "$out/summary.json" > "$out/report.txt" 2>&1 || true
+  cat "$out/report.txt"
+  rc=0; why=$("$PY" 182/tools/xab_run.py check "$out") || rc=$?
+  [[ "$rc" == 0 ]] || log "A/B $label not usable yet: $why"
+  return "$rc"
+}
+
+root_blocked() {  # the root tree needs env's stack check (a dry run never blocks)
+  [[ "$DRY_RUN" != 1 && "$(status_of env)" == FAIL* && "${ALLOW_STACK:-0}" != 1 ]]
+}
+
+# ----------------------------------------------------------------------------------------- phase: profile
+phase_profile() {
+  local d="$SD/profile" t tree out rc fails=0 done_=0 skipped=() cache k
+  mkdir -p "$d"
+  [[ -n "${PROFILE_TREES// }" ]] || { skip "PROFILE_TREES is empty"; return 0; }
+  for t in $PROFILE_TREES; do
+    tree=$(tree_of "$t"); out="$d/$t"
+    if [[ "${FORCE:-0}" != 1 && -f "$out/analysis.txt" ]]; then log "profile $t: done earlier ($out/analysis.txt)"; done_=$((done_ + 1)); continue; fi
+    if [[ "${FORCE:-0}" == 1 && -d "$out" && "$DRY_RUN" != 1 ]]; then
+      k=1; while [[ -e "$out.attempt$k" ]]; do k=$((k + 1)); done; mv "$out" "$out.attempt$k"
+    fi
+    mkdir -p "$out"
+    cache=()
+    if [[ "$tree" == . ]]; then
+      if root_blocked; then skipped+=("$t: env failed (root stack)"); echo "SKIP env failed (root stack)" > "$out/skip.txt"; continue; fi
+      ensure_data 9 || { fails=$((fails + 1)); continue; }
+      # the base phase's warm compile cache, when there is one (it only saves compile time)
+      [[ -d "$SD/work/cache_warm/fp8" ]] && cache=("TORCHINDUCTOR_CACHE_DIR=$SD/work/cache_warm/fp8/inductor" "TRITON_CACHE_DIR=$SD/work/cache_warm/fp8/triton")
+    elif ! variant_ready "$tree" "$out"; then
+      skipped+=("$t: $READY_WHY"); echo "SKIP $READY_WHY" > "$out/skip.txt"; log "profile $t: SKIP ($READY_WHY)"; continue
+    fi
+    log "-- profile $t ($tree), steps $PROFILE_STEPS -- $(date '+%T')"
+    if [[ "$DRY_RUN" == 1 ]]; then
+      env NPROC="$NPROC" PY="$PY" PROFILE_STEPS="$PROFILE_STEPS" DRY_RUN=1 bash 182/profile/run.sh "$tree" "$out" || true
+      continue
+    fi
+    rc=0
+    env ${cache[@]+"${cache[@]}"} NPROC="$NPROC" PY="$PY" PROFILE_STEPS="$PROFILE_STEPS" \
+      "$PY" -c "$TMO_PY" "$PROFILE_TIMEOUT_S" bash 182/profile/run.sh "$tree" "$out" > "$out/run.txt" 2>&1 || rc=$?
+    tail -n 60 "$out/run.txt"
+    if [[ "$rc" == 0 ]]; then done_=$((done_ + 1)); else fails=$((fails + 1)); log "profile $t FAILED (rc $rc; $out/run.txt)"; fi
+  done
+  [[ ${#skipped[@]} -gt 0 ]] && printf '%s\n' "${skipped[@]}" > "$d/skipped.txt"
+  if (( fails == 0 && done_ == 0 )) && [[ ${#skipped[@]} -gt 0 && "$DRY_RUN" != 1 ]]; then skip "$(IFS=';'; echo "${skipped[*]}")"; return 0; fi
+  (( fails == 0 ))
+}
+
+# -------------------------------------------------------------------------------------------- phase: nccl
+phase_nccl() {
+  local d="$SD/nccl" t tree v=0 fails=0 ran=0 skipped=() arms=()
+  mkdir -p "$d"
+  IFS='|' read -ra arms <<< "$NCCL_ARMS"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    log "+ $PY 182/tools/nvls_check.py --nproc $NPROC --timeout-s $NCCL_PROBE_TIMEOUT_S --json $d/nvls_check.json   (NVLS unavailable -> SKIP)"
+  else
+    tmo $((3 * NCCL_PROBE_TIMEOUT_S + 300)) "$PY" 182/tools/nvls_check.py --nproc "$NPROC" --timeout-s "$NCCL_PROBE_TIMEOUT_S" \
+      --json "$d/nvls_check.json" > "$d/nvls_check.txt" 2>&1 || v=$?
+    cat "$d/nvls_check.txt"
+    if [[ "$v" == 1 && "${FORCE_NCCL:-0}" != 1 ]]; then
+      skip "$(grep '^NVLS: ' "$d/nvls_check.txt" | tail -n1 || echo 'NVLS unavailable') (the arms would all run the same algorithms; FORCE_NCCL=1 runs anyway)"; return 0
+    fi
+    [[ "$v" == 0 ]] || log "WARN: NVLS availability not established (nvls_check rc $v); running the A/B, whose nvls_force arm will fail fast if NVLS cannot be used"
+  fi
+  for t in $NCCL_TREES; do
+    tree=$(tree_of "$t")
+    XAB_AB_EXTRA=()
+    if [[ "$tree" == . ]]; then
+      if root_blocked; then skipped+=("$t: env failed (root stack)"); continue; fi
+      ensure_data 9 || { fails=$((fails + 1)); continue; }
+      # NCCL variables change no compiled code: every arm reuses one warm cache (base's, when it ran)
+      XAB_AB_EXTRA=(--cache inherit --common-env "TORCHINDUCTOR_CACHE_DIR=$SD/work/cache_warm/fp8/inductor"
+                    --common-env "TRITON_CACHE_DIR=$SD/work/cache_warm/fp8/triton")
+    elif ! variant_ready "$tree" "$d/$t"; then
+      skipped+=("$t: $READY_WHY"); log "nccl $t: SKIP ($READY_WHY)"; continue
+    fi
+    log "-- nccl $t ($tree): ${#arms[@]} arms x $(count_csv "$NCCL_SEEDS") seeds -- $(date '+%T')"
+    ran=$((ran + 1))
+    xab_tree "nccl_$t" "$tree" "$d/$t" "$NCCL_SEEDS" "${arms[@]}" || fails=$((fails + 1))
+  done
+  [[ ${#skipped[@]} -gt 0 ]] && printf '%s\n' "${skipped[@]}" > "$d/skipped.txt"
+  if (( ran == 0 && fails == 0 )) && [[ "$DRY_RUN" != 1 ]]; then skip "no tree could run: $(IFS=';'; echo "${skipped[*]:-NCCL_TREES is empty}")"; return 0; fi
+  (( fails == 0 ))
+}
+
+# --------------------------------------------------------------------------------------------- phase: xab
+phase_xab() {
+  local d="$SD/xab" f fails=0 out seen=" " base rc files=()
+  mkdir -p "$d"
+  while IFS= read -r f; do files+=("$f"); done < <(xab_files)
+  [[ ${#files[@]} -gt 0 ]] || { skip "no 182/experiments.d/*.sh in this checkout"; return 0; }
+  for f in "${files[@]}"; do
+    base=$(basename "$f" .sh)
+    XS_OK=0; XS_ERR="xab_run.py spec crashed on it"; XS_NAME=""   # nothing left over from the previous file
+    eval "$("$PY" 182/tools/xab_run.py spec "$f" --repo "$REPO")" || true
+    if [[ "$XS_OK" != 1 ]]; then
+      log "xab $base: INVALID ($f): $XS_ERR"; echo "$f: $XS_ERR" > "$d/$base.invalid"; fails=$((fails + 1)); continue
+    fi
+    if [[ "$seen" == *" $XS_NAME "* ]]; then
+      log "xab $base: INVALID: XAB_NAME=$XS_NAME is used by another file"; echo "$f: duplicate XAB_NAME $XS_NAME" > "$d/$base.invalid"
+      fails=$((fails + 1)); continue
+    fi
+    [[ -f "$d/$base.invalid" ]] && mv "$d/$base.invalid" "$d/$base.invalid.old"
+    seen+="$XS_NAME "
+    out="$d/$XS_NAME"
+    if ! xab_selected "$XS_NAME"; then log "xab $XS_NAME: not selected (XAB_ONLY='${XAB_ONLY:-}' XAB_SKIP='${XAB_SKIP:-}')"; continue; fi
+    mkdir -p "$out"
+    printf '%s\n' "file $f" "tree $XS_TREE" "seeds $XS_SEEDS" "est_min $XS_EST" "note $XS_NOTE" "${XS_ARMS[@]/#/arm }" > "$out/spec.txt"
+    log ""; log "-- xab $XS_NAME: $XS_TREE, ${#XS_ARMS[@]} arms x $XS_N seeds, est. $XS_EST node-min -- $(date '+%T')"
+    log "   $XS_NOTE"
+    if [[ "${FORCE:-0}" != 1 && -f "$out/plan.json" ]] && "$PY" 182/tools/xab_run.py check "$out" >/dev/null 2>&1; then
+      log "xab $XS_NAME: complete earlier"; cat "$out/report.txt" 2>/dev/null || true; echo PASS > "$out/status.txt"; continue
+    fi
+    XAB_AB_EXTRA=()
+    if [[ "$XS_ROOT" == 1 ]]; then
+      if root_blocked; then echo "SKIP env failed (root stack)" > "$out/status.txt"; log "xab $XS_NAME: SKIP (env failed: root stack)"; continue; fi
+      ensure_data 9 || { fails=$((fails + 1)); echo "FAIL data" > "$out/status.txt"; continue; }
+    elif ! variant_ready "$XS_TREE" "$out"; then
+      echo "SKIP $READY_WHY" > "$out/status.txt"; log "xab $XS_NAME: SKIP ($READY_WHY)"; continue
+    fi
+    rc=0; xab_tree "$XS_NAME" "$XS_TREE" "$out" "$XS_SEEDS" "${XS_ARMS[@]}" || rc=$?
+    if [[ "$rc" == 0 ]]; then echo PASS > "$out/status.txt"; else echo "FAIL rc=$rc" > "$out/status.txt"; fails=$((fails + 1)); fi
+  done
+  (( fails == 0 ))
+}
+
 # ------------------------------------------------------------------------------------------ phase: bundle
 phase_bundle() {
   local date base out
@@ -693,7 +937,13 @@ phase_bundle() {
   out="$(dirname "$SD")/session-$date-$SHA.tar.gz"
   "$PY" 182/tools/summarize_session.py "$SD" > "$SD/summary.txt" || log "WARN: summarize_session.py failed"
   cat "$SD/summary.txt"
-  COPYFILE_DISABLE=1 tar -czf "$out.tmp" -C "$(dirname "$SD")" --exclude="$base/work" "$base"
+  # profile traces stay on the node when they are big (analysis.txt/json and the rank summaries are bundled)
+  local big=() f
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    big+=("--exclude=$base/${f#"$SD"/}"); log "not bundled (> ${PROFILE_BUNDLE_MB} MB, still in the session dir): $f"
+  done < <(find "$SD/profile" -name 'trace_rank*.json.gz' -size +"${PROFILE_BUNDLE_MB}"M 2>/dev/null)
+  COPYFILE_DISABLE=1 tar -czf "$out.tmp" -C "$(dirname "$SD")" --exclude="$base/work" ${big[@]+"${big[@]}"} "$base"
   mv "$out.tmp" "$out"
   log ""
   log "SEND THIS FILE BACK: $out ($(du -h "$out" | cut -f1))"
@@ -718,7 +968,7 @@ run_phase() {
 case "${1:-}" in
   --run-phase) PHASE=$2; if is_variant "$2"; then phase_variant; else "phase_$2"; fi; exit $?;;
   --prep-chain) shift; prep_chain "$@"; exit $?;;
-  -h|--help) sed -n '2,68p' "$SELF"; exit 0;;
+  -h|--help) sed -n '2,/^set -euo pipefail/p' "$SELF" | sed '$d'; exit 0;;
 esac
 
 WANT=()
@@ -736,9 +986,13 @@ for p in "${PHASES[@]}"; do
     if [[ "$w" == all || "$w" == "$p" ]]; then SELECTED_PHASES+=("$p"); break; fi
   done
 done
-for w in "${WANT[@]}"; do
+for w in "${WANT[@]}" ${SKIP_PHASES:-}; do
   [[ "$w" == all || " ${PHASES[*]} " == *" $w "* ]] || { echo "unknown phase '$w' (phases: ${PHASES[*]} | all)" >&2; exit 2; }
 done
+if [[ -n "${SKIP_PHASES:-}" ]]; then   # dropped by name, e.g. SKIP_PHASES="nccl xab"
+  KEEP=(); for p in "${SELECTED_PHASES[@]}"; do [[ " $SKIP_PHASES " == *" $p "* ]] || KEEP+=("$p"); done
+  SELECTED_PHASES=(${KEEP[@]+"${KEEP[@]}"})
+fi
 
 if [[ -n "${SESSION_DOCKER:-}" && ! -f /.dockerenv ]]; then
   DOCKER=(docker); docker info >/dev/null 2>&1 || DOCKER=(sudo docker)
@@ -811,6 +1065,9 @@ for p in "${SELECTED_PHASES[@]}"; do
   note=""
   if [[ "${FORCE:-0}" != 1 && "$p" != bundle && "$(status_of "$p")" == PASS* ]]; then note="  (already PASS: skipped)"
   elif is_variant "$p"; then note="  ($(knob "$p" RUNS) run(s) of $(variant_dir "$p"); skipped if its check FAILs)"
+  elif [[ "$p" == profile ]]; then note="  (torch.profiler, steps $PROFILE_STEPS of: ${PROFILE_TREES:-nothing}; not timing runs)"
+  elif [[ "$p" == nccl ]]; then note="  ($(nccl_arm_count) arms x $(count_csv "$NCCL_SEEDS") seeds on: ${NCCL_TREES:-nothing}; skipped if NVLS is unavailable)"
+  elif [[ "$p" == xab ]]; then note="  ($(xab_files | wc -l | tr -d ' ') file(s) in 182/experiments.d; XAB_ONLY/XAB_SKIP select)"
   elif [[ "$p" == hadamard ]]; then note="  (only if the gate finds a gap)"
   elif [[ "$p" == attno ]] && ! git grep -q FP8_ATTN_O HEAD -- track_1_short/config.py 2>/dev/null; then note="  (skipped: FP8_ATTN_O is not in this checkout)"; fi
   log "$(printf '  %-9s %4s%s' "$p" "$(estimate "$p")" "$note")"
