@@ -1,114 +1,170 @@
-# t2-cpu-ngram: PR #380's CPU-retrieval stack on Track 2 (GPT-2 Medium, val ≤ 2.92)
+# t2-cpu-ngram: PR #380's CPU-retrieval stack on Track 2 (GPT-2 Medium, val loss ≤ 2.92)
 
-`variants/t2-cpu-ngram/` (a full runnable tree), based on upstream PR #380. Credits: the exact-match retrieval is PR #367 (@hermabr). The
-exact-count chain, smaller transformer and extra hints are PR #380 (@devenpzak). The Track 2 sizes come from
-@ldmberman's adaptation, posted in the #380 thread on 2026-10-04: **2.8769 in 221 s** (`step_avg` 38.1 ms,
-5800 steps) on 8xH100. That is their run, not ours, and it is **one run** (seed 1337; the neural+copy loss alone was
-2.8991 before the exact-count chain). For scale, the official Track 2 record is 17.35 min and
-the best open GPU PR (#261, @Lisennlp) is 14.34 min. We have not run anything on GPU.
+`variants/t2-cpu-ngram/` is a full runnable tree based on upstream PR #380. Credits: the exact-match retrieval is
+PR #367 (hermabr). The exact-count chain, the smaller transformer and the extra hints are PR #380 (devenpzak). The
+Track 2 sizes are ldmberman's adaptation, posted in the #380 thread on 2026-10-04: **val loss 2.8769 in 221 s**
+(`step_avg` 38.1 ms, 5800 steps) on 8xH100. That is their run, not ours, and it is **one run** (seed 1337; they
+report 2.8991 for the model before the exact-count chain). For scale, the official Track 2 record is 17.35 min and
+the best open GPU PR (#261) is 14.34 min. **We have not run this tree on a GPU.**
 
-## What changed
-- `train_gpt_medium_cpu.py` (new): the Track 2 entry point. It sets these defaults, each overridable by the env
-  var of the same name: `MODEL_DIM=1024 MODEL_LAYERS=16 MLP_HIDDEN_DIM=4096 LR_COOLDOWN_FRAC=0.70 LR_FLOOR=0.10
-  VAL_BATCH_SIZE=1048576 NUM_SCHEDULED_ITERATIONS=5790 TARGET_LOSS=2.92`. Then it runs `train_gpt.main()`.
-  The max train batch stays 131072 tokens. The sampled-softmax switches (10240/14336/24576/full at steps
-  0/3513/4800/5443) follow from the stretched stage boundaries; PR #380's code needed no change for that.
-- The package changes are env knobs. **Their defaults reproduce Track 1 exactly**, so `train_gpt.py` runs as before:
-  `config.py` (dims, layers, val batch, cooldown, target), `schedule.py` (`LR_FLOOR`), and `model/gpt.py`. The
-  gpt.py change is @ldmberman's depth generalization: `LAST_LAYER`, layers 10–14 as plain attention+MLP layers,
-  an MLP bank of 20 slots with dead slots frozen. Those files (config.py, schedule.py, model/gpt.py) match their
-  attachment apart from comments and the defaults (their `training.py` also has a `cluster_logits` branch, used
-  only by the unported heads). Not every package file does: `exact_counts.py`, `retrieval.py` and `run_log.py`
-  were changed here (fail-loudly paths, host preflight, logging), and some modules here are not in the
-  attachment at all. Note that, as in PR #380, every attention layer after layer 7 (so 8 and 10–15) reads the same input,
-  norm(cache[7]).
-- `train_gpt.py`: `num_layers=MODEL_LAYERS`, `PRINT_EVERY` env, and three new log lines: the memory budget,
-  `model_configuration:`, and the measured allocation after setup. It also prints one `endpoint_result:` line,
-  after the clock has stopped. `run_log.py` also logs `train_gpt.py` when the entry point is the wrapper.
-- `track_1_short/memory_budget.py` (new): the startup memory estimate (see below).
-- `track_1_short/host.py` (new, ported from `variants/t1-cpu-ngram`): before the clock, the log gets the CPU model,
-  allowed CPUs, RAM, /dev/shm and THP, and the retrieval's host-memory estimate. Unless `HOST_CHECK=0`, the run
-  fails there if /dev/shm or the available RAM (clamped to the cgroup `memory.max`) cannot hold it. After the
-  run, the log gets the peak host RSS.
-- Failure paths in PR #380's code (no change when nothing fails): an exact-count corpus read error or short
-  read now raises instead of hanging, and a failed validation-index build now raises on every rank instead of
-  being queried half-built or leaving the peers at a barrier. A failed table create removes its /dev/shm file.
-- Not ported: the hierarchical and adaptive output-head variants (~770 lines) in @ldmberman's attachment. The
-  2.8769 run used `variant: sampled`, i.e. PR #380's own head.
+## Run on the node
+From the repository root, after `bash 182/tools/node_setup.sh` has made the root's `.venv-run` (this tree needs the
+same stack: torch 2.10.0+cu128, triton 3.6.0, the pinned FA3 kernel, `libcudart.so.13`, CUDA headers):
+
+```bash
+bash variants/t2-cpu-ngram/182/run_node.sh check   # what is missing, one PASS|WARN|FAIL line each (no GPU work)
+bash variants/t2-cpu-ngram/182/run_node.sh prep    # 103 shards (~20 GiB), the Rust extension, FA3 + tokenizer caches
+bash variants/t2-cpu-ngram/182/run_node.sh run     # one timed run; the last line is RESULT variant=t2-cpu-ngram ...
+```
+
+- `check` exits 1 on any FAIL and each FAIL line carries its fix. Most are fixed by `prep`. The ones `prep` cannot
+  fix are the host's: fewer than 8 GPUs, no CUDA 13 runtime or headers, under ~390 GiB of available RAM, or a
+  `/dev/shm` with under 144 GiB free (`sudo mount -o remount,size=200G /dev/shm`; in docker `--ipc=host`).
+- `prep` is idempotent and resumable. It needs `cargo`; `INSTALL_RUST=1` lets it install rustup. Limits:
+  `PREP_TIMEOUT_S` (14400, the download) and `BUILD_TIMEOUT_S` (3600).
+- `run` repeats the check, then runs `train_gpt_medium_cpu.py` on 8 GPUs with `DATA_PATH=../..`. Expect roughly
+  20 minutes: compile and CUDA-graph capture (PR #380 says ~7 min at the Track 1 size), prefaulting ~250 GiB of
+  index memory, then the timed part. On success the last line is
+  `RESULT variant=t2-cpu-ngram val_loss=<f> train_time_s=<f> steps=<n> target=2.92 hit=<0|1> log=<path>`; on
+  failure it is `RESULT variant=t2-cpu-ngram status=failed reason=<one line>` with a nonzero exit.
+- Settings, all optional: `NPROC` (8; other counts are untested), `SEED` (unset means a random init, as in a record
+  run), `STEPS` (see below), `EXTRA_ENV="K=V ..."` or plain exported variables, `LOG_DIR`, `DRY_RUN=1` (print the
+  command and exit), `RUN_TIMEOUT_S` (5400), `SKIP_CHECK=1`. The full list is at the top of
+  `182/t2-cpu-ngram/node.py`. The Python used is `$PY`, else the active virtualenv, else `.venv-run`, else `python3`.
+- Files of a run go to `LOG_DIR` (default `182/t2-cpu-ngram/results/node/<time>-run/`): `stdout.txt`, the run log
+  (source, environment, every step line) and `summary.txt`. Every finished run is also appended to
+  `182/t2-cpu-ngram/results/sweep.jsonl`, which the sweep fit reads.
+
+### What one run tells you
+The trainer cannot validate mid-run: the validation index is looked up once, after training, and the chain is
+fitted at the end. So the run reports as much as it can from the one validation, off the clock:
+- `endpoint_result:` the final val loss and train time; `val_loss_parts:` the model's own loss and what the
+  exact-count chain takes off (ldmberman reports 2.8991 and 2.8769).
+- Before the clock: the host line (CPU model, CPUs, RAM, `/dev/shm`), the retrieval's memory plan and the GPU memory
+  budget. After it: peak GPU memory, rank 0's peak RSS and the node's memory in use.
+- `summary.txt` puts these together: the margin to 2.92 in millinats, ms per step, GPU headroom, index build times.
+
+### The step count: 5790 or 5800?
+Both. `NUM_SCHEDULED_ITERATIONS=5790` is the length of the four main stages, and the schedule always adds a
+10-step extension stage, so the run trains **5800 steps**. Log lines (`step:5800/5800`) and the `steps=` field
+count all 5800. `STEPS=5200` sets the scheduled part, giving 5210 steps. Our default is ldmberman's setting.
+
+## The first experiment: a shorter run
+The one lever with a predictable payoff is the step count. ldmberman's run is 43 millinats under the target, and
+train time is proportional to steps. Nothing else we added changes the timed run.
+
+```bash
+bash variants/t2-cpu-ngram/182/run_node.sh ab                 # default vs 5200 scheduled steps, 4 seed pairs
+AB_RUNS=1 bash variants/t2-cpu-ngram/182/run_node.sh ab       # the 40-minute version: one pair
+```
+
+`ab` runs the default and `AB_ENV` (default `NUM_SCHEDULED_ITERATIONS=5200`) with the same seed in each pair,
+alternating which arm goes first. It prints the paired differences, a two-point fit of loss against ln(steps) and
+one `AB variant=t2-cpu-ngram ...` line. Each run is a fresh process, about 20 minutes, so four pairs take about
+2.7 hours.
+
+- If the default lands near 2.877 and the 5210-step arm is at or under ~2.915, the lever is confirmed: about 10%
+  off the train time. Follow the fit with `python 182/t2-cpu-ngram/sweep_steps.py --steps <N>` and then
+  `significance.py` (a record needs p < 0.01 that the mean is ≤ 2.92).
+- If the 5210-step arm is over 2.92, loss falls faster with steps than we assumed (more than 0.4 per ln-step).
+  The margin is then worth under 10% and the step count should stay above about 5500.
+- If the default itself misses 2.877 by more than ~5 millinats, stop and compare the log's `model_configuration:`,
+  stage boundaries and shard count with the numbers in "Verified here". Fix the reproduction before sweeping.
+- The slope is not known in advance. The 5200 default assumes roughly 0.3 per ln-step, which would put that arm
+  near 2.909. That figure is a guess from other speedrun sweeps, not a measurement of this model.
+
+`COORD_DESCENT_TUNING=1` (allowed on Track 2 only) is the second candidate. It adds a long untimed compile and
+most hot paths here are hand-written Triton or CUDA-graph replays, so we expect little. Test it only after the
+step count is settled: `AB_ENV="COORD_DESCENT_TUNING=1" AB_RUNS=2 bash .../run_node.sh ab`. Under 1% of train time
+means drop it.
+
+## Smaller hosts
+`check` computes the retrieval's host memory with the same code the trainer uses at startup (`track_1_short/host.py`).
+- **RAM.** The plan is 144 GiB of tables in `/dev/shm`, ~148 GiB of build arenas and a 12 GiB allowance per rank:
+  about 390 GiB. `VAL_BUILD_THREADS=16` (new; unset keeps PR #380's 64/32/16 by vCPUs per GPU) cuts 36 GiB of arena
+  at 64 threads. The cost is a slower index build beside training. The hints only start at 50% and 85% of the run,
+  about 110 s and 190 s in, so a build several times slower than PR #380's should still finish in time, but
+  that is unmeasured. `check` suggests the setting when it is what makes the host fit.
+- **/dev/shm.** No fallback: the three tables are fixed-size (constants in `exact_match/src/slot.rs`), and
+  changing them changes the hints. Remount it larger.
+- **CPUs.** Under 24 vCPUs per GPU the code takes PR #380's small-host path (fewer build threads, unpinned corpus
+  reads). `check` warns; nobody has reported a Track 2 time on that path.
+- `HOST_CHECK=0` turns the trainer's own memory check into a report. A host that is really too small then dies
+  mid-build with a SIGBUS and can leave a table in `/dev/shm` (`rm /dev/shm/exact-match-*`).
+
+## What changed on top of PR #380
+With no variable set, `train_gpt.py` here is PR #380's Track 1 run plus extra log lines; the items marked
+"reported only" never touch the timed region.
+
+| Change | Where | Effect with defaults |
+|---|---|---|
+| Track 2 entry point: `MODEL_DIM=1024 MODEL_LAYERS=16 MLP_HIDDEN_DIM=4096 LR_COOLDOWN_FRAC=0.70 LR_FLOOR=0.10 VAL_BATCH_SIZE=1048576 NUM_SCHEDULED_ITERATIONS=5790 TARGET_LOSS=2.92`, each overridable | `train_gpt_medium_cpu.py` (new) | Track 2 only |
+| The same names as env knobs with Track 1 defaults; ldmberman's depth generalization (`LAST_LAYER`, plain layers 10–14, a 20-slot MLP bank with dead slots frozen) | `config.py`, `schedule.py`, `model/gpt.py` | none (tested: same parameters, buffers, topology) |
+| `COORD_DESCENT_TUNING=1` | `train_gpt_medium_cpu.py` | off |
+| `VAL_BUILD_THREADS` | `host.py`, `retrieval.py` | unset: PR #380's rule (tested) |
+| Host report, memory plan and a pre-clock check (`HOST_CHECK`), peak RSS after the run | `host.py` (new), `retrieval.py` | reported; a host that cannot fit fails before the clock |
+| GPU memory budget, `model_configuration:`, measured allocation, `endpoint_result:`, `val_loss_parts:` | `memory_budget.py` (new), `train_gpt.py` | reported only |
+| Failure paths: a short corpus read raises instead of looping; a failed index build raises on every rank instead of being queried half-built; a failed table create removes its `/dev/shm` file | `exact_counts.py`, `retrieval.py` | none unless something fails |
+| The exact-count kernels widen to int64 before multiplying the block index | `exact_counts.py` | none at 8 GPUs (a rank's corpus share is under 2³¹ tokens); matters with 4 or fewer |
+| `PRINT_EVERY`; the run log also holds `train_gpt.py` when the entry point is the wrapper | `train_gpt.py`, `run_log.py` | 25, as before |
+| Node runner, sweep, significance test, CPU tests | `182/` | not part of the run |
+
+Not ported: the hierarchical and adaptive output heads in ldmberman's attachment (~770 lines); the 2.8769 run
+used `variant: sampled`, PR #380's own head. As in PR #380, every attention layer after layer 7 reads the same
+input, norm(cache[7]). Removed in this round: upstream's `train_gpt_medium.py` (the GPU Track 2 trainer, unrelated
+to this stack; it is at the repository root) and the `ALLOW_PARTIAL_SHARDS` switch (the retrieval asserts all 103
+shards, so it could never run).
 
 ## Memory at d=1024 (estimate, printed at startup)
-`python -m track_1_short.memory_budget` prints the estimate offline. The defaults are Track 2's, and you
-can pass `--model-dim/--layers/--mlp-hidden/--val-batch/--steps`.
-- **GPU, per rank: ~59.8 GiB peak allocated of 79.6 GiB** (logged: 61242 MiB alloc / 70578 MiB reserved). The
-  n-gram table shard grows with d: NGRAM_DIM = MODEL_DIM, so it goes from 10.2 to **20.3 GiB**. Exact counts
-  take ~6.3 GiB (corpus share + 4 GiB hash table, independent of d). Activations and the CUDA-graph pools are
-  ~28.6 GiB, and change little with d. That last term is a constant calibrated on the Track 2 log. Checked on
-  the Track 1 log, which it was not fitted to: predicted 47.6 GiB vs 47.5 logged.
-- Headroom is ~9 GiB reserved. That is why VAL_BATCH_SIZE stays at 1048576. A wider model (d ≥ 1152) adds
-  ~2.5 GiB of table per 128 channels.
-- **Host:** model construction is fp32 on the host for all 8 ranks at once, a transient ~12.6 GiB. The
-  canonical-mask child takes 2.4 GiB. Everything else (Rust indexes, corpus reads) does not depend on d.
-  The retrieval needs **144 GiB of /dev/shm** for its three tables, plus ~148 GiB of build arenas, about 390 GiB
-  of host RAM in all with 12 GiB per rank (`host.py`'s estimate; the startup check prints it). It still needs
-  ≥ 24 vCPUs/GPU for `LARGE_HOST`.
+`python -m track_1_short.memory_budget` prints it offline.
+- **GPU, per rank: ~59.8 GiB peak allocated of 79.6 GiB** (ldmberman's log: 61242 MiB allocated, 70578 MiB
+  reserved). The n-gram table shard is 20.3 GiB because its width is `MODEL_DIM`. Exact counts take ~6.3 GiB.
+  Activations and CUDA-graph pools are ~28.6 GiB, a constant fitted to that log. Checked on the Track 1 log, which
+  it was not fitted to: 47.6 GiB predicted, 47.5 logged.
+- Reserved memory leaves ~9 GiB of headroom, which is why `VAL_BATCH_SIZE` is halved to 1048576.
+- **Host:** see "Smaller hosts". Building the model is a transient ~12.6 GiB across the 8 ranks.
 
 ## Track 2 rules notes
-- Same rules as Track 1 at 2.92: p < 0.01 that the mean is ≤ 2.92; train/val streams unchanged. The README sets no
-  model size for Track 2 ("All other rules remain the same"), so the 528.5M parameters (plus the n-gram table) are fine.
-- The whole CPU-retrieval line (#367, #380, #381) is **unmerged**. @ClassicLarry (2026-10-03, #367) said CPU/RAM
-  rules are coming, so that "we don't see run-away CPU farms". A cap on vCPUs or host RAM could slow this run or
-  rule it out. The log's host lines are the disclosure.
-- `torch._inductor.config.coordinate_descent_tuning` is **allowed on the medium track only** (README, Rules
-  note). `COORD_DESCENT_TUNING=1` turns it on in `train_gpt_medium_cpu.py`. It is never set by `train_gpt.py`
-  (still banned on Track 1). It costs a long untimed compile, so use it only for the final significance runs.
-  Its gain on this stack is unmeasured: most hot paths are hand-written Triton plus CUDA-graph replays.
-- Download **all 103 train shards** (`python data/cached_fineweb10B.py 103`). The exact-count corpus is every
-  shard the loader cannot reach: 12 are excluded at 5800 steps, fewer at shorter runs. So the shard count on
-  disk changes the hints, and with them the loss.
+- Same rules as Track 1 at 2.92: p < 0.01 that the mean is ≤ 2.92, train and val streams unchanged. The README sets
+  no model size for Track 2, so 528.5M parameters plus the n-gram table are within the rules as written.
+- The whole CPU-retrieval line (#367, #380, #381) is **unmerged**. The maintainer wrote on 2026-10-03 (#367) that
+  CPU/RAM rules are coming so that "we don't see run-away CPU farms". As of 2026-11-11 there is no such rule and
+  no new commit or comment on #380. A cap on vCPUs or host RAM could slow this run or rule it out; the log's host
+  lines are the disclosure.
+- `coordinate_descent_tuning` is allowed on the medium track only. `train_gpt.py` never sets it.
+- All 103 train shards must be on disk. The exact-count corpus is every shard the loader cannot reach (12 are
+  excluded at 5800 steps), so the shard count changes the hints and with them the loss.
 
-## Commands on 8xH100
+## After the first runs
 ```bash
-# from variants/t2-cpu-ngram/; the shards live at the repository root
-pip install -r requirements.txt && pip install ./exact_match && python ../../data/cached_fineweb10B.py 103
-python -m track_1_short.memory_budget                                         # offline budget
-DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt_medium_cpu.py   # 1) reproduce ~2.877 @ 5800
-python 182/t2-cpu-ngram/sweep_steps.py --steps 4000 4600 5200 --seeds 0       # 2) coarse step sweep
-python 182/t2-cpu-ngram/sweep_steps.py --steps <N-50> <N+50> --seeds 0 1      #    refine near the fitted N
-COORD_DESCENT_TUNING=1 python 182/t2-cpu-ngram/significance.py --steps <N> --runs 6 \
-    --markdown records/track_2_medium/<date>_CPURetrieval/statistics.md        # 3) record runs, p<0.01
-python 182/t2-cpu-ngram/sweep_steps.py --fit-only                             # refit any time
+cd variants/t2-cpu-ngram
+python 182/t2-cpu-ngram/sweep_steps.py --fit-only                        # fit of everything run so far
+python 182/t2-cpu-ngram/sweep_steps.py --steps 4900 5000 --seeds 0 1     # more points near the fitted count
+python 182/t2-cpu-ngram/significance.py --steps <N> --runs 6             # exit 0 only if p < 0.01
 ```
-- **Sweep fit:** `sweep_steps.py` fits `val_loss = a + b·ln(steps)` over every run. @ldmberman's 5800-step
-  point is included unless `--no-seed-point`. It solves for the target mean, `2.92 + t₀.₀₁,₅·s/√6`, which is
-  2.918 at s ≈ 0.0014, using the measured seed std once there are repeats.
-- **Data:** the sweep and significance scripts use `DATA_PATH=../..` when it is unset and the variant folder has no
-  shards. They refuse to launch without all 103 train shards (`ALLOW_PARTIAL_SHARDS=1` overrides), because the
-  exact-count corpus, and so the loss, depends on how many are on disk. The entry point prints a warning in that case.
-- **Results and resume:** results append to `182/t2-cpu-ngram/results/sweep.jsonl` (git-ignored), so the sweep
-  can be resumed.
-- **Significance:** `significance.py` exits 0 only if p < 0.01.
-- **Run cost:** each run is a fresh torchrun: ~7 min compile/capture + ~3–4 min training.
+The fit is `val_loss = a + b·ln(steps)` over every run without other settings changed, plus ldmberman's point
+unless `--no-seed-point`. It solves for the mean that gives p < 0.01 with 6 runs, 2.918 at a seed std of 0.0014
+(Track 1's spread; ours is unmeasured).
 
-## Verified here (CPU, no GPU)
-- `python -m pytest -q 182/t2-cpu-ngram/tests` (21 tests). Triton, FA3 and the Rust extension are stubbed, so the
-  model is built on the meta device, not run. At the Track 2 settings it has exactly the logged 528,536,207
-  parameters and bank order. With the defaults its parameters, buffers and topology constants equal PR #380's.
-  The tests also check the schedules at 3000–5790 steps, the run helpers, and the failure paths above (a two-rank
-  gloo test for the build).
-- A forward/backward on CPU is not possible: FA3 and the Triton/NVRTC kernels are CUDA-only.
-- `py_compile` on every changed file.
-- Track 1 defaults: the gpt.py topology constants equal HEAD's, and the schedule reproduces the Track 1
-  record's boundaries `[(0,204)…(715,725)]`.
-- Track 2 env reproduces @ldmberman's logged boundaries `[(0,1653),(1653,3513),(3513,5443),(5443,5790),(5790,5800)]`,
-  the P switches, LR floor 0.1, and the bank order `{0,2,5,10–14,1,8,3,15}`. The built model has exactly
-  the logged 528,536,207 params.
-- The t-test matches scipy to 1e-15, and reproduces the PR #380 record logs' mean (3.27588). The parser reads
-  @ldmberman's log and our new `endpoint_result` line.
+## Verified here (CPU only)
+- `python -m pytest -q 182/t2-cpu-ngram/tests` from this folder. Triton, FA3 and the Rust extension are stubbed, so
+  the model is built on the meta device, not run.
+- At the Track 2 settings the model has exactly the logged 528,536,207 parameters, bank order
+  `{0,2,5,10–14,1,8,3,15}`, stage boundaries `[(0,1653),(1653,3513),(3513,5443),(5443,5790),(5790,5800)]`, the
+  sampled-softmax switches and the 0.1 lr floor of ldmberman's log. With defaults its parameters, buffers and
+  topology constants equal PR #380's.
+- The node runner: the parser on a real PR #380 record log and on truncated, crashed and NaN logs; the RESULT
+  line; `DRY_RUN=1`; `check` (it fails cleanly on a machine without GPUs); the host fallback; a full
+  run/timeout/failure cycle against a stand-in trainer.
+- The failure paths above (a two-rank gloo test for the index build), and the t-test against scipy.
 
-## Still needs an 8xH100
-Every training claim is still unverified on GPU:
-- that this variant reproduces ~2.877 at 5800 steps
-- the loss-vs-steps curve and the step count that gives mean ≈ 2.918
-- the seed std at d=1024
-- the effect of coordinate_descent_tuning
-- the real peak memory
+## Not verified without an 8xH100
+- That this tree trains at all at d=1024: compile, CUDA-graph capture and the kernels have only run for PR #380
+  (Track 1 size) and for ldmberman's own copy. Ours matches theirs in config, schedule and model shape, not by
+  execution.
+- That it reproduces ~2.877 in ~221 s, the seed std, and the real peak memory on our node.
+- `prep` on Linux: the 103-shard download, the Rust build, the FA3 prefetch. The command lines are tested, not
+  their execution.
+- The `val_loss_parts:` line (two lines in the validation loop, off the clock).
+- `VAL_BUILD_THREADS` below the default, the small-host path, and any `NPROC` other than 8.
+- The slope of loss against steps, and any effect of `COORD_DESCENT_TUNING`.
