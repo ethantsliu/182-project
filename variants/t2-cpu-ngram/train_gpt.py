@@ -51,6 +51,8 @@ from track_1_short.data import HEADER_BYTES, ScheduledBatches, cu_seqlens_rows, 
 from track_1_short.distributed import setup_distributed
 from track_1_short.doc_cache import NBINS as DOC_BINS, ORDERS as DOC_ORDERS, DocChain
 from track_1_short.exact_counts import NBINS, ORDERS, ChainFit, ExactCounts, chain_prob, components, context_counts, gate_L
+from track_1_short.final_val import FINAL_VAL_RELEASE, eval_forward, gpu_memory_line, release_for_final_validation
+from track_1_short.model import gpt as gpt_module
 from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT
 from track_1_short.model.prefix_prediction import build_prefix_table_bucket
 from track_1_short.ngram_table import (
@@ -166,7 +168,10 @@ def main():
     print0(memory_budget.report(MODEL_DIM, MODEL_LAYERS, MLP_HIDDEN_DIM, args.val_batch_size, training_schedule.total_steps,
                                 n_shards=len(glob.glob(args.train_files)), world_size=env.world_size,
                                 local_world=torch.cuda.device_count(),
-                                gpu_bytes=torch.cuda.get_device_properties(env.device).total_memory), console=True)
+                                gpu_bytes=torch.cuda.get_device_properties(env.device).total_memory,
+                                slab_rows=gpt_module.EVAL_CE_SLAB_ROWS,
+                                fit_steps=len(range(training_schedule.boundaries[3][0], training_schedule.total_steps, 4))),
+           console=True)
     flush_log()
 
     ########################################
@@ -478,14 +483,22 @@ def main():
             # stop the clock
             torch.cuda.synchronize()
             training_time_ms += 1000 * (time.perf_counter() - t0)
+            print0(gpu_memory_line("memory before the final validation"), console=True)
+            if FINAL_VAL_RELEASE:
+                before = torch.cuda.memory_allocated()
+                # Off the clock. Read above and no longer needed: the fit steps' tokens, probabilities and hidden
+                # states (the list and its concatenation, ~5.6 GiB at d=1024), the counts' corpus share and table.
+                del exact_fit, f_tok, f_tgt, f_p, f_h, fQ, fG, f_rows, i, q_chunk
+                print0(release_for_final_validation(exact, step_graphs, ngram_table, model, before), console=True)
+            flush_log()
             model.eval()
             val_loss = 0
             model_val_loss = 0  # the model's own loss, before the exact-count chain (reported only)
             with torch.no_grad():
                 for i, (batch, pull, rows) in enumerate(zip(val_batches, val_pulls, val_rows)):
                     ngram_table.land(pull)
-                    loss = model(batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
-                                 training_manager.get_forward_args(), ret=torch.as_tensor(rows[:, :3], device=env.device))
+                    loss = eval_forward(model, batch.inputs, batch.targets, batch.cum_seqlens, ngram_table.slots(pull, batch.ngram_ids),
+                                        training_manager.get_forward_args(), ret=torch.as_tensor(rows[:, :3], device=env.device))
                     # the chain: the hint rows' link (q, the target's share of the row's counts), the corpus and document links
                     r = torch.as_tensor(rows, device=env.device)
                     link = rows_part(r[:, 0].long(), mix_q(r, batch.targets))

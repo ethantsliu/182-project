@@ -33,8 +33,8 @@ val_loss_parts: model_only=2.899100 with_chain=2.877012 chain_gain=0.022088
 peak memory allocated: 61242 MiB reserved: 70578 MiB
 host memory: rank 0 peak RSS 31.5 GiB, node in use 402 GiB (incl. /dev/shm 0 GiB)
 """
-RESULT_OK = re.compile(r"^RESULT variant=t2-cpu-ngram val_loss=\d+\.\d+ train_time_s=\d+\.\d+ steps=\d+ target=2\.92 hit=[01] log=\S+$")
-RESULT_FAILED = re.compile(r"^RESULT variant=t2-cpu-ngram status=failed reason=\S.*$")
+RESULT_OK = re.compile(r"^RESULT variant=t2-cpu-ngram val_loss=\d+\.\d+ train_time_s=\d+\.\d+ steps=\d+ target=2\.92 hit=[01] torch=\S+ log=\S+$")
+RESULT_FAILED = re.compile(r"^RESULT variant=t2-cpu-ngram status=failed torch=\S+ reason=\S.*$")
 CLEAN = ("NPROC", "SEED", "STEPS", "EXTRA_ENV", "LOG_DIR", "DRY_RUN", "DATA_PATH", "AB_ENV", "AB_RUNS", "AB_SEEDS", "PY",
          "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED", "SKIP_CHECK", "VAL_BUILD_THREADS", "HOST_CHECK", "ALLOW_STACK")
 

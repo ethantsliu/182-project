@@ -19,7 +19,7 @@ case "$mode" in
 esac
 fail() {  # the contract's failure lines, for the modes that have one
   echo "FAIL python: $1"
-  if [[ "$mode" == run ]]; then echo "RESULT variant=t2-cpu-ngram status=failed reason=$1"; fi
+  if [[ "$mode" == run ]]; then echo "RESULT variant=t2-cpu-ngram status=failed torch=none reason=$1"; fi
   exit 1
 }
 if [[ -z "${PY:-}" ]]; then

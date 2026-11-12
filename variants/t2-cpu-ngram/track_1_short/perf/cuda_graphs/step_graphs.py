@@ -258,6 +258,25 @@ class StepGraphs:
         assert not self.unchecked, f"step graphs never self-checked: {self.unchecked}"
         self.sealed = True
 
+    def release(self) -> int:
+        """After the last training step, off the clock: drop every captured step graph and the buffers only
+        replays read, so the shared pool's memory can go back to the allocator before the final validation
+        (torch.cuda.empty_cache releases a private pool once no graph and no tensor uses it). Returns the
+        number of graphs dropped. The table stays sealed and empty, so a later forward() fails loudly
+        instead of capturing. The caller drops the other references into the pool: p.grad (zero_grad with
+        set_to_none) and the n-gram table's pending gradients."""
+        graphs = 0
+        for cs in self.captured.values():
+            cs.forward.reset()
+            cs.backward.reset()
+            graphs += 2
+        self.captured.clear()
+        self.unchecked.clear()
+        self.current = None
+        self.adam_accumulators.clear()
+        self.ngram_grad_ring = []
+        return graphs
+
     def baked_tensors(self):
         """(role, tensor) for every tensor the step graphs bake that the model's parameters and buffers do
         not cover. Tensors other objects own are read from their owners, live, so a rebind shows up."""
