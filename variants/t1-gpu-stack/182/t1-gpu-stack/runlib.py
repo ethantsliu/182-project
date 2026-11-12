@@ -31,7 +31,9 @@ FLAG_KEYS = ("HOST_PREP", "DOC_COPY", "LAYER_ROPE", "COPY_MIX", "COPY_MIX_FIT",
              # r6-optim: track_1_short/optim/cascade_flags.py
              "OPTIM_MOEFUSED", "OPTIM_MAPS", "OPTIM_NORM", "OPTIM_PROFILE",
              # r6-kernel: track_1_short/perf/kernels/moe_router.py
-             "MOE_ROUTER_FUSED")
+             "MOE_ROUTER_FUSED",
+             # r6-hostcpu: track_1_short/data.py
+             "HOST_ASYNC", "HOST_ASYNC_DEPTH")
 BASE_KEYS = ("EXACT_LEVERS", "NUM_SCHEDULED_ITERATIONS", "TRAIN_SEED")
 
 _NUM = r"(?:[0-9]+(?:\.[0-9]*)?(?:e-?[0-9]+)?|nan|inf)"

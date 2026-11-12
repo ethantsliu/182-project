@@ -24,6 +24,11 @@ environment runs #397's exact code path; the variant's README.md lists the A/B r
                with c the token after the longest earlier exact match in the same document and b its
                (length, distance) bucket; the 31 weights are fitted ON THE CLOCK by maximum likelihood on training
                tokens (copy_mixture.py). Eval-only: training is untouched.
+  HOST_ASYNC   ours (round 6): the training loader's host work (document plan, token gather, cu_seqlens, n-gram row
+               hashes) runs on a background producer thread up to HOST_ASYNC_DEPTH batches ahead; the main thread only
+               copies each finished batch into its pinned slot and launches the H2D, as before. Same batches, same
+               order (data.AsyncBatchLoader; 182/hostcpu/README.md). Best with HOST_PREP=all: the per-document walk
+               is pure Python and holds the GIL.
   COPY_MIX_FIT where the fit's training tokens come from: "consumed" (default, #382: the last training batches the
                run already trained on, concatenated into one validation-shaped batch) or "shard" (#376: the head
                of the last train shard, which the run never reaches, read by the unmodified validation loader).
@@ -64,6 +69,9 @@ def _layer_rope(raw: str | None = None) -> str:
     return {"1": "all", "on": "all", "true": "all", "all": "all", "attn": "attn"}.get(value, "")
 
 
+HOST_ASYNC = _flag("HOST_ASYNC")
+HOST_ASYNC_DEPTH = int(os.environ.get("HOST_ASYNC_DEPTH", "4"))
+assert HOST_ASYNC_DEPTH >= 1, f"HOST_ASYNC_DEPTH={HOST_ASYNC_DEPTH}: at least 1"
 DOC_COPY = _flag("DOC_COPY")
 LAYER_ROPE_SITES = _layer_rope()
 LAYER_ROPE = bool(LAYER_ROPE_SITES)            # the parameters, the attention folds, the gates' lr schedule
@@ -77,4 +85,5 @@ def describe() -> str:
     """One line for the run log."""
     return (f"HOST_PREP={','.join(sorted(HOST_PREP)) or 'none'} DOC_COPY={int(DOC_COPY)} "
             f"LAYER_ROPE={ {'': '0', 'all': '1', 'attn': 'attn'}[LAYER_ROPE_SITES]} COPY_MIX={int(COPY_MIX)}"
-            + (f" COPY_MIX_FIT={COPY_MIX_FIT}" if COPY_MIX else ""))
+            + (f" COPY_MIX_FIT={COPY_MIX_FIT}" if COPY_MIX else "")
+            + (f" HOST_ASYNC=1 depth={HOST_ASYNC_DEPTH}" if HOST_ASYNC else ""))
