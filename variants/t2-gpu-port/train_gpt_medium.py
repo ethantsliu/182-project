@@ -79,7 +79,7 @@ from kernels import get_kernel
 from torch import Tensor, nn
 from triton_kernels import XXT, XTX, ba_plus_cAA, FusedSoftcappedCrossEntropy, FusedLinearReLUSquareFunction, transpose_add, transpose_copy
 from triton_kernels import FusedSoftcappedCrossEntropyPrefix, prefix_ce_kernel
-from medium_extras import BackgroundCanonicalMask, build_prefix_table_bucket
+from medium_extras import BackgroundCanonicalMask, build_prefix_table_bucket, canon_val_ce
 
 dynamo.config.recompile_limit = 64
 if PREFIX_WEIGHT > 0:
@@ -1578,18 +1578,17 @@ class GPT(nn.Module):
             # VAL_CE_CHUNKS equal row chunks (val rows per rank are a power of 2), so the mean of chunk means
             # is the mean over all tokens; only the size of the [rows, vocab] logit block changes.
             n = VAL_CE_CHUNKS
+            if CANON_MASK:
+                # The same chunked loss with the canonical mask (track 1 record #91), as an op Inductor cannot
+                # fuse across chunks; see medium_extras.canon_val_ce for why the inline form held every chunk's
+                # logit block at once.
+                return canon_val_ce(x.flatten(end_dim=1), self.lm_head.weight.bfloat16(), target_seq, input_seq,
+                                    self.canon_mask, n)
             x_rows, tgt_chunks, in_chunks = x.flatten(end_dim=1).chunk(n), target_seq.chunk(n), input_seq.chunk(n)
             loss = 0
             for i in range(n):
                 logits: Tensor = (x_rows[i] @ self.lm_head.weight.bfloat16()).float()
                 logits = 23 * torch.sigmoid((logits + 5) / 7.5)
-                if CANON_MASK:
-                    # Drop the tokens the tokenizer would never emit after input_seq (track 1 record #91).
-                    # -60 is well below the 0..23 the softcap leaves, so a dropped token adds ~nothing to the
-                    # softmax. A dropped token is never a real target: GPT-2 never emits that pair.
-                    shifts = torch.arange(8, dtype=torch.uint8, device=logits.device)
-                    dropped = (self.canon_mask[in_chunks[i], :, None] >> shifts & 1).view(logits.shape).bool()
-                    logits = logits.masked_fill(dropped, -60.0)
                 loss += F.cross_entropy(logits.view(-1, logits.size(-1)), tgt_chunks[i], reduction="mean") / n
             return loss
 
@@ -2073,6 +2072,99 @@ class TrainingManager():
         self.row_update_mask.fill(0)
 
 # -----------------------------------------------------------------------------
+# Memory diagnostics and OOM-safe validation (variants/t2-gpu-port). None of this changes a number the
+# model computes. Inside the timed region it adds one dict update per micro-step and one allocator
+# counter read at each of the ~10 schedule stage boundaries (no synchronization, no print); the lines
+# are printed only while the clock is stopped, or when the run dies of an out-of-memory error.
+
+PHASE = dict(phase="startup", step=None, tokens=None, max_seq_len=None)  # where the script is; read by the OOM report
+OutOfMemory = getattr(torch, "OutOfMemoryError", torch.cuda.OutOfMemoryError)
+
+def is_oom(e: BaseException | None) -> bool:
+    """An out-of-memory error, also when torch.compile or another layer wrapped it."""
+    for _ in range(8):
+        if e is None:
+            return False
+        if isinstance(e, OutOfMemory) or "out of memory" in str(e).lower():
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+def memory_peaks() -> tuple[int, int]:
+    """(peak allocated, peak reserved) bytes on this rank so far; one host-side counter read."""
+    s = torch.cuda.memory_stats()
+    return s.get("allocated_bytes.all.peak", 0), s.get("reserved_bytes.all.peak", 0)
+
+def memory_fields() -> str:
+    s = torch.cuda.memory_stats()
+    gib = lambda k: f"{s.get(k, 0) / 2**30:.2f}"
+    out = (f"alloc_gib={gib('allocated_bytes.all.current')} peak_alloc_gib={gib('allocated_bytes.all.peak')} "
+           f"reserved_gib={gib('reserved_bytes.all.current')} peak_reserved_gib={gib('reserved_bytes.all.peak')}")
+    try:
+        free, total = torch.cuda.mem_get_info()
+        out += f" free_gib={free / 2**30:.2f} total_gib={total / 2**30:.2f}"
+    except Exception:
+        pass
+    return out
+
+def emit(line: str):
+    """One diagnostic line: stdout from every rank (run_node.sh captures it), and rank 0's run log."""
+    print(line, flush=True)
+    if rank == 0 and "print0" in globals():
+        print0(line)
+
+def stage_lines(marks: list) -> list[str]:
+    """marks: (first step of a new schedule stage, peak alloc, peak reserved), recorded as the stage began."""
+    return [f"mem rank={rank} at=stage_end step={s} bs={get_bs(s - 1)} ws={get_ws(s - 1)[1]} "
+            f"peak_alloc_gib={a / 2**30:.2f} peak_reserved_gib={r / 2**30:.2f}" for s, a, r in marks]
+
+def oom_lines() -> list[str]:
+    head = (f"OOM rank={rank} phase={PHASE['phase']} step={PHASE['step']} tokens={PHASE['tokens']} "
+            f"max_seq_len={PHASE['max_seq_len']} VAL_CE_CHUNKS={VAL_CE_CHUNKS}")
+    try:
+        head += " " + memory_fields()
+        summary = torch.cuda.memory_summary(abbreviated=True).splitlines()
+    except Exception as err:
+        head += f" (no memory stats: {type(err).__name__})"
+        summary = []
+    return [head] + [f"OOM rank={rank} | {ln}" for ln in summary]
+
+def run_validation(model, make_loader, val_steps: int, forward_args, rows: int, phase: str):
+    """One pass over the validation tokens; this rank's mean loss, computed exactly as PR #261 does.
+
+    On an out-of-memory error the pass is repeated with twice as many cross-entropy row chunks (up to 64,
+    while the rows still split evenly). Equal chunks make the mean of chunk means the mean over all
+    tokens, so the per-token losses and their mean are the same; only the logit block shrinks. The new
+    chunk count recompiles the eval graph (off the clock) and stays for the rest of the run."""
+    global VAL_CE_CHUNKS
+    while True:
+        PHASE.update(phase=phase, tokens=rows, max_seq_len=rows)
+        val_loader = make_loader()
+        val_loss = 0
+        try:
+            with torch.no_grad():
+                for _ in range(val_steps):
+                    inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+                    val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, forward_args())
+            val_loss /= val_steps
+            return val_loss
+        except Exception as e:
+            if not is_oom(e) or VAL_CE_CHUNKS >= 64 or rows % (2 * VAL_CE_CHUNKS):
+                raise
+            report = oom_lines()
+        finally:
+            del val_loader
+        val_loss = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        for line in report:
+            emit(line)
+        VAL_CE_CHUNKS *= 2
+        emit(f"OOM rank={rank} recovered: {phase} is repeated with VAL_CE_CHUNKS={VAL_CE_CHUNKS} "
+             f"(same per-token losses, smaller logit blocks)")
+
+# -----------------------------------------------------------------------------
 # int main
 
 @dataclass
@@ -2141,13 +2233,26 @@ def print0(s, console=False):
                 print(s)
             print(s, file=f)
 
+# An out-of-memory error anywhere below prints, on the rank that hit it, where the script was (phase, step,
+# tokens per rank), the allocator counters and torch.cuda.memory_summary, then the usual traceback.
+def _report_oom(etype, value, tb, _default=sys.excepthook):
+    if is_oom(value):
+        try:
+            for line in stage_lines(stage_marks) + oom_lines():
+                emit(line)
+        except BaseException:
+            pass
+    _default(etype, value, tb)
+stage_marks = []  # filled in the training loop
+sys.excepthook = _report_oom
+
 # begin by printing this file (the Python code)
 print0(code)
 print0("="*100)
 # log information about the hardware/software environment this is running on
 print0(f"Running Python {sys.version}")
-print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
-print0(f"Running Triton version {triton.__version__}")
+print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}", console=True)
+print0(f"Running Triton version {triton.__version__}", console=True)
 
 def nvidia_smi():
     import subprocess  # avoid top level import
@@ -2207,17 +2312,20 @@ for step in warmup_steps:
     model.eval()
     with torch.no_grad():
         inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+        PHASE.update(phase="warmup_val", step=step, tokens=inputs.numel(), max_seq_len=inputs.numel())
         model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
     model.train()
     for idx in range(grad_accum_steps):
         send_args = training_manager.train_loader_send_args
         inputs, targets, cum_seqlens, bigram_inputs, bigram_cpu = train_loader.send(send_args)
+        PHASE.update(phase="warmup_train", step=step, tokens=inputs.numel(), max_seq_len=args.train_max_seq_len)
         training_manager.sparse_index_update(step, bigram_cpu)
         loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
         training_manager.sparse_index_share(step)
         loss.backward()
         del loss
     training_manager.step_optimizers(step)
+emit(f"mem rank={rank} at=warmup_end {memory_fields()}")
 print0("Resetting Model", console=True)
 model.zero_grad(set_to_none=True)
 model.load_state_dict(initial_state["model"])
@@ -2251,8 +2359,13 @@ if PREFIX_WEIGHT > 0:
     dist.all_reduce(raw_model.prefix_table, op=dist.ReduceOp.MAX)
 # begin training
 train_steps = args.num_iterations
+# first step of every batch-size / window schedule stage: the peak memory of the stage that just ended is
+# recorded there (one counter read) and printed at the next validation, when the clock is stopped
+stage_starts = {s for s in range(1, train_steps) if (get_bs(s), get_ws(s)) != (get_bs(s - 1), get_ws(s - 1))}
 for step in range(train_steps + 1):
     last_step = (step == train_steps)
+    if step in stage_starts:
+        stage_marks.append((step, *memory_peaks()))
     training_manager.advance_schedule(step)
     # --------------- VALIDATION SECTION -----------------
     if last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0):
@@ -2270,17 +2383,23 @@ for step in range(train_steps + 1):
         # stop the clock
         torch.cuda.synchronize()
         training_time_ms += 1000 * (time.perf_counter() - t0)
+        for line in stage_lines(stage_marks):
+            emit(line)
+        stage_marks.clear()
+        if last_step:
+            # Off the clock: nothing trains after this, so drop the gradients and the allocator's cached
+            # blocks before the final validation, then report what is left.
+            model.zero_grad(set_to_none=True)
+            gc.collect()
+            torch.cuda.empty_cache()
+            emit(f"mem rank={rank} at=before_final_val step={step} {memory_fields()}")
         model.eval()
         assert args.val_tokens % args.val_batch_size == 0
         val_steps = grad_accum_steps * args.val_tokens // args.val_batch_size
-        val_loader = distributed_data_generator(args.val_files, args.val_batch_size, -1, grad_accum_steps=grad_accum_steps, align_to_bos=False)
-        val_loss = 0
-        with torch.no_grad():
-            for _ in range(val_steps):
-                inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
-                val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
-        val_loss /= val_steps
-        del val_loader
+        val_rows = args.val_batch_size // (grad_accum_steps * world_size)
+        make_val_loader = lambda: distributed_data_generator(args.val_files, args.val_batch_size, -1, grad_accum_steps=grad_accum_steps, align_to_bos=False)
+        val_loss = run_validation(model, make_val_loader, val_steps, training_manager.get_forward_args, val_rows,
+                                  "final_val" if last_step else "val")
         dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
         if last_step and canon_mask_builder is not None:
@@ -2289,14 +2408,8 @@ for step in range(train_steps + 1):
             # so the unmasked number is what this run scores without CANON_MASK). canon_ms is what the
             # mask added to train_time at the end; the forked build's CPU time is not separable.
             raw_model.canon_mask.zero_()
-            val_loader = distributed_data_generator(args.val_files, args.val_batch_size, -1, grad_accum_steps=grad_accum_steps, align_to_bos=False)
-            unmasked_loss = 0
-            with torch.no_grad():
-                for _ in range(val_steps):
-                    inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
-                    unmasked_loss += model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
-            unmasked_loss /= val_steps
-            del val_loader
+            unmasked_loss = run_validation(model, make_val_loader, val_steps, training_manager.get_forward_args, val_rows,
+                                           "final_val_unmasked")
             dist.reduce(unmasked_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"canon_mask: val_loss_masked:{val_loss:.6f} val_loss_unmasked:{unmasked_loss:.6f} "
                    f"delta:{unmasked_loss - val_loss:.6f} canon_ms:{canon_ms:.0f}", console=True)
@@ -2317,6 +2430,7 @@ for step in range(train_steps + 1):
     for idx in range(grad_accum_steps):
         send_args = training_manager.train_loader_send_args
         inputs, targets, cum_seqlens, bigram_inputs, bigram_cpu = train_loader.send(send_args)
+        PHASE.update(phase="train", step=step, tokens=inputs.numel(), max_seq_len=args.train_max_seq_len)
         training_manager.sparse_index_update(step, bigram_cpu)
         loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
         training_manager.sparse_index_share(step)
@@ -2328,6 +2442,7 @@ for step in range(train_steps + 1):
     approx_training_time_ms = training_time_ms + 1000 * (time.perf_counter() - t0)
     print0(f"step:{step+1}/{train_steps} train_time:{approx_training_time_ms:.0f}ms step_avg:{approx_training_time_ms/(step + 1):.2f}ms", console=True)
 
+emit(f"mem rank={rank} at=end {memory_fields()}")
 print0(f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB "
        f"reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB", console=True)
 dist.destroy_process_group()

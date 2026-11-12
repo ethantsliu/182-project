@@ -22,6 +22,7 @@ import numpy as np
 import tiktoken
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 from torch import Tensor
 
 # Whether a merge may span the seam between a prev-token end and a cur-token start, by the
@@ -203,6 +204,44 @@ class BackgroundCanonicalMask:
                 torch.cuda.cudart().cudaHostUnregister(self.buf.data_ptr())
         dist.broadcast(out, 0)
         self.buf = self.ranks = None
+
+
+# -----------------------------------------------------------------------------
+# Masked validation cross-entropy, one row chunk at a time (variants/t2-gpu-port).
+#
+# Written inline in the compiled forward, every chunk's logit block reads the same canon_mask buffer, and
+# Inductor fuses the chunks into one kernel because they share that read. All chunks' blocks are then
+# allocated at once and chunking saves nothing: with torch 2.10's Inductor (CPU backend, measured by
+# 182/val_ce_memory.sh) the masked 8-chunk loss holds 48 bytes per element of one chunk's block live,
+# versus 6 for the unmasked loss. At 262144 val rows per rank and a 50304 vocabulary that is 73.7 GiB.
+# As a custom op the loop is opaque to Inductor and runs eagerly, so only one chunk's block is ever alive:
+# about 12.3 GiB at 8 chunks (fp32 logits, one temporary of the same size inside cross_entropy, the
+# boolean mask). The arithmetic per token is the inline version's.
+
+@torch.library.custom_op("t2gpu::canon_val_ce", mutates_args=())
+def canon_val_ce(x: Tensor, w: Tensor, targets: Tensor, inputs: Tensor, canon_mask: Tensor, n: int) -> Tensor:
+    """Mean over the rows of x of the softcapped, canonically masked cross-entropy, as a mean of n equal
+    row-chunk means. x: [rows, d] bf16, w: [d, vocab] bf16, targets/inputs: [rows], canon_mask: [vocab, vocab // 8]."""
+    assert x.size(0) % n == 0, f"{x.size(0)} rows do not split into {n} equal chunks"
+    shifts = torch.arange(8, dtype=torch.uint8, device=x.device)
+    loss = torch.zeros((), dtype=torch.float32, device=x.device)
+    for xr, tgt, inp in zip(x.chunk(n), targets.chunk(n), inputs.chunk(n)):
+        logits = (xr @ w).float()
+        logits = logits.add_(5).div_(7.5).sigmoid_().mul_(23)  # 23 * sigmoid((logits + 5) / 7.5), in place
+        # Drop the tokens the tokenizer would never emit after inp (track 1 record #91). -60 is well below
+        # the 0..23 the softcap leaves, so a dropped token adds ~nothing to the softmax. A dropped token is
+        # never a real target: GPT-2 never emits that pair.
+        dropped = (canon_mask[inp, :, None] >> shifts).bitwise_and_(1).view(logits.shape).bool()
+        logits.masked_fill_(dropped, -60.0)
+        del dropped
+        loss += F.cross_entropy(logits, tgt, reduction="mean") / n
+        del logits
+    return loss
+
+
+@canon_val_ce.register_fake
+def _(x, w, targets, inputs, canon_mask, n):
+    return x.new_empty((), dtype=torch.float32)
 
 
 # -----------------------------------------------------------------------------
