@@ -714,8 +714,6 @@ __global__ void ce_fwd_bwd_kernel(
     const __nv_bfloat16* __restrict__ logits,
     const int64_t* __restrict__ targets,
     const float* __restrict__ mtp_weights,
-    const int64_t* __restrict__ prefix_targets,
-    const float* __restrict__ prefix_weight_ptr,
     float* __restrict__ losses,
     __nv_fp8_e5m2* grad_input,
     int batch_size,
@@ -735,7 +733,6 @@ __global__ void ce_fwd_bwd_kernel(
   float C = (float)C_param;
   float grad_s = (float)grad_s_param;
   float grad_scale = (float)grad_scale_param;
-  float prefix_weight = prefix_weight_ptr[0];
 
   extern __shared__ __nv_bfloat16 smem[];
 
@@ -831,29 +828,13 @@ __global__ void ce_fwd_bwd_kernel(
         }
       }
     }
-    // Prefix-token prediction (track 1 record #88, PR #337 @jvarho): same CE as MTP, but the
-    // target is the prefix token T' of this row's next-token target. prefix_targets[i] < 0 =>
-    // no valid prefix, ignored. A no-op at prefix_weight == 0.
-    {
-      int64_t ptgt = prefix_targets[blockIdx.x];
-      if (ptgt >= 0 && ptgt < VOCAB_SIZE) {
-        float z_p = A * __bfloat162float(smem[ptgt]);
-        total_loss += prefix_weight * (lse - z_p);
-      }
-    }
     losses[blockIdx.x] = total_loss;
   }
 
-  // Total weight over active predictions at this position (softmax-normalizer gradient term).
-  // The prefix prediction only counts when it has a valid target.
   float S_w = 0.0f;
 
   for (int i = 0; i < n_predict; i++) {
     S_w += mtp_weights[i];
-  }
-  int64_t ptgt_row = prefix_targets[blockIdx.x];
-  if (ptgt_row >= 0) {
-    S_w += prefix_weight;
   }
 
   #pragma unroll 4
@@ -883,14 +864,9 @@ __global__ void ce_fwd_bwd_kernel(
 
   __syncthreads();
 
-  // Sparse correction for target columns. Threads [0, n_predict) handle the MTP targets;
-  // thread n_predict handles the prefix target. term2 for a column sums the weights of every
-  // prediction (MTP + prefix) whose target lands on that column, so duplicate columns across
-  // threads write identical values (idempotent, race-free).
-  bool is_pfx = (threadIdx.x == n_predict) && (ptgt_row >= 0) && (prefix_weight > 0.0f);
-  if ((threadIdx.x < n_predict && blockIdx.x + threadIdx.x < batch_size) || is_pfx) {
+  if (threadIdx.x < n_predict && blockIdx.x + threadIdx.x < batch_size) {
     int i = threadIdx.x;
-    int64_t target = is_pfx ? ptgt_row : targets[blockIdx.x + i];
+    int64_t target = targets[blockIdx.x + i];
 
     float sigmoid_u = __bfloat162float(smem[target]);
     float z = A * sigmoid_u;
@@ -907,9 +883,6 @@ __global__ void ce_fwd_bwd_kernel(
           term2 += mtp_weights[k];
         }
       }
-    }
-    if (ptgt_row >= 0 && ptgt_row == target) {
-      term2 += prefix_weight;
     }
 
     float grad_z = term1 - term2;
@@ -935,8 +908,6 @@ def ce_fwd_bwd(
     logits: torch.Tensor,
     targets: torch.Tensor,
     mtp_weights: torch.Tensor,
-    prefix_targets: torch.Tensor,
-    prefix_weight: torch.Tensor,
     losses: torch.Tensor,
     grad_input: torch.Tensor,
     n_rows: int,
@@ -951,19 +922,14 @@ def ce_fwd_bwd(
     ce_fwd_bwd_kernel(
         grid,
         (CE_KERNEL_BLOCK_SIZE, 1, 1),
-        (logits, targets, mtp_weights, prefix_targets, prefix_weight, losses, grad_input,
+        (logits, targets, mtp_weights, losses, grad_input,
          n_rows, n_predict, A, B, C, grad_s, grad_scale),
         shared_mem=CE_KERNEL_VOCAB_SIZE * 2,
     )
 
 class FusedSoftcappedCrossEntropy(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, targets, mtp_weights, lm_head_weight, x_s, w_s, grad_s, grad_scale, A=23.0, B=5.0, C=7.5,
-                prefix_targets=None, prefix_weight=None):
-        # prefix_targets (int64 [n_rows], -1 = none) and prefix_weight (fp32 [1] device tensor) add the
-        # prefix-token prediction term (track 1 record #88). Trailing and optional so existing callers
-        # (train_gpt.py) are unchanged; autograd.Function.apply is positional-only, so callers that want
-        # it pass A, B, C explicitly first.
+    def forward(ctx, x, targets, mtp_weights, lm_head_weight, x_s, w_s, grad_s, grad_scale, A=23.0, B=5.0, C=7.5):
 
         x_f8 = x.div(x_s).to(torch.float8_e4m3fn)
         w_f8 = lm_head_weight.div(w_s).to(torch.float8_e4m3fn)
@@ -990,15 +956,10 @@ class FusedSoftcappedCrossEntropy(torch.autograd.Function):
         logits = logits.contiguous()
         targets = targets.contiguous()
         mtp_weights = mtp_weights.contiguous()
-        if prefix_targets is None:
-            prefix_targets = torch.full((n_rows,), -1, dtype=torch.int64, device=logits.device)
-            prefix_weight = torch.zeros(1, dtype=torch.float32, device=logits.device)
-        prefix_targets = prefix_targets.contiguous()
-        prefix_weight = prefix_weight.reshape(1).to(torch.float32).contiguous()
 
         grad_input = torch.empty((n_rows, n_cols), dtype=torch.float8_e5m2, device=logits.device)
 
-        ce_fwd_bwd(logits, targets, mtp_weights, prefix_targets, prefix_weight, losses, grad_input,
+        ce_fwd_bwd(logits, targets, mtp_weights, losses, grad_input,
              n_rows, n_predict, A, B, C, grad_s, grad_scale)
 
         ctx.save_for_backward(logits, targets, mtp_weights, lse, x, lm_head_weight, x_f8, w_f8, grad_input)
@@ -1042,7 +1003,164 @@ class FusedSoftcappedCrossEntropy(torch.autograd.Function):
             use_fast_accum=False,
         )
 
-        # One gradient per forward input; the trailing Nones cover A, B, C, prefix_targets, prefix_weight
-        # (autograd drops surplus None gradients when a caller passed fewer inputs).
-        return grad_x, None, None, grad_w, None, None, None, None, None, None, None, None, None
+        return grad_x, None, None, grad_w, None, None, None
 
+
+
+# -----------------------------------------------------------------------------
+# Prefix-token prediction variant of the fused CE (variants/t2-gpu-port, PREFIX_WEIGHT > 0 only).
+# Everything above this line is PR #261's file, byte for byte: the default path never touches what follows.
+#
+# Track 1 record #88 (PR #337, jvarho): one more CE term per row, toward the longest proper-prefix token of
+# the row's next-token target. The kernel is #261's kernel plus the six edits below, which mirror
+# upstream master's track_1_short/perf/kernels/cross_entropy.py (S_w counts the prefix weight only on rows
+# with a valid prefix, thread n_predict writes the prefix column, and term2 sums every prediction that
+# lands on a column so duplicate columns get identical writes). It is built by exact textual substitution
+# so that it cannot drift from the base kernel, and compiled only when prefix_ce_kernel() is first called.
+
+_CE_PREFIX_EDITS = (
+    # 1. two extra arguments after mtp_weights
+    ("    const float* __restrict__ mtp_weights,\n",
+     "    const float* __restrict__ mtp_weights,\n"
+     "    const int64_t* __restrict__ prefix_targets,\n"
+     "    const float* __restrict__ prefix_weight_ptr,\n"),
+    # 2. the weight is read from device memory, so the schedule changes it without a recompile
+    ("  float grad_scale = (float)grad_scale_param;\n",
+     "  float grad_scale = (float)grad_scale_param;\n"
+     "  float prefix_weight = prefix_weight_ptr[0];\n"),
+    # 3. loss term; prefix_targets[row] < 0 means "no valid prefix"
+    ("    losses[blockIdx.x] = total_loss;\n",
+     "    {\n"
+     "      int64_t ptgt = prefix_targets[blockIdx.x];\n"
+     "      if (ptgt >= 0 && ptgt < VOCAB_SIZE) {\n"
+     "        float z_p = A * __bfloat162float(smem[ptgt]);\n"
+     "        total_loss += prefix_weight * (lse - z_p);\n"
+     "      }\n"
+     "    }\n"
+     "    losses[blockIdx.x] = total_loss;\n"),
+    # 4. softmax-normalizer weight of the dense pass
+    ("  for (int i = 0; i < n_predict; i++) {\n    S_w += mtp_weights[i];\n  }\n",
+     "  for (int i = 0; i < n_predict; i++) {\n    S_w += mtp_weights[i];\n  }\n"
+     "  int64_t ptgt_row = prefix_targets[blockIdx.x];\n"
+     "  if (ptgt_row >= 0 && ptgt_row < VOCAB_SIZE) {\n"
+     "    S_w += prefix_weight;\n"
+     "  } else {\n"
+     "    ptgt_row = -1;\n"
+     "  }\n"),
+    # 5. sparse pass: thread n_predict handles the prefix column
+    ("  if (threadIdx.x < n_predict && blockIdx.x + threadIdx.x < batch_size) {\n"
+     "    int i = threadIdx.x;\n"
+     "    int64_t target = targets[blockIdx.x + i];\n",
+     "  bool is_pfx = (threadIdx.x == n_predict) && (ptgt_row >= 0) && (prefix_weight > 0.0f);\n"
+     "  if ((threadIdx.x < n_predict && blockIdx.x + threadIdx.x < batch_size) || is_pfx) {\n"
+     "    int i = threadIdx.x;\n"
+     "    int64_t target = is_pfx ? ptgt_row : targets[blockIdx.x + i];\n"),
+    # 6. sparse pass: the prefix weight joins term2 on its column (also when an MTP target shares it)
+    ("\n    float grad_z = term1 - term2;\n",
+     "    if (ptgt_row == target) {\n"
+     "      term2 += prefix_weight;\n"
+     "    }\n"
+     "\n    float grad_z = term1 - term2;\n"),
+)
+
+def _ce_prefix_source() -> str:
+    src = CE_KERNEL_SOURCE
+    for old, new in _CE_PREFIX_EDITS:
+        assert src.count(old) == 1, f"CE kernel edit anchor must occur exactly once: {old!r}"
+        src = src.replace(old, new)
+    return src.replace("ce_fwd_bwd_kernel", "ce_fwd_bwd_prefix_kernel")
+
+CE_PREFIX_KERNEL_SOURCE = _ce_prefix_source()
+_ce_prefix_kernel = None
+
+def prefix_ce_kernel():
+    """Compile the prefix variant once (same NVRTC options as the base kernel). Call it before
+    torch.compile traces the model, i.e. at import of the trainer when PREFIX_WEIGHT > 0."""
+    global _ce_prefix_kernel
+    if _ce_prefix_kernel is None:
+        _ce_prefix_kernel = torch.cuda._compile_kernel(
+            CE_KERNEL_DECLS + CE_PREFIX_KERNEL_SOURCE,
+            "ce_fwd_bwd_prefix_kernel",
+            compute_capability="90",
+            cuda_include_dirs=["/usr/local/cuda/include/"],
+            nvcc_options=["-lineinfo", "--use_fast_math"],
+        )
+        _ce_prefix_kernel.set_shared_memory_config(CE_KERNEL_VOCAB_SIZE * 2)
+    return _ce_prefix_kernel
+
+@torch.library.custom_op("nanogpt::ce_fwd_bwd_prefix", mutates_args={"losses", "grad_input"})
+def ce_fwd_bwd_prefix(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    mtp_weights: torch.Tensor,
+    prefix_targets: torch.Tensor,
+    prefix_weight: torch.Tensor,
+    losses: torch.Tensor,
+    grad_input: torch.Tensor,
+    n_rows: int,
+    n_predict: int,
+    A: float,
+    B: float,
+    C: float,
+    grad_s: float,
+    grad_scale: float,
+) -> None:
+    grid = (n_rows, 1, 1)
+    prefix_ce_kernel()(
+        grid,
+        (CE_KERNEL_BLOCK_SIZE, 1, 1),
+        (logits, targets, mtp_weights, prefix_targets, prefix_weight, losses, grad_input,
+         n_rows, n_predict, A, B, C, grad_s, grad_scale),
+        shared_mem=CE_KERNEL_VOCAB_SIZE * 2,
+    )
+
+class FusedSoftcappedCrossEntropyPrefix(torch.autograd.Function):
+    """FusedSoftcappedCrossEntropy plus the prefix term. prefix_targets: int64 [n_rows], -1 = no prefix;
+    prefix_weight: fp32 [1] device tensor. The backward is the base class's: the kernel has already
+    written the full dlogits (prefix term included) into grad_input."""
+
+    @staticmethod
+    def forward(ctx, x, targets, mtp_weights, lm_head_weight, x_s, w_s, grad_s, grad_scale,
+                prefix_targets, prefix_weight, A=23.0, B=5.0, C=7.5):
+        x_f8 = x.div(x_s).to(torch.float8_e4m3fn)
+        w_f8 = lm_head_weight.div(w_s).to(torch.float8_e4m3fn)
+
+        w_f8_col_major = w_f8.T.contiguous().T
+
+        logits = torch._scaled_mm(
+            x_f8,
+            w_f8_col_major,
+            out_dtype=torch.bfloat16,
+            scale_a=x.new_tensor(x_s, dtype=torch.float32),
+            scale_b=x.new_tensor(w_s, dtype=torch.float32),
+            use_fast_accum=True,
+        )
+
+        n_rows, n_cols = logits.shape
+        n_predict = mtp_weights.shape[0]
+        assert n_predict < CE_KERNEL_BLOCK_SIZE  # thread n_predict writes the prefix column
+
+        losses = torch.empty(n_rows, dtype=torch.float32, device=logits.device)
+        lse = torch.empty(n_rows, dtype=torch.float32, device=logits.device)
+
+        logits = logits.contiguous()
+        targets = targets.contiguous()
+        mtp_weights = mtp_weights.contiguous()
+        prefix_targets = prefix_targets.contiguous()
+        prefix_weight = prefix_weight.reshape(1).to(torch.float32).contiguous()
+
+        grad_input = torch.empty((n_rows, n_cols), dtype=torch.float8_e5m2, device=logits.device)
+
+        ce_fwd_bwd_prefix(logits, targets, mtp_weights, prefix_targets, prefix_weight, losses, grad_input,
+             n_rows, n_predict, A, B, C, grad_s, grad_scale)
+
+        ctx.save_for_backward(logits, targets, mtp_weights, lse, x, lm_head_weight, x_f8, w_f8, grad_input)
+        ctx.params = (A, B, C, x_s, w_s, grad_s)
+        return losses
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # base returns one gradient per base input (7); add None for grad_scale's slot it leaves to
+        # autograd's padding, and for prefix_targets, prefix_weight, A, B, C
+        grads = FusedSoftcappedCrossEntropy.backward(ctx, grad_output)
+        return grads + (None,) * (13 - len(grads))
