@@ -127,10 +127,13 @@ The generic session phase reads `182/experiments.d/optim.sh`, which declares the
 `python -m pytest 182/optim-cost/test_optim_cost.py -q` on the host. The CPU tests check flag parsing and defaults, the
 two schedules' envelopes, the cost model's shapes and tile configs against the source, the simulator's ordering, and
 `StepProfile`'s accounting on fake events. Under `bash 182/tools/triton_cpu/run.sh` (Triton interpreter, repo root),
-three more checks run: `polar_flagged` at the stock settings equals `polar` bit for bit; the fused moe path equals
-`anvil_cascade` bit for bit; the flagged schedules match the simulator to bf16 tolerance. The interpreter computes
-dots in fp64, so its bitwise check covers logic and indexing only. The same test on a GPU is the real exactness
-check.
+three more checks run: `polar_flagged` at the stock settings equals `polar` bit for bit; the fused moe path is close
+to `anvil_cascade`; the flagged schedules match the simulator to bf16 tolerance. The moe check is bitwise only on a
+GPU, where the reference is the compiled `anvil_cascade`. Under the interpreter the reference runs as eager ATen,
+whose lerp rounds differently from the inductor lowering that `pre_fused` copies. There the rails differ by at most
+0.39 ulp of their largest value, and the cascade output by 0.40% relative (1.6e-5 of the bf16 inputs flip one bit,
+and the four maps amplify that). The interpreter also computes dots in fp64, so its bitwise check covers logic and
+indexing only. The GPU run of the same test is the real exactness check.
 
 ## Unverified
 

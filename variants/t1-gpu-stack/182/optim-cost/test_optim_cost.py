@@ -8,8 +8,8 @@
 Host (no triton): the flags parse and default off, the map schedules' envelopes, the cost model's shapes against the
 source, the simulator's ordering claims, StepProfile's accounting (fake CUDA events).
 Interpreter (TRITON_INTERPRET=1, docker) or GPU: polar_flagged at the stock settings equals polar() bit for bit; the
-expert bank's fused path (OPTIM_MOEFUSED) equals anvil_cascade bit for bit (on the GPU this is the real exactness
-check: the interpreter computes dots in fp64, so there it checks logic and indexing only); polar_flagged with
+expert bank's fused path (OPTIM_MOEFUSED) equals anvil_cascade bit for bit on the GPU (the real exactness check;
+under the interpreter the reference is eager ATen, so there it is a closeness check); polar_flagged with
 OPTIM_MAPS=3 / OPTIM_NORM=s4 matches the CPU simulator to bf16 tolerance. Under the interpreter the torch.compile'd
 helpers run as their eager bodies (no CPU inductor compile).
 """
@@ -232,7 +232,8 @@ def test_polar_flagged_matches_simulator(ok, maps_name, s4, shape, margin):
 @needs_kernels
 def test_moe_fused_equals_anvil_cascade(monkeypatch):
     """OPTIM_MOEFUSED's expert-bank path (pre_fused + polar_flagged at margin 1.1) against anvil_cascade, from the same
-    gradient and rails: the output and the updated rails, bit for bit."""
+    gradient and rails: the output and the updated rails, bit for bit on the GPU; rails within 2 ulp of their scale and output within 1%
+    under the interpreter (see below)."""
     ok_mod = importlib.import_module("track_1_short.perf.kernels.anvil_opt")
     anvil = importlib.import_module("track_1_short.optim.anvil")
     cascade = anvil.anvil_cascade
@@ -251,5 +252,15 @@ def test_moe_fused_equals_anvil_cascade(monkeypatch):
     x = torch.empty_like(grad)
     ok_mod.pre_fused(grad, v_got, x, mom, fb, fw)
     got = ok_mod.polar_flagged(x, False, anvil.ANVIL_MAPS, anvil.MOE_ANVIL_MARGIN, False)
-    assert torch.equal(v_ref.view(torch.int32), v_got.view(torch.int32)), "rails differ"
-    assert torch.equal(ref.view(torch.int16), got.view(torch.int16)), "cascade output differs"
+    if DEVICE == "cuda":  # the reference is the compiled anvil_cascade, as in the run
+        assert torch.equal(v_ref.view(torch.int32), v_got.view(torch.int32)), "rails differ"
+        assert torch.equal(ref.view(torch.int16), got.view(torch.int16)), "cascade output differs"
+    else:
+        # Interpreter: anvil_cascade runs as eager ATen, whose lerp rounds differently from the inductor lowering that
+        # pre_fused reproduces, so only closeness is meaningful here. Rails: ~10% of elements differ by a rounding;
+        # a per-element ulp count is meaningless where the lerp cancels to ~1e-9 (observed 51080 ulp there), so the
+        # bound is in ulps of the rail's largest value (observed max |diff| = 0.39 of them).
+        err = (v_ref - v_got).abs().max().item()
+        assert err <= 2 * torch.finfo(torch.float32).eps * v_ref.abs().max().item(), err
+        rel = (torch.linalg.norm(ref.float() - got.float()) / torch.linalg.norm(ref.float())).item()
+        assert rel < 1e-2, rel
