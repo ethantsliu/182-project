@@ -21,7 +21,8 @@ Operand layouts (_scaled_mm wants A row-major, B column-major, both K-major on H
             recorded: fp8_dual_quant, one Triton pass reading y once and writing both layouts.
   g     the same two choices for the incoming gradient (e5m2): fused into its producer, or fp8_dual_quant.
 fp8_dual_quant is hadamard._hadamard_quant_dual_kernel with both rotations off (no Q load, no dot): a plain
-dual-layout quantize at a static scale, optionally atomic-maxing the tensor's amax into a delayed-scale slot.
+dual-layout quantize at a static scale, optionally returning the tensor's amax for a delayed-scale slot. It is
+launched from a custom op, not directly, so the compiled step treats it like the GEMMs.
 
 Invariants: `use_fast_accum=False` on both gradient GEMMs (as every gradient GEMM in this repo); an explicit
 clamp before every fp8 cast; bf16 outputs. Validation never comes here (no_grad: bf16 F.linear).
@@ -42,21 +43,56 @@ attn_o_dx_f8_op = _f8_mm_op("attn_o_dx_f8", transpose_b=True, fast_accum=False) 
 attn_o_dw_f8_op = _f8_mm_op("attn_o_dw_f8", transpose_b=True, fast_accum=False)    # dW_eff = g_t @ y_t.T
 
 
-def fp8_dual_quant(src: torch.Tensor, scale: torch.Tensor, fmt: torch.dtype, amax: torch.Tensor | None = None):
-    """(row [M, N], t [N, M]) = fmt copies of src / scale (clamped), from one read of the bf16 src. With `amax`
-    (a (1,) f32 slot of a delayed-scale buffer), the kernel also atomic-maxes max|src| into it. M and N must be
-    multiples of 128 (the kernel's tile edge). Launched directly (not a custom op), like the MLP kernels: under
-    torch.compile the amax write is a user-Triton-kernel mutation, as linear_relu_square's post/dpre amax."""
+def _dual_quant_launch(src, scale, e5m2: bool, amax):
     assert src.ndim == 2 and src.stride(1) == 1 and src.dtype == torch.bfloat16
     M, N = src.shape
     assert M % HADAMARD_TILE == 0 and N % HADAMARD_TILE == 0, f"{tuple(src.shape)} not a multiple of {HADAMARD_TILE}"
+    fmt = E5M2 if e5m2 else E4M3
     row = torch.empty((M, N), device=src.device, dtype=fmt)
     t = torch.empty((N, M), device=src.device, dtype=fmt)
     # q_ptr is never loaded with both rotations off (any tensor will do); HB is then only a constexpr.
     _hadamard_quant_dual_kernel[(M // HADAMARD_TILE, N // HADAMARD_TILE)](
         src, src, row, t, scale, scale, amax if amax is not None else scale, M, N, src.stride(0),
-        EMIT_ROW=True, ROT_ROW=False, ROT_T=False, RECORD_T_AMAX=amax is not None, E5M2=fmt == E5M2,
+        EMIT_ROW=True, ROT_ROW=False, ROT_T=False, RECORD_T_AMAX=amax is not None, E5M2=e5m2,
         BLOCK=HADAMARD_TILE, HB=HADAMARD_TILE, num_warps=8)
+    return row, t
+
+
+# Custom ops (opaque to inductor, as hadamard.py's quantize ops and the GEMMs below), both functional: the amax
+# variant returns the amax as a fresh (1,) tensor that the caller folds into its buffer with aten ops, so
+# torch.compile sees an ordinary buffer mutation (the hadamard_t_quant pattern) and never has to re-emit this
+# kernel's source or analyse its stores.
+@torch.library.custom_op("nanogpt::attn_o_dual_quant", mutates_args=())
+def attn_o_dual_quant(src: torch.Tensor, scale: torch.Tensor, e5m2: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    return _dual_quant_launch(src, scale, e5m2, None)
+
+@attn_o_dual_quant.register_fake
+def _(src, scale, e5m2):
+    fmt = E5M2 if e5m2 else E4M3
+    return src.new_empty(src.shape, dtype=fmt), src.new_empty((src.shape[1], src.shape[0]), dtype=fmt)
+
+
+@torch.library.custom_op("nanogpt::attn_o_dual_quant_amax", mutates_args=())
+def attn_o_dual_quant_amax(src: torch.Tensor, scale: torch.Tensor, e5m2: bool) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    amax = torch.zeros(1, device=src.device, dtype=torch.float32)
+    row, t = _dual_quant_launch(src, scale, e5m2, amax)
+    return row, t, amax
+
+@attn_o_dual_quant_amax.register_fake
+def _(src, scale, e5m2):
+    fmt = E5M2 if e5m2 else E4M3
+    return (src.new_empty(src.shape, dtype=fmt), src.new_empty((src.shape[1], src.shape[0]), dtype=fmt),
+            src.new_empty((1,), dtype=torch.float32))
+
+
+def fp8_dual_quant(src: torch.Tensor, scale: torch.Tensor, fmt: torch.dtype, amax: torch.Tensor | None = None):
+    """(row [M, N], t [N, M]) = fmt copies of src / scale (clamped), from one read of the bf16 src. With `amax`
+    (a (1,) f32 slot of a delayed-scale buffer), max|src| is also folded into it (amax = max(amax, max|src|)).
+    M and N must be multiples of 128 (the kernel's tile edge)."""
+    if amax is None:
+        return attn_o_dual_quant(src, scale, fmt == E5M2)
+    row, t, new = attn_o_dual_quant_amax(src, scale, fmt == E5M2)
+    amax.copy_(torch.maximum(amax, new))
     return row, t
 
 
@@ -79,7 +115,7 @@ class AttnOFP8Function(torch.autograd.Function):
     @staticmethod
     def forward(ctx, y, o_w, o_scale, w_row, w_col, w_scale, y_scale, g_scale, y_amax, g_amax, fuse_y, fuse_g):
         y_row, y_t = _dual(y, y_scale, E4M3, fuse_y and y_amax is None, y_amax)
-        scale_b = w_scale * o_scale
+        scale_b = (w_scale * o_scale).float()  # _scaled_mm wants fp32 scales (o_scale may carry a bf16 o_gain)
         out = torch.ops.nanogpt.attn_o_fwd_f8(y_row, w_row, y_scale, scale_b)
         ctx.save_for_backward(y_t, o_w, o_scale, scale_b)
         # Persistent caches and scales by name (as FusedLinearReLUSquareFunction keeps them).
