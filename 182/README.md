@@ -1,47 +1,96 @@
 # 182-project
 
-Private working fork of [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT) for 8xH100 speedrun attempts.
-One branch, `main`. **Nothing here has been run on GPUs yet.**
+Private working fork of [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT) for
+8xH100 speedrun attempts. One branch, `main`. We have no GPUs of our own: everything here is checked on CPU, and
+a friend runs it on an 8xH100 node.
 
-## Layout
+## What has been measured, and what has not
 
-| Path | What | Run from |
-|---|---|---|
-| repo root (`train_gpt.py`, `track_1_short/`) | Upstream record #92 (ANVIL2, 39.9 s), plus env-flag experiments that are off by default: `FP8_OFF`, `HADAMARD_FP8`, `FP8_DUMP_DIR` (`182/hadamard-fp8`) and `MONARCH_MLP` (`182/structured`) | repo root |
-| `182/tools/` | node setup, A/B runner, t-tests, nsys profiling | repo root |
-| `182/hadamard-fp8/`, `182/structured/` | tests and analysis scripts for the root-level flags; Track 3 fixed-basis Adam/SOAP | repo root |
-| `variants/t1-gpu-stack/` | Track 1 GPU only: open PR #397 (30.67 s) + #378/#376/#382/#385/#387 behind flags | that folder |
-| `variants/t1-cpu-ngram/` | Track 1 CPU retrieval: open PRs #380/#381 (~9.6 s) + #399 table vote, host checks | that folder |
-| `variants/t2-cpu-ngram/` | Track 2 (medium, 2.92) port of the CPU retrieval line | that folder |
-| `variants/t2-gpu-port/` | Track 2 GPU only: open PR #261 (14.34 min) + canonical mask / prefix loss / XSA | that folder |
+Two single runs on the friend's node, and nothing else. Neither log is in this repo.
 
-Each variant is a full, self-contained tree of an open upstream PR plus our changes. The variants rewrite the same
-files in different ways, so they live in folders instead of being merged. Each one has its own README.
+- The root record: **40.931 s, val loss 3.2780**, 1194 steps (one run). The official record it reproduces is 39.9 s.
+- `variants/t1-gpu-stack`: **30.957 s, val loss 3.276481**, 1053 steps, 981 of them scheduled (one run). Its
+  author reported 30.67 s over 12 runs.
+- Not measured by us: the other three variants, every flag of ours, and the run-to-run spread of anything on that
+  node. One run cannot show that a tree meets its target: the rule is the mean under the target with p < 0.01.
 
-Data lives at the repo root (`data/cached_fineweb10B.py`); point a variant at it with `DATA_PATH=../..`:
+The "best reported" times in the table below are the ones each tree's author reported upstream, on their nodes.
 
-```bash
-cd variants/t1-gpu-stack && DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py
-```
+## Methods
 
-## First steps on the 8xH100 box
+| Phase | Tree | What it is | Best reported time (not ours) | Target | Official record | One command |
+|---|---|---|---|---|---|---|
+| `base` | repo root | Upstream record #92 (ANVIL2), unchanged | 39.9 s (the record; our node, one run: 40.931 s, 3.2780) | val loss <= 3.28 | 39.9 s | `bash 182/gpu_session.sh base` |
+| `t1gpu` | `variants/t1-gpu-stack` | Track 1, GPU only: open PR #397 (MoE + Gluon + exact levers) plus our flags | 30.67 s, n=12, mean loss 3.27743 (our node, one run: 30.957 s, 3.276481) | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1gpu` |
+| `t1cpu` | `variants/t1-cpu-ngram` | Track 1, CPU retrieval: the tree of open PR #381 (exact-count chain of #380) | 9.653 s, n=16 (PR #380; #381 itself has no 8xH100 time) | <= 3.28 | 39.9 s | `bash 182/gpu_session.sh t1cpu` |
+| `t2cpu` | `variants/t2-cpu-ngram` | Track 2 (GPT-2 Medium): that CPU retrieval chain | 221 s, one run, 5800 steps, loss 2.8769 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2cpu` |
+| `t2gpu` | `variants/t2-gpu-port` | Track 2, GPU only: open PR #261 (MUDD) plus our flags | 14.34 min (860.5 s), loss 2.9171 ± 0.0007 | <= 2.92 | 17.35 min | `bash 182/gpu_session.sh t2gpu` |
+| `gate` | repo root | A/B: the record vs `FP8_OFF=1` (what does fp8 cost in val loss?) | - | - | - | `bash 182/gpu_session.sh gate` |
+| `attno` | repo root | A/B: the record vs `FP8_ATTN_O=1`; skipped until that flag is in the checkout | - | - | - | `bash 182/gpu_session.sh attno` |
+| `hadamard` | repo root | A/B: the record vs `HADAMARD_FP8=1` variants; runs only if the gate finds a gap | - | - | - | `bash 182/gpu_session.sh gate hadamard` |
+
+Each variant is a full, self-contained tree of an open upstream PR plus our changes, behind flags that are off by
+default. The variants rewrite the same files in different ways, so they live in folders instead of being merged;
+each has its own README and its own node script, `variants/<name>/182/run_node.sh check|prep|run`, which the
+session drives. The root flags (`FP8_OFF`, `HADAMARD_FP8` / `_SEED` / `_BLOCK` / `_GEMMS`,
+`HADAMARD_SAT_STATS`, `FP8_DUMP_*`, `MONARCH_*`) are listed, with where each is read, in `track_1_short/config.py`.
+
+## On the node
 
 ```bash
 tmux new -s gpu                # first: an ssh drop kills a plain shell and the session with it (reattach: tmux a -t gpu)
-bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/activate   # docker: --mode docker, then SESSION_DOCKER=modded-nanogpt bash 182/gpu_session.sh
-bash 182/gpu_session.sh        # ~1.5-2 h; resumable (re-run the same command); DRY_RUN=1 prints the plan
-QUICK=1 bash 182/gpu_session.sh   # instead, if time is short: env, sanity and the gate only (~45 min)
+bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/activate   # the root record's stack
+DRY_RUN=1 bash 182/gpu_session.sh   # the plan, the estimates, each variant's check, every command; runs nothing
+bash 182/gpu_session.sh             # everything, most promising first (about 4 h if nothing is skipped)
+QUICK=1 bash 182/gpu_session.sh     # instead, if time is short: env sanity base t1gpu bundle (under 45 min)
 ```
 
-It runs `env tests sanity gate hadamard t2 bundle` (or just the phases you name), prints a GPU-minute estimate
-before each, and ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Send that one file.
-The env phase fails, and the GPU phases are skipped, unless the stack is the record's (torch 2.10.0+cu128, triton
-3.6.0, the venv's torchrun, the pinned FA3 loading); `ALLOW_STACK=1` runs anyway. The gate is the first step of
-`182/hadamard-fp8/README.md`'s workflow (record vs `FP8_OFF=1`, 4 paired seeds -> STOP / GAP / INCONCLUSIVE on the
-95% CI of the paired gap vs 0.5 mnat; no decision until every gate run finished). The Hadamard A/B runs only if the
-gate phase PASSed with decision GAP or INCONCLUSIVE and a mean gap >= `HADAMARD_MIN_GAP_MNAT` (2.0, a loose prescreen
-for the default variants), and the `HADAMARD_FP8=1` tests and the GPU sanity check did not fail; `FORCE_HADAMARD=1`
-bypasses all of that. t2 is skipped (with the reason) on a host without ~390 GiB RAM / 24 vCPU per GPU.
-After a ctrl-C, `bash 182/gpu_session.sh bundle` packs what exists. Knobs are listed at the top of the script. The
-trainer's experiment flags (`FP8_OFF`, `HADAMARD_FP8` / `_SEED` / `_BLOCK` / `_GEMMS`, `HADAMARD_SAT_STATS`, `FP8_DUMP_*`,
-`MONARCH_*`) are listed, with where each is read, in `track_1_short/config.py`. Read a bundle with `python 182/tools/summarize_session.py <bundle>`.
+Docker instead of a venv: `bash 182/tools/node_setup.sh --mode docker`, then put `SESSION_DOCKER=modded-nanogpt` in
+front of the same commands.
+
+It ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Send that one file; read it with
+`python 182/tools/summarize_session.py <bundle>`. The summary starts with one table (method, runs, mean val loss,
+mean time, best reported, official record, target hits) and says plainly when a row is a single run.
+
+The order is `env tests sanity base t1gpu t1cpu t2cpu t2gpu gate attno hadamard bundle`:
+
+- `base` first (2 runs): this node's own reference and its spread, with logs, which the one earlier run did not leave.
+- Then the four variants, Track 1 before Track 2, GPU-only before CPU retrieval: 4, 4, 1 and 1 runs. For each, the
+  session runs the variant's `check`; a `FAIL` line skips that variant with the reason (it is not a session
+  failure, and `FORCE_CHECK=1` preps and runs it anyway). The CPU retrieval trees need a host with far more RAM, `/dev/shm`
+  and vCPUs than the record does, so expect them to be skipped on a plain 8xH100 box. `prep` (data downloads,
+  extension builds; Rust needs rustc >= 1.80, and `INSTALL_RUST=1` lets prep install it) runs off the clock, for all selected variants in one low-priority background job that starts
+  with the session; a variant waits for that job before it times anything.
+  The runs use each tree's default configuration, with two things to know: `t2gpu` runs with `CANON_MASK=1`, the
+  first run its README recommends (`T2GPU_RUN_ENV=` gives plain PR #261), and `t1cpu` runs configuration 381, which
+  has no published 8xH100 time; for the one that has (9.653 s), use a session directory of its own:
+  `SESSION_DIR=182/results/t1cpu-380 T1CPU_RUN_ENV=CONFIG=380 bash 182/gpu_session.sh t1cpu bundle`.
+- Then the root fp8 experiments, which need 4 seed pairs each to say anything: `gate`, `attno`, and `hadamard` last
+  (one measurement on the node had it 3.17 s slower, and it needs a 3-4 millinat fp8 gap to pay).
+
+Rules that hold for every phase: a failed or skipped phase never stops the ones after it; re-running the same
+command resumes (finished phases and finished runs are kept, failed runs are retried); after a ctrl-C,
+`bash 182/gpu_session.sh bundle` packs what exists. `env` fails unless the stack is the root record's (torch
+2.10.0+cu128, triton 3.6.0, the venv's torchrun, the pinned FA3 loading); that skips the root phases only, since
+each variant checks its own stack, and `ALLOW_STACK=1` runs the root phases anyway. Every knob (run counts, seeds,
+timeouts) is listed at the top of `182/gpu_session.sh`.
+
+A single method by hand, without the session:
+
+```bash
+bash variants/t1-gpu-stack/182/run_node.sh check   # what this host lacks, with the fix for each line
+bash variants/t1-gpu-stack/182/run_node.sh prep    # data and builds
+bash variants/t1-gpu-stack/182/run_node.sh run     # one timed run; the last line is RESULT variant=... val_loss=... train_time_s=...
+torchrun --standalone --nproc_per_node=8 train_gpt.py   # the root record, from the repo root
+```
+
+## Layout
+
+| Path | What |
+|---|---|
+| repo root (`train_gpt.py`, `track_1_short/`) | Upstream record #92 plus env-flag experiments that are off by default |
+| `182/gpu_session.sh` | The node entry point described above |
+| `182/tools/` | Node setup, A/B runner, statistics, log parser, session summary, nsys profiling (see its README) |
+| `182/hadamard-fp8/`, `182/structured/` | Tests and analysis scripts for the root flags; Track 3 fixed-basis Adam/SOAP |
+| `variants/*/` | The four trees of the table; data is shared from the repo root (`DATA_PATH=../..`) |
+| `182/results/` | Session output on the node (gitignored) |

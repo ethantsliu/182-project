@@ -5,16 +5,19 @@
     python 182/tools/summarize_session.py 182/results/session-abc1234              # the live directory
     python 182/tools/summarize_session.py --gate DIR --write-decision DIR/decision.env   # gate phase only
 
-Per A/B phase (gate, hadamard; each an ab_run.py results directory): per arm n ok/total, final val_loss
-mean/sd, train_time mean/sd, step-sum (train_time of the last training-progress line, i.e. the summed step
-time without the final validation), ms/step per schedule stage, and the arm's flags; then the paired
-(same-seed) deltas against the baseline arm, and each failed run's cause. The gate gets the first step of
-182/hadamard-fp8/README.md's workflow: the paired gap val(fp8) - val(FP8_OFF=1) in mnat (one sign convention
-throughout: + = fp8 worse), mean +- SE, 95% t-CI against the 0.5 mnat threshold, and only once every gate
-slot has finished. The hadamard phase compares each variant's step-time cost with the most the rotation could
-buy back (gate gap x SEC_PER_MNAT). A header shows the stack the session ran on (git sha/dirty, torch, triton,
-CUDA, driver, FA3, SLOW GPUs) with mismatches marked. The t2 phase is compared with @ldmberman's single run
-(2.8769 in 221 s, 38.1 ms/step).
+First a table of the methods, one row each for the root record (`base`) and the four variants: runs, mean
+val_loss, mean time, the best time anyone reported for that tree (on their node, not ours), the official record
+of its track, and how many runs hit the target. Then the details. A variant phase is a list of runs, each the
+`RESULT ...` line its variants/<name>/182/run_node.sh printed. The A/B phases (base, gate, attno, hadamard; each
+an ab_run.py results directory) show per arm n ok/total, final val_loss mean/sd, train_time mean/sd, step-sum
+(train_time of the last training-progress line, i.e. the summed step time without the final validation), ms/step
+per schedule stage and the arm's flags; then the paired (same-seed) deltas against the baseline arm, and each
+failed run's cause. The gate gets the first step of 182/hadamard-fp8/README.md's workflow: the paired gap
+val(fp8) - val(FP8_OFF=1) in mnat (+ = fp8 worse), mean +- SE, 95% t-CI against the 0.5 mnat threshold, and only
+once every gate slot has finished. attno gets the paired val delta in millinats with its 95% CI, the time delta,
+and the net seconds at SEC_PER_MNAT. The hadamard phase compares each variant's step-time cost with the most the
+rotation could buy back (gate gap x SEC_PER_MNAT). A header shows the stack the session ran on (git sha/dirty,
+torch, triton, CUDA, driver, FA3, SLOW GPUs) with mismatches marked.
 
 Stdlib only (reuses logparse/stats/ab_run from this folder), so it runs anywhere.
 """
@@ -45,13 +48,27 @@ SEC_PER_MNAT_BAND = (0.120, 0.250)  # what was measured across step counts
 HADAMARD_MIN_GAP_MNAT = float(os.environ.get("HADAMARD_MIN_GAP_MNAT", "2.0"))
 WANT_STACK = dict(torch="2.10.0+cu128", triton="3.6.0")
 MIN_DRIVER = 580
-T2_REF = dict(val_loss=2.8769, train_time_s=221.0, step_avg_ms=38.1, target=2.877)
+TRACK_RECORD = {1: ("39.9 s", 3.28), 2: ("17.35 min (1041 s)", 2.92)}   # official record, target
+# phase -> what it runs and the best time REPORTED for that tree (PR authors' nodes, not ours; the base row is
+# the official record). Numbers as of 2026-11-11.
+METHODS = {
+    "base": dict(name="root record #92 ANVIL2", track=1, reported="39.9 s (official)"),
+    "t1gpu": dict(name="t1-gpu-stack (PR #397)", track=1, reported="30.67 s, n=12"),
+    "t1cpu": dict(name="t1-cpu-ngram (PR #381)", track=1, reported="9.653 s, n=16 (PR #380)"),
+    "t2cpu": dict(name="t2-cpu-ngram", track=2, reported="221 s, 1 run"),
+    "t2gpu": dict(name="t2-gpu-port (PR #261)", track=2, reported="860.5 s (14.34 min)"),
+}
+# Single runs the friend made on the node before any session existed (logs not in the repo).
+PRIOR_NODE_RUNS = ("earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780, "
+                   "1194 steps; t1-gpu-stack 30.957 s, val_loss 3.276481, 1053 steps (981 scheduled)")
+VARIANT_PHASES = ("t1gpu", "t1cpu", "t2cpu", "t2gpu")
+PHASE_ORDER = ["env", "tests", "sanity", "base", *VARIANT_PHASES, "gate", "attno", "hadamard", "bundle"]
+RESULT_RE = re.compile(r"^RESULT (.*)$", re.M)
 HIDDEN_ENV = {"DATA_PATH", "TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "TRAIN_SEED"}
 
 STAGE_BOUNDS_RE = re.compile(r"stage boundaries=(\[[0-9(), ]*\])")
 STAGE_ENDS_RE = re.compile(r"\[schedule\] stage ends=(\[[0-9, ]*\])")
 FP8_FLAGS_RE = re.compile(r"^fp8 experiment: (.*)$", re.M)
-ENDPOINT_RE = re.compile(r"^endpoint_result: (.*)$", re.M)
 
 
 # ----------------------------------------------------------------------------- per-log details
@@ -337,7 +354,187 @@ def gate_lines(g: dict) -> list[str]:
     return out
 
 
-# ----------------------------------------------------------------------------- t2
+# ----------------------------------------------------------------------------- attno
+
+def attno_lines(ab: dict) -> list[str]:
+    """Paired (same seed) FP8_ATTN_O=1 minus the record: val delta, time delta, and the net in seconds when a
+    millinat of val loss is priced at SEC_PER_MNAT (and at both ends of the measured band)."""
+    base, out = ab["baseline"], []
+    for arm in ab["arms"]:
+        if arm == base:
+            continue
+        ok = {r["rep"] for r in ab["groups"][base] if r["status"] == "ok"} & {r["rep"] for r in ab["groups"][arm] if r["status"] == "ok"}
+        b = {r["rep"]: r for r in ab["groups"][base]}
+        pairs = [(r.get("val_loss"), b[r["rep"]].get("val_loss"), r.get("train_time_s"), b[r["rep"]].get("train_time_s"))
+                 for r in ab["groups"][arm] if r["rep"] in ok]
+        pairs = [x for x in pairs if None not in x]
+        dv = [(va - vb) * 1000 for va, vb, _, _ in pairs]
+        dt = [ta - tb for _, _, ta, tb in pairs]
+        n = len(pairs)
+        if n == 0:
+            out.append(f"ATTN_O ({arm} - {base}): no complete seed pair, nothing to report")
+            continue
+        mv, sev, lov, hiv, _ = ci95(dv)
+        mt, set_, lot, hit, _ = ci95(dt)
+
+        def net(price):
+            return ci95([t + v * price for v, t in zip(dv, dt)])
+        mn, _, lon, hin, _ = net(SEC_PER_MNAT)
+        lo_band, hi_band = sorted((net(SEC_PER_MNAT_BAND[0])[0], net(SEC_PER_MNAT_BAND[1])[0]))
+        if n < 2:
+            out.append(f"ATTN_O ({arm} - {base}, n=1 seed pair: ONE pair, no confidence interval, not a result): "
+                       f"val delta {mv:+.2f} millinats, train_time delta {mt:+.3f} s, net {mn:+.3f} s at "
+                       f"{SEC_PER_MNAT * 1000:.0f} ms per millinat")
+            continue
+        verdict = ("the 95% CI of the net is below 0: the flag pays on this node" if hin < 0 else
+                   "the 95% CI of the net is above 0: the flag costs time on this node" if lon > 0 else
+                   f"the 95% CI of the net includes 0: n={n} pairs do not settle it")
+        out += [f"ATTN_O ({arm} - {base}, n={n} seed pairs; + = FP8_ATTN_O=1 worse / slower):",
+                f"  val delta        {mv:+.2f} ± {sev:.2f} millinats (SE), 95% CI [{lov:+.2f}, {hiv:+.2f}]",
+                f"  train_time delta {mt:+.3f} ± {set_:.3f} s (SE), 95% CI [{lot:+.3f}, {hit:+.3f}]",
+                f"  net = time delta + val delta x {SEC_PER_MNAT * 1000:.0f} ms per millinat = {mn:+.3f} s, 95% CI [{lon:+.3f}, {hin:+.3f}]; "
+                f"at the measured {SEC_PER_MNAT_BAND[0] * 1000:.0f}-{SEC_PER_MNAT_BAND[1] * 1000:.0f} ms per millinat band: "
+                f"{lo_band:+.3f} to {hi_band:+.3f} s",
+                f"  -> {verdict}"]
+    return out
+
+
+# ----------------------------------------------------------------------------- variants (run_node.sh results)
+
+def parse_result(text: str) -> dict:
+    """The last `RESULT k=v ...` line of a run's output (the node contract) -> dict(ok, val_loss, train_time_s,
+    steps, target, hit, log, variant, reason). ok needs a finite val_loss and train_time_s and no status=failed."""
+    lines = RESULT_RE.findall(text)
+    if not lines:
+        tail = [ln for ln in text.splitlines() if ln.strip()][-1:] or ["(no output)"]
+        return dict(ok=False, reason="no RESULT line; last output line: " + tail[0][:200])
+    kv = dict(item.split("=", 1) for item in lines[-1].split() if "=" in item)
+    out = dict(ok=False, variant=kv.get("variant"), raw="RESULT " + lines[-1])
+    if kv.get("status") == "failed":
+        m = re.search(r"reason=(.*)$", lines[-1])
+        return dict(out, reason=(m.group(1) if m else "status=failed without a reason")[:300])
+    try:
+        out.update(val_loss=float(kv["val_loss"]), train_time_s=float(kv["train_time_s"]), target=float(kv["target"]),
+                   steps=int(kv["steps"]), hit=int(kv["hit"]), log=kv.get("log"))
+    except (KeyError, ValueError) as e:
+        return dict(out, reason=f"malformed RESULT line ({type(e).__name__}: {e}): {lines[-1][:200]}")
+    if not (math.isfinite(out["val_loss"]) and math.isfinite(out["train_time_s"])):
+        return dict(out, reason=f"val_loss/train_time_s not finite: {lines[-1][:200]}")
+    if out["hit"] != int(out["val_loss"] <= out["target"]):
+        out["note"] = f"hit={out['hit']} disagrees with val_loss {out['val_loss']} vs target {out['target']}"
+    return dict(out, ok=True)
+
+
+def parse_run(text: str, rc: int, wall_s=None, seed=None, variant=None, run_env=None) -> dict:
+    r = parse_result(text)
+    if r["ok"] and rc != 0:
+        r.update(ok=False, reason=f"exit code {rc} despite a RESULT line")
+    elif not r["ok"] and rc == 124:
+        r["reason"] = "timed out (the session's per-run limit); " + r["reason"]
+    if r["ok"] and variant and r.get("variant") not in (None, variant):
+        r["note"] = f"RESULT says variant={r['variant']}, expected {variant}"
+    return dict(r, rc=rc, wall_s=wall_s, seed=seed or None, run_env=run_env or None)
+
+
+def load_variant(root: str, phase: str) -> dict:
+    """runs: the latest result of each run slot (NN.result); retried: how many failed attempts were set aside."""
+    d = os.path.join(root, phase, "runs")
+    names = sorted(os.listdir(d)) if os.path.isdir(d) else []
+    runs = []
+    for n in names:
+        if re.fullmatch(r"\d+\.result", n):
+            try:
+                r = json.loads(_read(os.path.join(d, n)))
+            except ValueError:
+                r = dict(ok=False, reason="unreadable result file (the session was killed while writing it)")
+            runs.append(dict(r, run=int(n.split(".")[0])))
+    planned = _read(os.path.join(root, phase, "planned")).strip()
+    envs = sorted({r.get("run_env") or "" for r in runs})
+    return dict(runs=runs, planned=int(planned) if planned.isdigit() else len(runs),
+                run_env=" / ".join(e or "(none)" for e in envs) if envs not in ([], [""]) else "", mixed_env=len(envs) > 1,
+                retried=sum(bool(re.fullmatch(r"\d+\.fail\d+\.result", n)) for n in names))
+
+
+def variant_lines(root: str, phase: str, status: str = "") -> list[str]:
+    v = load_variant(root, phase)
+    m = METHODS[phase]
+    ok = [r for r in v["runs"] if r.get("ok")]
+    out = [f"== {phase}: {m['name']}, {len(ok)}/{v['planned']} run(s) ok" + (f"  [{status}]" if status else "")]
+    if v["run_env"]:
+        out.append(f"  run env: {v['run_env']}" + ("  !! the runs did NOT all use the same env: the mean above mixes configurations" if v["mixed_env"] else ""))
+    for r in v["runs"]:
+        if r.get("ok"):
+            out.append(f"  run {r['run']}: val_loss={r['val_loss']:.4f} train_time_s={r['train_time_s']:.3f} steps={r['steps']} "
+                       f"target={r['target']} hit={r['hit']}" + (f" seed={r['seed']}" if r.get("seed") else "")
+                       + (f" wall={r['wall_s']}s" if r.get("wall_s") is not None else "")
+                       + (f" log={os.path.basename(r['log'])}" if r.get("log") else "")
+                       + (f"  !! {r['note']}" if r.get("note") else ""))
+        else:
+            out.append(f"  run {r['run']}: FAILED (rc {r.get('rc', '?')}): {r.get('reason', '?')}")
+    if v["planned"] > len(v["runs"]):
+        out.append(f"  {v['planned'] - len(v['runs'])} planned run(s) never started")
+    if v["retried"]:
+        out.append(f"  {v['retried']} earlier failed attempt(s) were retried (runs/NN.failK.*)")
+    chk = _read(os.path.join(root, phase, "check.txt"))
+    out += ["  check: " + ln[:240] for ln in chk.splitlines() if ln.startswith(("FAIL ", "WARN "))][:12]
+    if not v["runs"] and not chk:
+        pre = _read(os.path.join(root, phase, "check_pre.txt"))
+        out += ["  check (before prep): " + ln[:240] for ln in pre.splitlines() if ln.startswith("FAIL ")][:12]
+    return out
+
+
+def _mean_cell(xs, fmt):
+    if not xs:
+        return "-"
+    m, sd = stats.mean_sd(xs)
+    return fmt.format(m) + (f" ± {fmt.format(sd)}" if len(xs) > 1 else "")
+
+
+def methods_table(root: str, smap: dict) -> list[str]:
+    """method | runs | mean val_loss | mean time_s | best reported | official record | target hit."""
+    rows = [("method", "runs", "mean val_loss", "mean time_s", "best reported", "official record", "target hit")]
+    seen = False
+    for phase, m in METHODS.items():
+        rec, target = TRACK_RECORD[m["track"]]
+        status = smap.get(phase, "")
+        if phase == "base":
+            ab = load_ab(os.path.join(root, "base"))
+            ok = [r for r in ab["groups"][ab["baseline"]] if r["status"] == "ok"] if ab else []
+            vals, times = [r["val_loss"] for r in ok if r.get("val_loss") is not None], [r["train_time_s"] for r in ok if r.get("train_time_s") is not None]
+            planned, present = (ab["plan"]["n"] if ab else 0), ab is not None
+            hits = sum(v <= target for v in vals)
+        else:
+            v = load_variant(root, phase)
+            ok = [r for r in v["runs"] if r.get("ok")]
+            vals, times = [r["val_loss"] for r in ok], [r["train_time_s"] for r in ok]
+            planned, present = v["planned"], bool(v["runs"])
+            hits = sum(r["hit"] for r in ok)
+            m = dict(m, name=m["name"] + (f" [{v['run_env']}]" if v["run_env"] else ""))
+        seen = seen or present or bool(status)
+        if status.startswith("SKIP"):
+            runs = "SKIPPED"
+        elif not present:
+            runs = "FAILED" if status.startswith("FAIL") else "not run"
+        else:
+            runs = f"{len(ok)}/{planned} ok" + (" (ONE run)" if len(ok) == 1 else "")
+        rows.append((f"{phase}: {m['name']}", runs, _mean_cell(vals, "{:.4f}"), _mean_cell(times, "{:.2f}"), m["reported"],
+                     f"{rec}, <= {target}", f"{hits}/{len(ok)} runs" if ok else "-"))
+    if not seen:
+        return []
+    w = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+    out = ["METHODS (time_s and val_loss: measured in THIS session on THIS node; ± is the sd over the runs)"]
+    out += ["  " + " | ".join(c.ljust(w[i]) for i, c in enumerate(r)).rstrip() for r in rows]
+    out += ["  best reported = the best time claimed for that tree on its author's node, not measured by us; it and the",
+            "  official record are other machines, so only rows of this table compare like with like. 'target hit' counts",
+            "  single runs at or under the target: a record needs the MEAN under it with p < 0.01 (stats.py gate), which",
+            "  1-4 runs cannot show. One run is one run: no spread, no significance.",
+            "  " + PRIOR_NODE_RUNS]
+    for phase in METHODS:
+        st = smap.get(phase, "")
+        if st.startswith("SKIP"):
+            out.append(f"  {phase} {st[:400]}")
+    return out
+
 
 def tests_lines(root: str) -> list[str]:
     d = os.path.join(root, "tests")
@@ -421,57 +618,14 @@ def phase_tail_lines(root: str, phase: str, files: list[str], status: str) -> li
     return []
 
 
-def t2_result(t2_dir: str) -> dict | None:
-    cands = [os.path.join(t2_dir, f) for f in sorted(os.listdir(t2_dir)) if f.endswith(".txt")] if os.path.isdir(t2_dir) else []
-    best = None
-    for p in cands:
-        with open(p, errors="replace") as f:
-            text = f.read()
-        r = logparse.parse_text(text, p)
-        ep = ENDPOINT_RE.findall(text)
-        if ep:
-            kv = dict(item.split("=", 1) for item in ep[-1].split() if "=" in item)
-            r_val = float(kv.get("val_loss", "nan"))
-            r_time = float(kv["train_time_ms"]) / 1000 if "train_time_ms" in kv else r.train_time_s
-            cand = dict(path=os.path.basename(p), val_loss=r_val, train_time_s=r_time, steps=int(kv.get("steps", 0)) or r.final_step,
-                        step_avg_ms=r.step_avg_ms, completed=True)
-        elif r.val_loss is not None:
-            cand = dict(path=os.path.basename(p), val_loss=r.val_loss, train_time_s=r.train_time_s, steps=r.final_step,
-                        step_avg_ms=r.step_avg_ms, completed=r.completed)
-        else:
-            continue
-        if best is None or (cand["completed"] and not best["completed"]):
-            best = cand
-    return best
-
-
-def t2_lines(t2_dir: str) -> list[str]:
-    r = t2_result(t2_dir)
-    if r is None:
-        return ["== t2: no result"]
-    dv = (r["val_loss"] - T2_REF["val_loss"]) * 1000
-    tt = r["train_time_s"] if r["train_time_s"] is not None else float("nan")
-    dt = tt - T2_REF["train_time_s"]
-    ok = r["val_loss"] <= T2_REF["target"] + 0.003
-    return [f"== t2 ({r['path']}): steps={r['steps']}{'' if r['completed'] else ' (INCOMPLETE)'} val_loss={r['val_loss']:.4f} "
-            f"train_time={tt:.1f} s step_avg={r['step_avg_ms'] or float('nan'):.2f} ms | "
-            f"ref 2.8769 in 221 s (38.1 ms): Δval {dv:+.1f} mnat, Δtime {dt:+.1f} s -> "
-            f"{'reproduces (≤ 2.880)' if ok else 'does NOT reproduce ~2.877'}"]
-
-
 # ----------------------------------------------------------------------------- whole session
 
 def status_map(root: str) -> dict:
     d = os.path.join(root, "status")
     if not os.path.isdir(d):
         return {}
-    order = ["env", "tests", "sanity", "gate", "hadamard", "t2", "bundle"]
-    names = sorted(os.listdir(d), key=lambda n: (order.index(n) if n in order else 99, n))
+    names = sorted(os.listdir(d), key=lambda n: (PHASE_ORDER.index(n) if n in PHASE_ORDER else 99, n))
     return {n: _read(os.path.join(d, n)).strip() for n in names}
-
-
-def statuses(root: str) -> list[str]:
-    return [f"{n}: {v}" for n, v in status_map(root).items()]
 
 
 def gate_gap(root: str) -> float | None:
@@ -497,27 +651,35 @@ def summarize(root: str) -> str:
     smap = status_map(root)
     if smap:
         lines += ["phases: " + " | ".join(f"{n}: {v}" for n, v in smap.items())]
+    mt = methods_table(root, smap)
+    lines += ([""] + mt) if mt else []
+    ov = [ln for ln in _read(os.path.join(root, "prep_overlap.txt")).splitlines() if ln.strip()]
+    if ov:
+        lines += ["", "note: variant downloads/builds (low priority) overlapped timed work; times there may be slightly inflated:"]
+        lines += ["  " + ln for ln in ov[:12]]
     if not any(ln.startswith("  !! ") for ln in lines):  # the STACK lines already say why env failed
         lines += phase_tail_lines(root, "env", ["env.txt"], smap.get("env", ""))
     t = tests_lines(root)
     if t:
         lines += [""] + t
     lines += phase_tail_lines(root, "sanity", ["sanity.txt"], smap.get("sanity", ""))
-    attempts = sorted(n for n in os.listdir(root) if re.fullmatch(r"(gate|hadamard)\.attempt\d+", n))
-    for phase in attempts + ["gate", "hadamard"]:  # earlier attempts (re-planned after failing) first
-        if phase.startswith("gate"):
-            ab = load_ab(os.path.join(root, phase))
-            if ab is not None:
-                lines += [""] + ab_table(phase, ab, gate=True) + gate_lines(gate_decision(ab))
-        else:
+    attempts = sorted(n for n in os.listdir(root) if re.fullmatch(r"(base|gate|attno|hadamard)\.attempt\d+", n))
+    for phase in VARIANT_PHASES:
+        if os.path.isdir(os.path.join(root, phase)) and not smap.get(phase, "").startswith("SKIP"):
+            lines += [""] + variant_lines(root, phase, smap.get(phase, ""))
+            lines += phase_tail_lines(root, phase, ["prep.txt"], smap.get(phase, "")) if not load_variant(root, phase)["runs"] else []
+    for phase in attempts + ["base", "gate", "attno", "hadamard"]:  # earlier attempts (re-planned after failing) first
+        kind = phase.split(".")[0]
+        if kind == "hadamard":
             h = hadamard_lines(root, phase)
             lines += [""] + h if h else []
-    t2s = smap.get("t2", "")
-    if os.path.isdir(os.path.join(root, "t2")) and not t2s.startswith("SKIP"):
-        lines += [""] + t2_lines(os.path.join(root, "t2"))
-        lines += phase_tail_lines(root, "t2", ["stdout.txt", "prefetch.txt"], t2s)
+            continue
+        ab = load_ab(os.path.join(root, phase))
+        if ab is None:
+            continue
+        lines += [""] + ab_table(phase, ab, gate=kind == "gate")
+        lines += gate_lines(gate_decision(ab)) if kind == "gate" else attno_lines(ab) if kind == "attno" else []
     return "\n".join(lines) + "\n"
-
 
 def open_input(path: str) -> tuple[str, tempfile.TemporaryDirectory | None, str | None]:
     """(session root, tempdir to clean up, warning). A truncated bundle (a cut-off scp) yields what it holds."""
@@ -553,10 +715,44 @@ def main(argv=None):
     ap.add_argument("--gate", help="an ab_run gate directory: print its table and decision only")
     ap.add_argument("--write-decision", help="with --gate: write GATE_* shell variables to this file")
     ap.add_argument("--hadamard", metavar="SESSION_DIR", help="print the hadamard phase's table against the gate's buy-back bound")
+    ap.add_argument("--base", metavar="SESSION_DIR", help="print the base phase's table")
+    ap.add_argument("--attno", metavar="SESSION_DIR", help="print the attno phase's table and its net-seconds lines")
+    ap.add_argument("--variant", nargs=2, metavar=("SESSION_DIR", "PHASE"), help="print one variant phase's runs")
+    ap.add_argument("--parse-run", metavar="OUT", help="a variant run's captured output: print its result as JSON; exit 0 if the run is ok")
+    ap.add_argument("--rc", type=int, default=0, help="with --parse-run: the run's exit code")
+    ap.add_argument("--wall-s", type=int, help="with --parse-run: wall seconds of the run")
+    ap.add_argument("--seed", help="with --parse-run: the SEED the run got")
+    ap.add_argument("--run-env", help="with --parse-run: the extra K=V environment the run got")
+    ap.add_argument("--variant-name", help="with --parse-run: the expected variant= value")
+    ap.add_argument("--result-ok", metavar="FILE", help="a stored result (JSON): exit 0 if it is an ok run")
+    ap.add_argument("--result-field", nargs=2, metavar=("FIELD", "FILE"), help="print one field of a stored result")
     ap.add_argument("--check", metavar="DIR", help="an ab_run directory: print its state; exit 0 complete and usable, "
                     "3 slots pending, 4 complete but unusable (re-plan), 5 an arm failed every run (systematic: do not re-plan), 2 no plan")
     ap.add_argument("--check-gate", action="store_true", help="with --check: also require a gate decision (>= 2 pairs)")
     a = ap.parse_args(argv)
+    if a.parse_run:
+        r = parse_run(_read(a.parse_run), a.rc, a.wall_s, a.seed, a.variant_name, a.run_env)
+        print(json.dumps(r))
+        return 0 if r["ok"] else 1
+    if a.result_ok or a.result_field:
+        try:
+            r = json.loads(_read(a.result_ok or a.result_field[1]))
+        except ValueError:
+            r = {}
+        if a.result_field:
+            print(r.get(a.result_field[0]) or "")
+            return 0
+        return 0 if r.get("ok") else 1
+    if a.variant:
+        print("\n".join(variant_lines(*a.variant)))
+        return 0
+    for phase, sd in (("base", a.base), ("attno", a.attno)):
+        if sd:
+            ab = load_ab(os.path.join(sd, phase))
+            if ab is None:
+                raise SystemExit(f"no plan.json in {sd}/{phase}")
+            print("\n".join(ab_table(phase, ab) + (attno_lines(ab) if phase == "attno" else [])))
+            return 0
     if a.check:
         ab = load_ab(a.check)
         if ab is None:
