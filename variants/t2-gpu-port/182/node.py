@@ -8,7 +8,8 @@
 
 Environment (all optional): NPROC (8), DATA_PATH (the repo root), LOG_DIR (<variant>/runs), EXTRA_ENV
 ("K=V K=V", added to the trainer's environment), DRY_RUN=1, RUN_TIMEOUT (seconds), SKIP_CHECK=1,
-PREP_TIMEOUT (3600), PREP_SHARDS (25), AB_RUNS (2 pairs), AB_A / AB_B (flag sets), PYTHON.
+PREP_TIMEOUT (3600), PREP_SHARDS (25), AB_RUNS (2 pairs), AB_A / AB_B (flag sets), PYTHON, ALLOW_STACK=1 (run on a
+torch / triton other than the pinned 2.10.0+cu128 / 3.6.0: check WARNs instead of FAILing).
 """
 import json
 import math
@@ -33,6 +34,11 @@ FA3_REPO = "varunneal/flash-attention-3"
 # torch (major.minor) x CUDA builds FA3_REPO publishes for x86_64 linux (its build/ folder, 2026-11-11)
 FA3_TORCH = ("2.8", "2.9", "2.10", "2.11", "2.12")
 FA3_CUDA = ("12.6", "12.8", "13.0")
+# The stack PR #261 was measured on and the repo root pins. Anything else FAILs check unless ALLOW_STACK=1:
+# Inductor's fusion and memory plan, the FA3 wheel and the timing all depend on it.
+WANT_TORCH, WANT_TRITON = "2.10.0+cu128", "3.6.0"
+STACK_FIX = ("fix: from the repo root, bash 182/tools/node_setup.sh --mode venv (builds .venv-run with torch 2.10.0+cu128 "
+             "and triton 3.6.0), then rerun with PYTHON=<repo>/.venv-run/bin/python; or ALLOW_STACK=1 to run on this stack anyway")
 # This tree's knobs (train_gpt_medium.py). Anything else in EXTRA_ENV is passed through but flagged.
 FLAGS = ("COORD_DESCENT_TUNING", "CANON_MASK", "VAL_CE_CHUNKS", "PREFIX_WEIGHT", "PREFIX_HOLD_FRAC", "PREFIX_END_FRAC",
          "XSA", "XSA_LAYERS", "ATTN_GATE", "FUSED_MLP", "NUM_SCHEDULED_ITERATIONS", "NUM_EXTENSION_ITERATIONS",
@@ -48,6 +54,11 @@ TRAIN_RE = re.compile(r"^step:(\d+)/(\d+) train_time:(\d+)ms", re.M)
 CANON_RE = re.compile(r"^canon_mask: val_loss_masked:(\S+) val_loss_unmasked:(\S+) delta:(\S+) canon_ms:(\S+)", re.M)
 LOGPATH_RE = re.compile(r"^(logs/[0-9a-f-]{36}\.txt)\s*$", re.M)
 PEAK_RE = re.compile(r"^peak memory allocated: (\d+) MiB", re.M)
+TORCH_RE = re.compile(r"^Running PyTorch (\S+)", re.M)
+# train_gpt_medium.py's out-of-memory report (first line per rank) and its validation retries
+OOM_RE = re.compile(r"^(OOM rank=\d+ phase=.*)$", re.M)
+OOM_RECOVERED_RE = re.compile(r"^(OOM rank=\d+ recovered: .*)$", re.M)
+MEM_RE = re.compile(r"^(mem rank=\d+ at=\S+ .*)$", re.M)
 ERROR_RE = re.compile(r"^(\w*(?:Error|Exception|Interrupt)\b.*|.*CUDA out of memory.*|.*Killed.*)$", re.M)
 
 
@@ -59,7 +70,8 @@ def parse_log(text: str) -> dict:
     vals = [(int(s), int(t), v, int(ms)) for s, t, v, ms in VAL_RE.findall(text)]
     trains = TRAIN_RE.findall(text)
     out = dict(completed=False, val_loss=None, train_time_s=None, steps=None, total_steps=None,
-               last_train_step=int(trains[-1][0]) if trains else None, canon=None, peak_mem_mib=None, error=None)
+               last_train_step=int(trains[-1][0]) if trains else None, canon=None, peak_mem_mib=None, error=None,
+               torch=None, oom=None, oom_recovered=OOM_RECOVERED_RE.findall(text), last_mem=None)
     if vals:
         step, total, raw, ms = vals[-1]
         try:
@@ -80,6 +92,15 @@ def parse_log(text: str) -> dict:
     m = PEAK_RE.search(text)
     if m:
         out["peak_mem_mib"] = int(m.group(1))
+    m = TORCH_RE.search(text)
+    if m:
+        out["torch"] = m.group(1)
+    ooms = OOM_RE.findall(text)
+    if ooms:
+        out["oom"] = ooms[0]
+    mems = MEM_RE.findall(text)
+    if mems:
+        out["last_mem"] = mems[-1]
     errs = ERROR_RE.findall(text[-20000:])
     if errs:
         out["error"] = errs[-1].strip()[:200]
@@ -99,14 +120,22 @@ def failure_reason(parsed: dict, rc: int | None = 0, timed_out: bool = False) ->
     if parsed["completed"]:
         where = "final validation was logged"
     bits = [where] + ([f"exit code {rc}"] if rc else []) + ([parsed["error"]] if parsed["error"] else [])
+    if parsed.get("oom"):
+        # where the trainer was and what the allocator held (memory_summary follows it in the log)
+        bits.append(" ".join(parsed["oom"].split())[:300])
+    elif parsed.get("last_mem") and parsed["error"] and "out of memory" in parsed["error"].lower():
+        bits.append("last memory line: " + parsed["last_mem"][:200])
     return "; ".join(bits)
 
 
 def result_line(parsed: dict, log: str, reason: str | None) -> str:
+    """torch= is the version the trainer logged, else the one the preflight saw, else unknown. It comes before
+    reason=, which runs to the end of the line."""
+    torch_ver = parsed.get("torch") or (LAST_PROBE.get("torch") or {}).get("version") or "unknown"
     if reason is not None:
-        return f"RESULT variant={VARIANT} status=failed reason={' '.join(reason.split())}"
+        return f"RESULT variant={VARIANT} status=failed torch={torch_ver} reason={' '.join(reason.split())}"
     return (f"RESULT variant={VARIANT} val_loss={parsed['val_loss']:.4f} train_time_s={parsed['train_time_s']:.3f} "
-            f"steps={parsed['steps']} target={TARGET:.2f} hit={int(parsed['val_loss'] <= TARGET)} log={log}")
+            f"steps={parsed['steps']} target={TARGET:.2f} hit={int(parsed['val_loss'] <= TARGET)} torch={torch_ver} log={log}")
 
 
 def canon_line(parsed: dict) -> str | None:
@@ -239,6 +268,9 @@ print("PROBE " + json.dumps(out))
 '''
 
 
+LAST_PROBE: dict = {}  # the preflight's probe result, for the RESULT line's torch= when the trainer logged none
+
+
 def probe(env: dict) -> dict:
     try:
         r = subprocess.run([python_exe(), "-c", PROBE, VARIANT_DIR, FA3_REPO], capture_output=True, text=True, timeout=45, env=env)
@@ -291,6 +323,8 @@ def collect_checks() -> list[tuple[str, str, str]]:
     home, how = cuda_headers()
     env, _ = run_env({})
     p = probe(env)
+    LAST_PROBE.clear()
+    LAST_PROBE.update(p)
     if "probe_error" in p:
         add("FAIL", "python", p["probe_error"] + f"; set PYTHON=<the env's python> (now {python_exe()})")
         p = {}
@@ -311,15 +345,20 @@ def collect_checks() -> list[tuple[str, str, str]]:
         elif mm not in FA3_TORCH or t["cuda"] not in FA3_CUDA:
             add("FAIL", "torch", f"{t['version']} (CUDA {t['cuda']}): {FA3_REPO} has no build for it (torch {'/'.join(FA3_TORCH)}, "
                                  f"CUDA {'/'.join(FA3_CUDA)}); fix: pip install torch==2.10 --index-url https://download.pytorch.org/whl/cu128")
-        elif mm != "2.10" or t["cuda"] != "12.8":
-            add("WARN", "torch", f"{t['version']} (CUDA {t['cuda']}); PR #261 was measured on 2.10.0+cu128, the repo root's pin")
+        elif t["version"] != WANT_TORCH:
+            allow = os.environ.get("ALLOW_STACK") == "1"
+            add("WARN" if allow else "FAIL", "torch",
+                f"{t['version']} (CUDA {t['cuda']}); PR #261 was measured on {WANT_TORCH}, the repo root's pin"
+                + ("; running anyway (ALLOW_STACK=1)" if allow else f"; {STACK_FIX}"))
         else:
             add("PASS", "torch", f"{t['version']} (CUDA {t['cuda']}), as PR #261's logs")
 
     if p:
         if "triton" in p:
-            lvl = "PASS" if p["triton"] == "3.6.0" else "WARN"
-            add(lvl, "triton", p["triton"] + ("" if lvl == "PASS" else "; PR #261 ran 3.6.0 (the version torch 2.10 requires)"))
+            allow = os.environ.get("ALLOW_STACK") == "1"
+            lvl = "PASS" if p["triton"] == WANT_TRITON else "WARN" if allow else "FAIL"
+            add(lvl, "triton", p["triton"] + ("" if lvl == "PASS" else f"; PR #261 ran {WANT_TRITON} (the version torch 2.10 requires)"
+                                              + ("; running anyway (ALLOW_STACK=1)" if allow else f"; {STACK_FIX}")))
         else:
             add("FAIL", "triton", f"{p.get('triton_error')}; fix: pip install triton==3.6.0 (comes with the torch cu128 wheel)")
         if "kernels" in p:
@@ -579,6 +618,8 @@ def cmd_run() -> int:
     c = canon_line(parsed)
     if c and reason is None:
         print(c)
+    for line in parsed["oom_recovered"][:1]:
+        print(f"NOTE a validation ran out of memory and was repeated with more row chunks: {line}")
     print(result_line(parsed, log, reason), flush=True)
     return 0 if reason is None else 1
 

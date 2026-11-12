@@ -33,7 +33,7 @@ import torch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
-from medium_extras import build_canonical_mask, build_prefix_table_bucket  # noqa: E402
+from medium_extras import build_canonical_mask, build_prefix_table_bucket, canon_val_ce  # noqa: E402
 
 VOCAB = 50304
 enc = tiktoken.get_encoding("gpt2")
@@ -333,14 +333,15 @@ def _load_trainer(flags: dict):
             self.param_cfgs = {}
         def reset(self): pass
 
-    g = dict(torch=torch, nn=nn, F=F, Tensor=torch.Tensor, math=math, os=os, np=np, dataclass=dataclasses.dataclass,
+    import gc
+    g = dict(torch=torch, nn=nn, F=F, Tensor=torch.Tensor, math=math, os=os, np=np, gc=gc, dataclass=dataclasses.dataclass,
              dist=types.SimpleNamespace(get_world_size=lambda: 1), args=args, device=torch.device("cpu"),
              grad_scale=1.0, grad_accum_steps=1, world_size=1, rank=0,
              get_kernel=lambda name: types.SimpleNamespace(flash_attn_interface=_FlashRef),
              FusedSoftcappedCrossEntropy=_FusedCERef, FusedSoftcappedCrossEntropyPrefix=_FusedCEPrefixRef, NorMuonAndAdam=_Opt, _sparse_comms_active=lambda: False,
              CANON_MASK=0, VAL_CE_CHUNKS=4, PREFIX_WEIGHT=0.0, PREFIX_HOLD_FRAC=0.2854, PREFIX_END_FRAC=0.6063,
              XSA=0, XSA_LAYERS="all", ATTN_GATE=1, MUON_LR=0.015, ADAM_LR=0.004,
-             FUSED_MLP=0, FusedLinearReLUSquareFunction=_fused_mlp_class())
+             FUSED_MLP=0, FusedLinearReLUSquareFunction=_fused_mlp_class(), canon_val_ce=canon_val_ce)
     g.update(flags)
     exec(compile(model_src + tm_src, "train_gpt_medium.py[model+tm]", "exec"), g)
     return g
@@ -389,6 +390,7 @@ def _smoke(flags: dict, canon_fn=None, post_init=None, seed=0):
         if canon_fn is not None:
             model.canon_mask.copy_(canon_fn(model.vocab_size, inp, tgt))
             val_masked = float(model(inp, tgt, seqlens, bigram, tm.get_forward_args()))
+    _smoke.last = dict(g=g, tm=tm, batch=(inp, tgt, seqlens, bigram))
     return float(loss.detach()), val, val_masked, model
 
 
@@ -439,8 +441,157 @@ def test_model_smoke():
           f"masked eval {cm[2]:.4f} < unmasked {cm[1]:.4f}")
 
 
+def _eval_loss(model, tm, batch):
+    with torch.no_grad():
+        return model(*batch, tm.get_forward_args())
+
+
+def test_val_chunks_give_the_same_mean():
+    """VAL_CE_CHUNKS only sizes the logit block: the eval loss of one tiny model is the full-batch mean at
+    1, 2, 4, 8, 16 and 32 chunks, unmasked and masked; the masked op equals the inline form it replaced."""
+    _, base_val, _, model = _smoke({"CANON_MASK": 1}, canon_fn=_random_sound_mask)
+    g, tm, batch = _smoke.last["g"], _smoke.last["tm"], _smoke.last["batch"]
+    inp, tgt = batch[0], batch[1]
+    masked = {}
+    for n in (1, 2, 4, 8, 16, 32):
+        g["VAL_CE_CHUNKS"] = n
+        masked[n] = float(_eval_loss(model, tm, batch))
+    model.canon_mask.zero_()
+    unmasked = {}
+    for n in (1, 2, 4, 8, 16, 32):
+        g["VAL_CE_CHUNKS"] = n
+        unmasked[n] = float(_eval_loss(model, tm, batch))
+    g["CANON_MASK"] = 0  # PR #261's inline path, same weights, no mask buffer read
+    inline = {}
+    for n in (1, 4, 8):
+        g["VAL_CE_CHUNKS"] = n
+        inline[n] = float(_eval_loss(model, tm, batch))
+    for d in (masked, unmasked, inline):
+        assert max(d.values()) - min(d.values()) < 2e-6, d
+    assert abs(unmasked[1] - inline[1]) < 2e-6 and masked[1] < unmasked[1], (masked, unmasked, inline)
+
+    # the op against the inline masked loss this tree computed before (same chunks, same formula)
+    gen = torch.Generator().manual_seed(3)
+    V, rows, d = 1024, 256, 32
+    x = torch.randn(rows, d, generator=gen).bfloat16()
+    w = torch.randn(d, V, generator=gen).bfloat16()
+    t = torch.randint(0, V, (rows,), generator=gen)
+    i = torch.randint(0, V, (rows,), generator=gen).int()
+    mask = _random_sound_mask(V, i, t)
+    def inline_masked(n):
+        loss = 0
+        for xr, tc, ic in zip(x.chunk(n), t.chunk(n), i.chunk(n)):
+            logits = 23 * torch.sigmoid(((xr @ w).float() + 5) / 7.5)
+            shifts = torch.arange(8, dtype=torch.uint8)
+            dropped = (mask[ic, :, None] >> shifts & 1).view(logits.shape).bool()
+            loss += torch.nn.functional.cross_entropy(logits.masked_fill(dropped, -60.0), tc, reduction="mean") / n
+        return float(loss)
+    full = inline_masked(1)
+    for n in (1, 8, 64):
+        assert abs(float(canon_val_ce(x, w, t, i, mask, n)) - inline_masked(n)) < 1e-5
+        assert abs(float(canon_val_ce(x, w, t, i, mask, n)) - full) < 1e-5
+    print(f"  eval loss equal at 1..32 chunks: masked {masked[8]:.6f}, unmasked {unmasked[8]:.6f}")
+
+
+def test_run_validation_retries_out_of_memory():
+    """run_validation repeats a pass that ran out of memory with twice the chunks and returns the same mean;
+    other errors, and an out-of-memory error at the chunk limit, still propagate."""
+    import pytest
+    model = _smoke({"CANON_MASK": 1}, canon_fn=_random_sound_mask)[3]
+    g, tm, batch = _smoke.last["g"], _smoke.last["tm"], _smoke.last["batch"]
+    rows = batch[0].numel()
+    attempts = []
+
+    def flaky(*a):
+        attempts.append(g["VAL_CE_CHUNKS"])
+        if g["VAL_CE_CHUNKS"] < 16:
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 6.14 GiB")
+        return model(*a)
+    make_loader = lambda: iter([batch + (None,)] * 3)
+    g["VAL_CE_CHUNKS"] = 4
+    model.eval()
+    got = g["run_validation"](flaky, make_loader, 3, tm.get_forward_args, rows, "final_val")
+    assert attempts == [4, 8, 16, 16, 16] and g["VAL_CE_CHUNKS"] == 16, attempts
+    g["VAL_CE_CHUNKS"] = 4
+    want = float(_eval_loss(model, tm, batch))
+    assert abs(float(got) - want) < 2e-6, (float(got), want)
+    assert g["PHASE"]["phase"] == "final_val" and g["PHASE"]["tokens"] == rows
+
+    def broken(*a):
+        raise RuntimeError("NCCL error")
+    with pytest.raises(RuntimeError, match="NCCL"):
+        g["run_validation"](broken, make_loader, 3, tm.get_forward_args, rows, "val")
+    g["VAL_CE_CHUNKS"] = 32  # one retry at 64 chunks (the limit), then the error propagates
+    def always_oom(*a):
+        raise RuntimeError("CUDA error: out of memory")  # wrapped / non-typed form is recognized too
+    with pytest.raises(RuntimeError, match="out of memory"):
+        g["run_validation"](always_oom, make_loader, 3, tm.get_forward_args, rows, "val")
+    assert g["VAL_CE_CHUNKS"] == 64
+    assert g["is_oom"](RuntimeError("compile failed")) is False
+    wrapped = RuntimeError("backend failed")
+    wrapped.__cause__ = torch.OutOfMemoryError("CUDA out of memory")
+    assert g["is_oom"](wrapped)
+    lines = g["oom_lines"]()
+    assert lines[0].startswith("OOM rank=0 phase=val step=None tokens=64 max_seq_len=64 VAL_CE_CHUNKS=64"), lines[0]
+
+
+def test_dynamo_recompiles_when_val_ce_chunks_changes():
+    """The OOM retry relies on torch.compile guarding the VAL_CE_CHUNKS global the eval forward reads."""
+    import torch._dynamo
+    _, _, _, model = _smoke({"CANON_MASK": 1}, canon_fn=_random_sound_mask)
+    g, tm, batch = _smoke.last["g"], _smoke.last["tm"], _smoke.last["batch"]
+
+    class _FlashTraceable(_FlashRef):  # the same attention without unique(), so the forward is one graph as on GPU
+        @staticmethod
+        def flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, causal, softmax_scale, window_size):
+            T = q.size(0)
+            doc = torch.searchsorted(cu_seqlens_q, torch.arange(T), right=True)  # repeated ends sit past T
+            i, j = torch.arange(T)[:, None], torch.arange(T)[None, :]
+            allowed = (doc[:, None] == doc[None, :]) & (j <= i) & (i - j <= window_size[0])
+            att = torch.einsum("thd,shd->hts", q.float(), k.float()) * softmax_scale
+            att = att.masked_fill(~allowed, float("-inf")).softmax(-1)
+            return torch.einsum("hts,shd->thd", att, v.float()).type_as(q)
+    g["flash_attn_interface"] = _FlashTraceable
+    g["VAL_CE_CHUNKS"] = 4
+    eager = float(_eval_loss(model, tm, batch))
+    compiles = []
+    def backend(gm, example_inputs):
+        compiles.append(gm)
+        return gm.forward
+    torch._dynamo.reset()
+    cmodel = torch.compile(model, backend=backend, dynamic=False, fullgraph=True)  # as train_gpt_medium.py compiles it
+    g["VAL_CE_CHUNKS"] = 4
+    a = float(_eval_loss(cmodel, tm, batch))
+    first = len(compiles)
+    float(_eval_loss(cmodel, tm, batch))
+    assert len(compiles) == first, "a repeat call recompiled"
+    g["VAL_CE_CHUNKS"] = 8
+    b = float(_eval_loss(cmodel, tm, batch))
+    assert len(compiles) > first, "changing VAL_CE_CHUNKS did not recompile"
+    assert any("canon_val_ce" in str(gm.graph) and ", 8)" in str(gm.graph) for gm in compiles[first:]), \
+        [str(gm.graph)[-300:] for gm in compiles[first:]]
+    assert abs(a - b) < 2e-6 and abs(a - eager) < 2e-6
+    torch._dynamo.reset()
+
+
+def test_inductor_keeps_masked_chunks_apart():
+    """182/val_ce_memory.py: the inline masked loss holds every chunk's logit block at once, the op holds none
+    in the compiled graph. Needs Inductor's C++ toolchain; bash 182/val_ce_memory.sh runs it in docker."""
+    import pytest
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import val_ce_memory
+    try:
+        res = val_ce_memory.measure()
+    except Exception as e:  # no working C++ compiler for Inductor here
+        pytest.skip(f"Inductor cannot compile on this machine ({type(e).__name__}); use bash 182/val_ce_memory.sh")
+    assert res[(8, "inline masked")][0] > 4 * res[(8, "inline unmasked")][0], res
+    assert res[(8, "op masked")][1] == 0 and abs(res[(8, "op masked")][2] - res[(8, "inline masked")][2]) < 1e-4, res
+
+
 if __name__ == "__main__":
-    for t in [test_kernels_file_is_base_plus_prefix_section, test_surplus_none_grads, test_prefix_schedule, test_ce_kernel_logic, test_model_smoke, test_prefix_table, test_canonical_mask]:
+    for t in [test_kernels_file_is_base_plus_prefix_section, test_surplus_none_grads, test_prefix_schedule, test_ce_kernel_logic, test_model_smoke,
+              test_val_chunks_give_the_same_mean, test_run_validation_retries_out_of_memory, test_dynamo_recompiles_when_val_ce_chunks_changes,
+              test_prefix_table, test_canonical_mask]:
         print(t.__name__)
         t()
     print("all CPU checks passed")

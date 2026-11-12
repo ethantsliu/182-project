@@ -21,8 +21,8 @@ import node  # noqa: E402
 
 RUN_NODE = os.path.join(HERE, "run_node.sh")
 FIXTURE = os.path.join(HERE, "fixtures", "pr261_0f0f8a50.txt")
-RESULT_OK = re.compile(r"^RESULT variant=t2-gpu-port val_loss=\d+\.\d{4} train_time_s=\d+\.\d{3} steps=\d+ target=2\.92 hit=[01] log=\S+$")
-RESULT_FAIL = re.compile(r"^RESULT variant=t2-gpu-port status=failed reason=\S.*$")
+RESULT_OK = re.compile(r"^RESULT variant=t2-gpu-port val_loss=\d+\.\d{4} train_time_s=\d+\.\d{3} steps=\d+ target=2\.92 hit=[01] torch=\S+ log=\S+$")
+RESULT_FAIL = re.compile(r"^RESULT variant=t2-gpu-port status=failed torch=\S+ reason=\S.*$")
 
 with open(FIXTURE) as _f:
     REAL_LOG = _f.read()
@@ -31,7 +31,7 @@ CANON_TAIL = "canon_mask: val_loss_masked:2.914312 val_loss_unmasked:2.916101 de
 
 def clean_env(**extra):
     """The caller's environment without any knob of this tree or of the node contract."""
-    drop = set(node.FLAGS) | {"NPROC", "SEED", "EXTRA_ENV", "LOG_DIR", "DRY_RUN", "DATA_PATH", "RUN_TIMEOUT", "SKIP_CHECK",
+    drop = set(node.FLAGS) | {"NPROC", "SEED", "EXTRA_ENV", "LOG_DIR", "DRY_RUN", "DATA_PATH", "RUN_TIMEOUT", "SKIP_CHECK", "ALLOW_STACK",
                               "AB_RUNS", "AB_A", "AB_B", "PYTHON", "CUDA_HOME", "CUDA_PATH", "PREP_TIMEOUT", "PREP_SHARDS"}
     env = {k: v for k, v in os.environ.items() if k not in drop}
     env.update({k: str(v) for k, v in extra.items()})
@@ -50,7 +50,8 @@ def test_parse_real_pr261_log():
     assert p["steps"] == p["total_steps"] == 4150 and p["peak_mem_mib"] == 59977 and p["canon"] is None
     assert node.failure_reason(p) is None
     line = node.result_line(p, "/x/logs/a.txt", None)
-    assert line == "RESULT variant=t2-gpu-port val_loss=2.9161 train_time_s=860.467 steps=4150 target=2.92 hit=1 log=/x/logs/a.txt"
+    assert line == ("RESULT variant=t2-gpu-port val_loss=2.9161 train_time_s=860.467 steps=4150 target=2.92 hit=1 "
+                    "torch=2.10.0+cu128 log=/x/logs/a.txt")
     assert RESULT_OK.match(line)
 
 
@@ -64,6 +65,34 @@ def test_parse_truncated_log():
     assert RESULT_FAIL.match(line) and "\n" not in line and "val_loss=" not in line
 
 
+OOM_TAIL = """mem rank=3 at=warmup_end alloc_gib=9.10 peak_alloc_gib=58.40 reserved_gib=60.00 peak_reserved_gib=60.10 free_gib=19.0 total_gib=79.19
+OOM rank=3 phase=final_val step=4150 tokens=262144 max_seq_len=262144 VAL_CE_CHUNKS=64 alloc_gib=72.02 peak_alloc_gib=72.02 reserved_gib=73.10 peak_reserved_gib=73.10 free_gib=0.50 total_gib=79.19
+OOM rank=3 | |===========================================================================|
+OOM rank=3 | |                  PyTorch CUDA memory summary, device ID 3                 |
+Traceback (most recent call last):
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 6.14 GiB. GPU 3 has a total capacity of 79.19 GiB of which 512.00 MiB is free.
+"""
+
+
+def test_parse_oom_report_goes_into_the_reason():
+    """The trainer's OOM report (phase, step, tokens, allocator counters) lands in the one-line reason."""
+    cut = REAL_LOG[:REAL_LOG.index("step:4150/4150 val_loss")]
+    p = node.parse_log(cut + OOM_TAIL)
+    reason = node.failure_reason(p, rc=1)
+    assert "stopped at training step 4150 of 4150" in reason and "Tried to allocate 6.14 GiB" in reason
+    assert "OOM rank=3 phase=final_val step=4150 tokens=262144 max_seq_len=262144 VAL_CE_CHUNKS=64 alloc_gib=72.02" in reason
+    line = node.result_line(p, "x", reason)
+    assert RESULT_FAIL.match(line) and "\n" not in line and " torch=2.10.0+cu128 reason=" in line
+    # no report (e.g. an OOM inside NCCL): the last memory line stands in
+    p = node.parse_log(cut + OOM_TAIL.replace("OOM rank=3 phase=", "XOOM rank=3 phase="))
+    assert "last memory line: mem rank=3 at=warmup_end" in node.failure_reason(p, rc=1)
+    # a validation that recovered is noted, and is not a failure
+    rec = REAL_LOG.replace("step:4150/4150 val_loss", "OOM rank=0 recovered: final_val is repeated with VAL_CE_CHUNKS=16 "
+                                                      "(same per-token losses, smaller logit blocks)\nstep:4150/4150 val_loss")
+    p = node.parse_log(rec)
+    assert node.failure_reason(p) is None and p["oom_recovered"][0].startswith("OOM rank=0 recovered: final_val")
+
+
 def test_parse_no_steps_nan_and_timeout():
     p = node.parse_log("logs/x.txt\nTraceback (most recent call last):\nModuleNotFoundError: No module named 'kernels'\n")
     assert "no training step was logged" in node.failure_reason(p, rc=1) and "No module named 'kernels'" in node.failure_reason(p, rc=1)
@@ -75,7 +104,7 @@ def test_parse_no_steps_nan_and_timeout():
     assert "exit code 9" in node.failure_reason(node.parse_log(REAL_LOG), rc=9)
     # a missed target is a result, not a failure
     miss = node.parse_log(REAL_LOG.replace("val_loss:2.9161", "val_loss:2.9213"))
-    assert node.result_line(miss, "l", node.failure_reason(miss)).split()[5:7] == ["target=2.92", "hit=0"]
+    assert node.result_line(miss, "l", node.failure_reason(miss)).split()[5:8] == ["target=2.92", "hit=0", "torch=2.10.0+cu128"]
     # the source dump's own print statement is not a result line
     assert node.parse_log('print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{t:.0f}ms")')["val_loss"] is None
 
@@ -94,6 +123,10 @@ def test_trainer_log_lines_match_the_parser():
     assert 'print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms' in src
     assert 'print0(f"canon_mask: val_loss_masked:{val_loss:.6f} val_loss_unmasked:{unmasked_loss:.6f} "' in src
     assert 'f"delta:{unmasked_loss - val_loss:.6f} canon_ms:{canon_ms:.0f}"' in src
+    assert 'print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}", console=True)' in src
+    assert 'head = (f"OOM rank={rank} phase={PHASE[\'phase\']} step={PHASE[\'step\']} tokens={PHASE[\'tokens\']} "' in src
+    assert 'emit(f"OOM rank={rank} recovered: {phase} is repeated with VAL_CE_CHUNKS={VAL_CE_CHUNKS} "' in src
+    assert 'f"mem rank={rank} at=stage_end step={s} bs={get_bs(s - 1)} ws={get_ws(s - 1)[1]} "' in src
     for flag in node.FLAGS:  # every flag node.py forwards is read by the trainer, with the same name
         assert re.search(rf'_env_(int|float)\("{flag}"|os\.environ\.get\("{flag}"', src), flag
 
@@ -272,8 +305,27 @@ def test_run_preflight_blocks_a_doomed_run(fake):
     probe = dict(GOOD_PROBE, torch=dict(version="2.12.0", cuda=None, gpus=0))
     r = node_py("run", dict(env, SKIP_CHECK="0", FAKE_PROBE=json.dumps(probe), DATA_PATH=tmp))
     last = r.stdout.rstrip("\n").splitlines()[-1]
-    assert r.returncode == 1 and RESULT_FAIL.match(last) and "preflight" in last
+    assert r.returncode == 1 and RESULT_FAIL.match(last) and "preflight" in last and " torch=2.12.0 " in last
     assert not (tmp / "calls.txt").exists()  # the trainer was never started
+
+
+def test_run_preflight_blocks_an_unpinned_stack(fake):
+    """torch 2.11 (what the node ran): check FAILs with the fix, run never starts; ALLOW_STACK=1 lets it run."""
+    env, tmp = fake
+    bindir = make_node(tmp)
+    probe = dict(GOOD_PROBE, torch=dict(version="2.11.0+cu128", cuda="12.8", gpus=8))
+    env = dict(env, SKIP_CHECK="0", FAKE_PROBE=json.dumps(probe), DATA_PATH=tmp, PATH=bindir + os.pathsep + env["PATH"])
+    r = node_py("run", env)
+    last = r.stdout.rstrip("\n").splitlines()[-1]
+    assert r.returncode == 1 and RESULT_FAIL.match(last) and " torch=2.11.0+cu128 " in last
+    assert "preflight: 1 FAIL, first: torch: 2.11.0+cu128" in last and "node_setup.sh --mode venv" in last
+    assert not (tmp / "calls.txt").exists()
+    r = node_py("run", dict(env, ALLOW_STACK="1"))
+    last = r.stdout.rstrip("\n").splitlines()[-1]
+    assert r.returncode == 0 and RESULT_OK.match(last), r.stdout
+    assert "WARN torch: 2.11.0+cu128" in r.stdout and "running anyway (ALLOW_STACK=1)" in r.stdout
+    # the version the trainer logged wins over the probe's (the stand-in replays #261's log)
+    assert " torch=2.10.0+cu128 " in last
 
 
 def make_node(tmp, n_train=25, gpus=8, name="NVIDIA H100 80GB HBM3", mem=81559):
@@ -318,8 +370,10 @@ def test_check_node_problems(fake, change, expect):
 
 @pytest.mark.parametrize("probe_change,expect", [
     (dict(torch=dict(version="2.7.1+cu126", cuda="12.6", gpus=8)), "FAIL torch: 2.7.1+cu126 (CUDA 12.6): varunneal/flash-attention-3 has no build"),
-    (dict(torch=dict(version="2.11.0+cu128", cuda="12.8", gpus=8)), "WARN torch: 2.11.0+cu128"),
-    (dict(triton="3.5.1"), "WARN triton: 3.5.1"),
+    (dict(torch=dict(version="2.11.0+cu128", cuda="12.8", gpus=8)), "FAIL torch: 2.11.0+cu128 (CUDA 12.8); PR #261 was measured on 2.10.0+cu128"),
+    (dict(torch=dict(version="2.10.1+cu128", cuda="12.8", gpus=8)), "FAIL torch: 2.10.1+cu128"),
+    (dict(torch=dict(version="2.10.0+cu126", cuda="12.6", gpus=8)), "FAIL torch: 2.10.0+cu126"),
+    (dict(triton="3.5.1"), "FAIL triton: 3.5.1; PR #261 ran 3.6.0"),
     (dict(nvrtc=None, nvrtc_error="OSError: CUDA_HOME environment variable is not set."), "FAIL CE kernel compile: NVRTC: OSError: CUDA_HOME"),
     (dict(kernels=None, kernels_error="ModuleNotFoundError: No module named 'kernels'"), "FAIL kernels: ModuleNotFoundError"),
     (dict(kernels=dict(version="0.16.1", hub="1.29.0", fa3_cached=False)), "WARN flash-attention wheel"),
@@ -331,6 +385,10 @@ def test_check_software_problems(fake, probe_change, expect):
     r = node_py("check", dict(env, PATH=bindir + os.pathsep + env["PATH"], DATA_PATH=tmp, FAKE_PROBE=json.dumps(probe)))
     assert expect in r.stdout, r.stdout
     assert r.returncode == (1 if expect.startswith("FAIL") else 0), r.stdout
+    if expect.startswith(("FAIL torch: 2.1", "FAIL triton")):  # the pin, not a missing build: fix command + opt-out
+        assert "bash 182/tools/node_setup.sh --mode venv" in r.stdout and "ALLOW_STACK=1" in r.stdout
+        r = node_py("check", dict(env, PATH=bindir + os.pathsep + env["PATH"], DATA_PATH=tmp, FAKE_PROBE=json.dumps(probe), ALLOW_STACK="1"))
+        assert expect.replace("FAIL", "WARN", 1).split(";")[0] in r.stdout and r.returncode == 0, r.stdout
 
 
 def test_ab_end_to_end(fake):
