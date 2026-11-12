@@ -812,7 +812,7 @@ for p in "${SELECTED_PHASES[@]}"; do
   if [[ "${FORCE:-0}" != 1 && "$p" != bundle && "$(status_of "$p")" == PASS* ]]; then note="  (already PASS: skipped)"
   elif is_variant "$p"; then note="  ($(knob "$p" RUNS) run(s) of $(variant_dir "$p"); skipped if its check FAILs)"
   elif [[ "$p" == hadamard ]]; then note="  (only if the gate finds a gap)"
-  elif [[ "$p" == attno ]]; then note="  (skipped until FP8_ATTN_O is in this checkout)"; fi
+  elif [[ "$p" == attno ]] && ! git grep -q FP8_ATTN_O HEAD -- track_1_short/config.py 2>/dev/null; then note="  (skipped: FP8_ATTN_O is not in this checkout)"; fi
   log "$(printf '  %-9s %4s%s' "$p" "$(estimate "$p")" "$note")"
 done
 log "  total     $(printf '%4s' "$total") node-min upper bound (~$((total * 8)) GPU-min)"
