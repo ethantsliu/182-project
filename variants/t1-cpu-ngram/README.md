@@ -193,6 +193,89 @@ check before the clock, and the build-time line on stdout, which now names its t
 (before the clock) and the `val diagnostics:` accumulation (in the untimed validation loop) came later and are reports
 only. Not checked by running it.
 
+## `EXACT_BACKEND=sa`: the exact counts from suffix arrays (correct, and slower)
+
+**What.** `EXACT_BACKEND=sa` (default `gpu`) computes the chain's exact order-2..8 counts from a suffix array of
+each rank's corpus share on the host, infini-gram style, instead of the GPU scan in `exact_counts.py`. The code is
+`exact_match/src/sa.rs` (cargo feature `sa`, libsais 2.10.4 through `libsais-sys = "=0.2.0"`), and
+`track_1_short/exact_counts_sa.py`, which has ExactCounts' interface. The hook is one line in `train_gpt.py`. Off by
+default, and the default build does not compile the crate's new code.
+
+**How the counts are made now.** The exact counts do not live in the big host tables. Those tables (the 144 GiB in
+`/dev/shm` and the scan arenas, about 390 GiB in all) belong to the 6-, 3- and 2-token SlotIndexes that give the hint
+rows. After training, each GPU hashes the run's 12,189,696 queries into a table: the 10,485,760 validation positions
+plus 8 x 212,992 fit positions, 8 grams each. Then it scans its share of the 101 counted shards (about 1.3B tokens in
+GPU memory, loaded during training) and reads off the counts, and the counts are all-reduced. Per GPU that is 2.6 GB
+of corpus plus a 4.0 GiB table, and no host RAM. On the GPU this takes an estimated 0.1-0.3 s, which nobody has
+measured.
+
+**Same counts.** Each rank sorts the same share as the GPU (its files concatenated, so grams cross file junctions
+but not shares) and answers each query with binary searches. That gives N for context lengths 2..8 and C for
+context + target. Every query's start is cut at its segment, as on the GPU. The GPU reads a context's count from
+its query table, so it returns 0 for a context that no query inserted, even when the context occurs in the corpus.
+The SA backend copies that rule. The GPU's 64-bit hash collisions are the only possible difference. `182/sufarr/`
+checks both against one exact reference: the suffix arrays (cargo tests, and pytest through real shard files and
+the trainer's query layout), and the GPU kernels themselves under the Triton interpreter. The cases are random
+BOS-led corpora (including broken targets) and a real fineweb10B sample (6 x 12,000 training tokens, 6,000
+validation tokens).
+
+**Memory and time on the record's corpus (10.1B tokens, 8 ranks, 128 vCPUs).**
+
+| | GPU scan (default) | `EXACT_BACKEND=sa` |
+| --- | --- | --- |
+| host RAM | ~0 | 6 bytes/token (text 2 + 32-bit SA 4): 7.8 GB on a 1.3B-token rank, ~61 GB for all 8, plus 0.7 GB of counts per rank |
+| `/dev/shm` | 0 | 0 |
+| GPU memory | 2.6 GB corpus + 4.0 GiB table per GPU | 0.7 GB (the counts) |
+| build, on the clock | the corpus copy, under training | the suffix sort of 1.3B tokens per rank, all 8 at once |
+| after training | the scan, ~0.1-0.3 s (estimated) | 12.19M queries per rank on its threads |
+
+Measured here (x86-64 build under Rosetta, Apple silicon, so only indicative): libsais16 on real fineweb tokens sorts
+24 M tokens/s single-threaded at 4M tokens and 20 M/s at 32M. Queries run at 0.44 M/s per thread against a 32M-token
+array (1.4 M/s at 4M). Scaled to a 1.3B-token share: the sort takes 90-130 s single-threaded, or an assumed 15-45 s
+with OpenMP on 16 threads, while 8 ranks share the memory bandwidth and the trainer's own CPU work. The queries take
+about 2.5-5 s (0.15-0.3 M/s per thread on 16 threads). Matching the GPU scan's ~0.2 s would need about 60 M
+queries/s per rank, 10-25 times this. The whole run is about 9 s, and the build cannot start before the clock
+without becoming a pre-built index of training data.
+
+**Expected effect: +15 to +60 s per run, with no change in loss** (the counts are equal, so the chain and val_loss
+are too). There is no break-even: at 164 ms per mnat, even +15 s would need about 90 mnat. A suffix array would only
+pay if a RAM cap is ruled and the build is allowed to run longer than this run takes. The memory it could save is in
+the SlotIndexes, not here: one 40-bit array over all 10.1B tokens needs 7 bytes/token (71 GB), against the ~263-299 GiB
+of tables and arenas, but a build peak of 15 bytes/token and minutes of 64-128 threads. That is not implemented.
+**Rule risk:** upstream has no ruling on CPU or RAM. This backend adds about 128 threads for tens of seconds and
+~61 GB of host RAM on the clock, which is the "run-away CPU farm" the maintainer's #367 comment warns about.
+
+**Limits.** The backend does not take SCAN_HINTS samples (the 381 config's default), so it raises unless
+`SCAN_HINTS=0`, i.e. `CONFIG=380`. `SA_THREADS` sets the per-rank threads (default CPUs / world). The sort is
+single-threaded unless the build has `sa-openmp`. `SuffixCounts.longest_into` (∞-gram longest match) exists and is
+tested in Rust, but nothing calls it. The host check does not count the backend's RAM.
+
+**On the node** (memory and time, no timed A/B; there is no `182/experiments.d/` file because the expected sign is
+known):
+
+```bash
+bash variants/t1-cpu-ngram/182/run_node.sh prep                 # shards + default build
+bash variants/t1-cpu-ngram/182/sufarr/build.sh                  # rebuild with --features sa-openmp (else sa); rustc >= 1.85
+python variants/t1-cpu-ngram/182/sufarr/bench.py --data <DATA_PATH> --check-gpu             # 8 ranks at once, ~5-10 min
+python variants/t1-cpu-ngram/182/sufarr/bench.py --data <DATA_PATH> --ranks 0               # one share alone: the floor
+CONFIG=380 SEED=0 EXTRA_ENV="EXACT_BACKEND=sa" bash variants/t1-cpu-ngram/182/run_node.sh run   # optional: the cost on the clock
+```
+
+`bench.py` prints, per rank, the build time, the query time, the index size and the peak RSS. With `--check-gpu`
+it also prints the GPU scan's time on the same queries and `mismatch=<rows>`, which should be 0. It ends with a
+`RESULT sufarr build_s= query_s= index_gib= rss_gib=` line. The estimate above is confirmed if build_s is over about
+10 s. It is wrong (and worth a timed run) only if build_s + query_s comes in under about 1 s. A nonzero mismatch is a
+bug, or a hash collision in the scan if only a few rows differ. Tests: `(cd exact_match && cargo test --release
+--no-default-features --features sa)` (12 tests); `python -m pytest -q 182/sufarr/test_sufarr_counts.py` after
+build.sh (9; skipped without the feature); and from the repo root,
+`bash 182/tools/triton_cpu/run.sh python -m pytest variants/t1-cpu-ngram/182/sufarr/test_sufarr_kernels.py -q` (5).
+
+**Not verified:** any time on the node (the build and query rates above are scaled from a Mac under Rosetta);
+libsais's OpenMP speedup and the `sa-openmp` build on Linux; `exact_counts_sa.py` inside a real training run (it was
+tested on the CPU as `train_gpt.py` drives it); whether rustc 1.80 still builds the default crate now that the lock
+file lists an edition-2024 optional dependency (cargo should not fetch it unless `sa` is on). Nothing here has run on
+a GPU.
+
 ## Tests
 
 ```bash
