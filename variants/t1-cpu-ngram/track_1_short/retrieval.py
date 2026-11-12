@@ -31,12 +31,14 @@ STREAM_THREADS = int(os.environ.get("STREAM_THREADS", "4"))
 # arena for the three builds instead of three: ~67 GB less host memory on fineweb10B, the same tables)
 SLOT_SHARED_ARENA = os.environ.get("SLOT_SHARED_ARENA", "0") == "1"
 # TABLE_VOTE (default 0; PR #399's table vote, romeerpillay): the 6-token index's candidates at match lengths 6, 10
-# and 20 and those followed by the target, counted on the clock beside the validation lookups. "chain": three more
-# links of the chain (q = hits / candidates, lam by (length, log2 candidates)), fit with the others on the fit
-# steps; "fixed": #399's vote on the chain's probability, P = (hits + k P) / (candidates + k), k = VOTE_K per length.
+# and 20 and those followed by the target, counted on the clock beside the validation lookups, become three more
+# links of the chain (q = hits / candidates, lam by (length, log2 candidates)), fit with the others on the fit steps.
+# The run also reports, off the clock and on the same trained weights, the validation loss without those links (the
+# chain refit without them) and with #399's fixed vote instead, P = (hits + k P) / (candidates + k), k = VOTE_K.
 TABLE_VOTE = os.environ.get("TABLE_VOTE", "0")
-assert TABLE_VOTE in ("0", "chain", "fixed"), f"TABLE_VOTE={TABLE_VOTE}: 0, chain or fixed"
-# #399's pseudo-counts, fit there on the network alone (no chain): to be refit for this stack
+assert TABLE_VOTE in ("0", "1", "chain"), f"TABLE_VOTE={TABLE_VOTE}: 0 or 1 (the fixed-k mode is now only a line of the vote run's report)"
+TABLE_VOTE = TABLE_VOTE != "0"
+# #399's pseudo-counts, fit there on the network alone (no chain); only the report's fixed-vote line uses them
 VOTE_K = tuple(float(k) for k in os.environ.get("VOTE_K", "706.6,43.39,2.694").split(","))
 VOTE_BINS = 25  # the chain links' groups per length: log2 of the candidate count
 # VAL_TOPK: the candidates the model reads per row at validation (default 5; training reads 2)
@@ -159,7 +161,7 @@ class ValidationCache:
         files = sorted(glob.glob(train_files))
         assert len(files) == 103, f"the validation index covers all 103 training shards, found {len(files)}"
         files = files[exclude:][:shards]
-        self.val_file, self.chunk, self.group = sorted(glob.glob(val_files))[0], chunk, group
+        self.val_file, self.chunk, self.group, self.key = sorted(glob.glob(val_files))[0], chunk, group, key
         self.rank, world = dist.get_rank(group), dist.get_world_size(group)
         self.offsets = range(self.rank * chunk, total, world * chunk)
         path = [f"/dev/shm/exact-match-{uuid.uuid4().hex}"]
@@ -190,7 +192,7 @@ class ValidationCache:
             if self.rank == 0:
                 t = time.perf_counter()
                 self.index.build()
-                print(f"validation index built in {time.perf_counter() - t:.2f} s", flush=True)
+                print(f"validation index built in {time.perf_counter() - t:.2f} s ({self.key}-token key)", flush=True)
         except Exception as e:
             failed = e
         # the barrier, carrying whether any rank failed: every rank's build future then fails together (no rank waits
@@ -212,7 +214,7 @@ class ValidationCache:
         the kept fit steps' host (inputs, targets)) self.fit_vote, at the fit positions."""
         def rows():
             # TABLE_VOTE: one token past each chunk, its last position's target
-            read = [np.fromfile(self.val_file, "<u2", self.chunk + (TABLE_VOTE != "0"), offset=1024 + 2 * o) for o in self.offsets]
+            read = [np.fromfile(self.val_file, "<u2", self.chunk + int(TABLE_VOTE), offset=1024 + 2 * o) for o in self.offsets]
             tokens = np.concatenate([r[:self.chunk] for r in read])
             out = np.zeros((len(tokens), 9), dtype=np.int32)
             self.index.query_into(tokens, self.chunk, out, 0)
@@ -224,7 +226,7 @@ class ValidationCache:
                 self.marks = self._marks(out[:, 0], empty, lower[0][0], marks)
                 if then is not None:
                     then(self.marks)
-            if TABLE_VOTE != "0":  # after the scan's launch, under it
+            if TABLE_VOTE:  # after the scan's launch, under it
                 targets = np.concatenate([r[1:self.chunk + 1] for r in read])
                 self.vote = np.split(self.index.query_counts(tokens, targets, self.chunk).reshape(-1, 6), len(self.offsets))
                 if fit:
@@ -251,7 +253,7 @@ class ValidationCache:
         return self.looked_up.result()
 
 
-def table_part(counts, device):  # TABLE_VOTE=chain: the table's links, one per match length: q = hits / candidates
+def table_part(counts, device):  # TABLE_VOTE: the table's links, one per match length: q = hits / candidates
     counts = torch.as_tensor(counts.astype(np.float64), device=device)
     n, h = counts[:, :3], counts[:, 3:]
     bins = torch.clamp(torch.floor(torch.log2(n.clamp_min(1))), 0, VOTE_BINS - 1).long()
@@ -259,7 +261,7 @@ def table_part(counts, device):  # TABLE_VOTE=chain: the table's links, one per 
             for k in range(3)]
 
 
-def table_vote(p, counts):  # TABLE_VOTE=fixed (PR #399): the table votes on the probability p, shortest length first
+def table_vote(p, counts):  # PR #399's fixed vote (the TABLE_VOTE report): the table votes on the probability p, shortest length first
     counts = torch.as_tensor(counts.astype(np.float64), device=p.device)
     p = p.double()
     for k, kk in enumerate(VOTE_K):
