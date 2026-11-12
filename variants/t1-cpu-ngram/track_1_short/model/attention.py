@@ -25,6 +25,9 @@ FA3_REVISION = "64c1e6d1f2780e7931839f41426ddcdb564a7cb9"
 FA3_BINARY_SHA256 = "9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b"
 
 
+FA3_DIGESTS = {}  # binary path -> sha256, as load_flash_attn3 checked it (run_log.log_environment reports it)
+
+
 def load_flash_attn3():
     """The pinned, checksum-verified patched FA3 kernel's flash_attn_interface."""
     # The publisher is a personal Hub account, which kernels>=0.16 does not trust by default. Trust
@@ -33,6 +36,7 @@ def load_flash_attn3():
     binary = next(pathlib.Path(fa3.__file__).parent.glob("_flash_attn3_cuda_*.so"))
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     assert digest == FA3_BINARY_SHA256, f"unexpected FA3 binary {binary}"
+    FA3_DIGESTS[str(binary)] = digest
     return fa3.flash_attn_interface
 
 

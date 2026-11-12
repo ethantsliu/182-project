@@ -497,6 +497,9 @@ def main():
                 vote_error = None  # the report is a diagnostic: its failure must not cost the run its result
             model.eval()
             val_loss = 0
+            # off the clock, a report: the network's own loss (before the chain) and where the hint rows came from
+            # (cell 0: no row; source 0: the 6-token index; 2: 3-token (or 4-token) rows; 3: 2-token rows)
+            val_diag = torch.zeros(5, dtype=torch.float64, device=env.device)
             with torch.no_grad():
                 for i, (batch, pull, rows) in enumerate(zip(val_batches, val_pulls, val_rows)):
                     ngram_table.land(pull)
@@ -504,6 +507,9 @@ def main():
                                  training_manager.get_forward_args(), ret=torch.as_tensor(rows[:, :VAL_WIDTH], device=env.device).contiguous())
                     # the chain: the hint rows' link (q, the target's share of the row's counts), the corpus and document links
                     r = torch.as_tensor(rows, device=env.device)
+                    cell = r[:, 0]
+                    val_diag[0] += loss.float().mean().double()
+                    val_diag[1:] += torch.stack([cell == 0, (cell > 0) & (cell < RET_CELLS), cell // RET_CELLS == 2, cell // RET_CELLS == 3]).sum(1).double()
                     link = rows_part(r[:, 0].long(), mix_q(r, batch.targets))
                     if TABLE_VOTE:
                         try:
@@ -522,6 +528,11 @@ def main():
             del val_batches, val_pulls
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
+            dist.reduce(val_diag, 0, op=dist.ReduceOp.SUM)
+            net, rows_n = val_diag[0].item() / (val_steps * env.world_size), max(val_diag[1:].sum().item(), 1)
+            print0(f"val diagnostics: network val_loss:{net:.4f} (before the chain; the chain adds {val_loss.item() - net:+.4f}); "
+                   f"hint rows: 6-token {val_diag[2].item() / rows_n:.4f}, 3/4-token {val_diag[3].item() / rows_n:.4f}, "
+                   f"2-token {val_diag[4].item() / rows_n:.4f}, none {val_diag[1].item() / rows_n:.4f} of {rows_n:.0f}", console=True)
             if TABLE_VOTE:  # the same weights three ways: this run's loss, the chain refit without the table's links, #399's vote on that
                 vote_report /= val_steps
                 if vote_error is not None:  # every rank still takes part in the reduce
