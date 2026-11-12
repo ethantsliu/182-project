@@ -23,6 +23,79 @@ only statement is still the 2026-10-03 comment on #367 that rules will be set "s
 farms". The host report in every log (`host:`, `retrieval host plan:`, `host memory:` lines) is there so a result
 from this tree can be judged against whatever cap arrives.
 
+## The first node result: 3.3008, on another stack
+
+The first node session ran `run` with the default `CONFIG=381`: 685 of 685 steps, val_loss **3.3008** (the target is
+3.28), peak GPU memory 54 GiB, time not reported. That was not this tree's run on the records' stack. The node had
+torch 2.11, not the pinned 2.10.0+cu128 with triton 3.6.0, and the agent running it had patched the FA3 loader in
+`track_1_short/model/attention.py`. Neither change was committed, and the logs did not come back.
+
+**What it tells us:** the tree trains to the end and validates on 8 GPUs, and its GPU memory matches #380's logs
+(54,618 MiB reserved).
+
+**What it does not tell us:** whether this tree reaches 3.28 on the pinned stack. The miss is not seed noise. On
+8xH100 the expected value is about 3.2750, not #381's 3.2725 (see below). 3.3008 is 0.0249 above that, about 15
+standard deviations of #380's 16 runs (0.0016), and 0.0212 above the worst of those runs (3.2796).
+
+**What reading and testing the code found:**
+
+- *The expectation.* #381's 3.2725 comes from 4x RTX PRO 6000 only, with whatever local changes it took to run there:
+  the committed code asserts exactly 8 ranks (`track_1_short/distributed.py`). On that box #380's configuration gave
+  3.2734; on 8xH100, #380's 16 runs averaged 3.2759. So #381 on 8xH100 should land near 3.2759 - 0.0009 = 3.2750.
+  This is an estimate. Nobody has run #381's code on 8 GPUs.
+- *World size.* Batch sizes in `config.py` are global (131,072 tokens per step). Every per-rank size divides them by
+  the world size, and the step schedule does not depend on it. The only world-size-dependent part of #381's new code
+  is its validation hint rows: a per-rank sample cap of `SCAN_HINT_CAP // world` (12 on 8 ranks, 24 on 4), the sample
+  exchange, the row kernel's `WORLD * W` tally, and the reordering of the marks from rank order to stream order.
+  `182/test_hint_rows_world.py` runs that code on 8 and on 4 gloo ranks under the Triton interpreter. The rows match a
+  brute force at both sizes, with every context marked and with random marks. With the cap wrongly fixed at `96 // 4`,
+  the test fails at 8 ranks. No port bug was found.
+- *CPU count.* `VAL_BUILD_THREADS` and `LARGE_HOST` (`retrieval.py`) depend on the vCPUs per GPU. At 24 or more,
+  rank 0 builds with 64 threads and the exact-count corpus is read through pinned buffers, a mode never measured
+  upstream. The thread count only changes which entries a full table bucket keeps, so it affects the validation hint
+  rows, not training. The log's `host:` and `retrieval host plan:` lines record which mode ran.
+- *The attention kernel.* `model/attention.py` has no fallback. `get_kernel` either loads the pinned FA3 build or
+  raises, and the binary's sha256 is asserted. The pinned repo ships one variant, `torch-stable-abi29-cu128-x86_64-linux`.
+  kernels 0.16.1 accepts it only when torch was built for CUDA 12.8 or a later 12.x, so a torch 2.11 built for CUDA 13
+  is refused. That is the likely reason the loader was patched. What the patch loaded instead is unknown. Forcing the
+  same binary would run the same kernel (it already links `libcudart.so.13`). `kernels-community/flash-attn3` pads the
+  (64, 128) heads: the same math, slower. Anything else (SDPA, or flex attention without the sliding windows and
+  document masks) changes the model and could explain a miss this large. The code cannot decide which.
+
+**What would settle the 3.3008 run, if its files survive on the node:** the trainer log
+(`variants/t1-cpu-ngram/logs/<uuid>.txt`, or its copy in `logs/node/*.log.txt`). It starts with the full source as
+launched, so its `track_1_short/model/attention.py` section is the patched loader verbatim. Its
+`Running PyTorch ... compiled for CUDA ...` line names the torch build, and its `host:` and
+`retrieval host plan:` lines give the vCPUs per GPU and the build threads. Also the output of
+`pip list 2>/dev/null | grep -iE "torch|triton|kernels|flash"` from that environment.
+
+**What makes the next run decisive** (all CPU-tested):
+
+- `check` FAILs on a different torch or triton (`ALLOW_STACK=1` downgrades that) and now also when the trainer's
+  source (`train_gpt.py`, `track_1_short/`, `exact_match/src`, `requirements.txt`) differs from the commit
+  (`ALLOW_DIRTY=1` downgrades that).
+- The log names the attention kernel the model calls: `attention kernel: pinned=1 ...` only for the pinned binary.
+- After the clock stops, a `val diagnostics:` line gives the network's own loss before the chain and the share of
+  validation positions whose hint row came from the 6-token index, the 3/4-token rows, the 2-token rows, or none.
+  The final val_loss and the timed path are unchanged.
+- `RESULT` carries `config= torch= triton= fa3= tree=` (torch and triton as the trainer logged them). `run` prints
+  `WARN this run's ...` for an off-stack, unpinned or modified run, and a `reference:` line: the loss against the
+  config's expectation in units of #380's std, with the network-alone loss and the hint-row shares.
+
+**Rerun order:**
+
+1. On the pinned stack, from a clean checkout: `bash 182/tools/node_setup.sh --mode venv && source .venv-run/bin/activate`,
+   then `bash variants/t1-cpu-ngram/182/run_node.sh prep` and `SEED=0 bash variants/t1-cpu-ngram/182/run_node.sh run`.
+   The RESULT line must say `torch=2.10.0+cu128 triton=3.6.0 fa3=pinned` and a `tree=` with no `-dirty`. At or below
+   3.28 (about 3.275 expected), the stack or the patch caused the 3.3008.
+2. If it is still above 3.28: `CONFIG=380 SEED=0 bash variants/t1-cpu-ngram/182/run_node.sh run`, #380's configuration,
+   which has a published 8xH100 result (3.2759, range 3.2738-3.2796, n=16).
+   - If 380 misses by a similar amount, the cause is in the part both share (training, the node, the stack), not in
+     #381's hints. Compare the two runs' `network` losses.
+   - If 380 lands in its range, the cause is #381's hint path on this node. Compare the two runs' hint-row shares,
+     then run `CONFIG=381 EXTRA_ENV="SCAN_HINTS_SKIP=0"`. If the `host:` line shows 24 or more vCPUs per GPU, also run
+     with `VAL_BUILD_THREADS=32`, the records' thread count.
+
 ## Run on the node
 
 From the repo root, in the environment that has torch 2.10.0+cu128 (the root's `182/tools/node_setup.sh` makes it):
@@ -36,7 +109,8 @@ bash variants/t1-cpu-ngram/182/run_node.sh run      # one timed run; the last li
 `prep` is idempotent and resumable (`PREP_TIMEOUT_S`, default 7200). It needs rustc >= 1.80; Ubuntu 24.04's apt
 package is 1.75, so `INSTALL_RUST=1 ... prep` installs rustup into `~/.cargo` if you allow it. `check` needs no GPU
 and no torch. It prints the memory plan against the host, and it FAILs on: not Linux, a missing or different
-torch/triton (`ALLOW_STACK=1` downgrades that), fewer GPUs than `NPROC`, no `libcudart.so.13` or CUDA headers, the
+torch/triton (`ALLOW_STACK=1` downgrades that), a trainer source that differs from the commit (`ALLOW_DIRTY=1`
+downgrades that), fewer GPUs than `NPROC`, no `libcudart.so.13` or CUDA headers, the
 extension not built from this source, fewer than 104 whole shards, RAM or `/dev/shm` below the plan, fewer than 4
 cores per GPU. `run` runs `check` first and stops on a FAIL (`FORCE=1` runs anyway).
 
@@ -79,7 +153,8 @@ node fails on both counts and a 512 GiB node passes. The published runs had 16 v
 ## What to run first, and what each result means
 
 1. **`run` (default config).** Confirms the tree works and gives the three lines above. The loss target is 3.28; #381's
-   4-GPU mean was 3.2725. If the `timeline:` line says the builds finished before the last training step, host-side
+   4-GPU mean was 3.2725, and about 3.2750 is expected on 8xH100 (the section on the first node result has the
+   reasoning and what to run if it misses). If the `timeline:` line says the builds finished before the last training step, host-side
    build work cannot change the time on this node and the remaining host ideas at the bottom are dead here. If it
    says AFTER, the build is the bottleneck and `VAL_BUILD_THREADS` is the first thing to vary.
 2. **`ab` (default: base vs `TABLE_VOTE=1`, 4 pairs, about an hour).** The only lever here that could shorten the run.
@@ -103,7 +178,8 @@ node fails on both counts and a 512 GiB node passes. The published runs had 16 v
 | `TABLE_VOTE=0` | #399's table vote, ported as three more chain links: the 6-token table's candidate and hit counts at match lengths 6/10/20 (`SlotIndex.query_counts`), counted on the clock after the exact-count scan's launch, with weights fit on the fit steps like every other link. The run then reports, off the clock and on the same weights, the loss without the links (the chain refit without them) and with #399's fixed-k vote instead. The chain already holds exact order-2..8 counts over the same shards, so only the 10- and 20-token matches are new evidence: expect much less than #399's -14 steps. | cargo test (counts vs brute force); pytest (chain bookkeeping, #399's formula) |
 | `VAL_BUILD_THREADS` (auto 64/32/16), `STREAM_THREADS=4` | Overrides for rank 0's build threads and each rank's online-index threads. The online index's rows are identical for any thread count. | cargo test |
 | *(build)* `exact_match/src/sys.rs` | x86 intrinsics and Linux madvise/affinity behind scalar or no-op fallbacks, so the crate builds and its tests run elsewhere. AVX-512 is detected at run time on x86-64; no build flag is needed. | cargo test |
-| `182/` | `run_node.sh` + `node.py` (the node contract), `test_node.py`, `test_failure_paths.py`. | pytest |
+| *(always; reports)* attribution | The log's `attention kernel: pinned=0/1 module=... sha256=...` line (`run_log.py`, before the clock; the pinned binary's digest is the one the loader already checked) and, after the clock stops, its `val diagnostics:` line (`train_gpt.py`: the network's loss before the chain, the hint rows' sources). Neither changes the trained model, the final val_loss or the timed path. | pytest (the kernel line); the diagnostics' arithmetic only by hand on CPU tensors |
+| `182/` | `run_node.sh` + `node.py` (the node contract: RESULT's `config= torch= triton= fa3= tree=`, the `trainer source` check, the `reference:` line), `test_node.py`, `test_failure_paths.py`, `test_hint_rows_world.py` (#381's hint rows on 8 and 4 gloo ranks under the Triton interpreter). | pytest |
 
 Removed in this round: `TABLE_VOTE=fixed` as a run mode (its constants were fit for another stack, and the chain
 form contains it; it survives as a line of the vote report), the old `182/t1-cpu-ngram/node_check.py` (now `check`),
@@ -113,17 +189,26 @@ How "flags off = #381" was checked: `DRY_RUN=1 run` sets nothing but `DATA_PATH`
 `train_gpt.py`, `retrieval.py` and `exact_counts.py` against `upstream/pr/381` was read line by line, and every
 added statement is under `if TABLE_VOTE`, in a failure branch, an argument that is inert with the flags off, or a
 print outside the clock, except two: the host
-check before the clock, and the build-time line on stdout, which now names its table. Not checked by running it.
+check before the clock, and the build-time line on stdout, which now names its table. The `attention kernel:` line
+(before the clock) and the `val diagnostics:` accumulation (in the untimed validation loop) came later and are reports
+only. Not checked by running it.
 
 ## Tests
 
 ```bash
 cd variants/t1-cpu-ngram
-python3 -m pytest -q 182                                           # 31 tests, no GPU, no built extension needed
+python3 -m pytest -q 182                                           # 37 tests (6 more skip), no GPU, no built extension needed
 (cd exact_match && cargo test --release --no-default-features)     # 6 tests on small tables
 ```
 
+The six skipped tests (`182/test_hint_rows_world.py`) need real Triton under its interpreter; from the repo root:
+`bash 182/tools/triton_cpu/run.sh python -m pytest variants/t1-cpu-ngram/182/test_hint_rows_world.py -q` (about a minute).
+
 ## Not verified (needs the node)
+
+- Why the first node run gave 3.3008 (see the section above): the stack and the patched loader are the leading
+  suspects, but nothing here can show it.
+- The `val diagnostics:` line on the GPU: its accumulation was checked on CPU tensors, not in a run.
 
 - Any run time or loss. No speedup is claimed.
 - That the default config reaches 3.28 on 8 GPUs: #381 measured it on 4 (3.2725, n=3).

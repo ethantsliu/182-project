@@ -299,3 +299,42 @@ def test_table_vote_flag_values(retrieval):
     assert flag(None).stdout.split() == ["False", "False", "4"]  # every flag off by default
     assert flag("0").stdout.split()[0] == "False" and flag("1").stdout.split()[0] == "True" and flag("chain").stdout.split()[0] == "True"
     assert flag("fixed").returncode != 0 and "TABLE_VOTE=fixed" in flag("fixed").stderr
+
+
+def test_attention_kernel_line_names_the_kernel_in_use(tmp_path, monkeypatch):
+    """run_log.attention_kernel_line reports the attention module the model calls and whether its binary is the
+    pinned one; node.py reads pinned= from it into the RESULT line."""
+    import hashlib
+    _stub("triton", jit=_identity_jit, cdiv=lambda a, b: -(-a // b), __version__="stub")
+    from track_1_short import run_log
+    sys.path.insert(0, os.path.join(ROOT, "182"))
+    import node
+    pkg = tmp_path / "fa3"
+    pkg.mkdir()
+    (pkg / "flash_attn_interface.py").write_text("")
+    binary = pkg / "_flash_attn3_cuda_8a730d9.abi3.so"
+    binary.write_bytes(b"pinned bytes")
+    pinned_sha = hashlib.sha256(b"pinned bytes").hexdigest()
+    fai = types.ModuleType("fa3.flash_attn_interface")
+    fai.__file__ = str(pkg / "flash_attn_interface.py")
+    att = types.ModuleType("track_1_short.model.attention")
+    att.__dict__.update(flash_attn_interface=fai, FA3_DIGESTS={str(binary): pinned_sha}, FA3_BINARY_SHA256=pinned_sha,
+                        FA3_REPO="devenpzak/flash-attn3-12864", FA3_REVISION="64c1e6d1f2780e7931839f41426ddcdb564a7cb9")
+    import track_1_short.model as model_pkg
+    monkeypatch.setitem(sys.modules, "track_1_short.model.attention", att)
+    monkeypatch.setattr(model_pkg, "attention", att, raising=False)
+    line = run_log.attention_kernel_line()
+    assert line.startswith("attention kernel: pinned=1 module=fa3.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so "
+                           f"sha256={pinned_sha} repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=")
+    assert node.parse_log(line)["fa3"] == "pinned"
+    binary.write_bytes(b"another build")  # a loader patched to another binary: not in the verified digests, hashed here
+    att.FA3_DIGESTS = {}
+    line = run_log.attention_kernel_line()
+    assert line.startswith("attention kernel: pinned=0 ") and hashlib.sha256(b"another build").hexdigest() in line
+    assert node.parse_log(line)["fa3"] == "other"
+    att.flash_attn_interface = types.SimpleNamespace(flash_attn_varlen_func=None)  # not FA3 at all (e.g. an SDPA shim)
+    line = run_log.attention_kernel_line()
+    assert line.startswith("attention kernel: pinned=0 module=SimpleNamespace binary=none sha256=none")
+    del att.FA3_BINARY_SHA256  # whatever breaks, the line is still written and says pinned=0
+    line = run_log.attention_kernel_line()
+    assert line.startswith("attention kernel: pinned=0 unknown (AttributeError") and node.parse_log(line)["fa3"] == "other"

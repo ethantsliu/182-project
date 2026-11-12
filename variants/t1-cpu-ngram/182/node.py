@@ -14,6 +14,7 @@ Environment (all optional):
     NPROC=8  SEED=<int> (TRAIN_SEED; unset: a random init)  EXTRA_ENV="K=V K2=V2" (or export the knobs)
     DATA_PATH=<dir holding data/fineweb10B> (default: the repo root)  LOG_DIR (default: logs/node under the variant)
     DRY_RUN=1 (print the command, change nothing)  FORCE=1 (run although check fails)  ALLOW_STACK=1 (another torch)
+    ALLOW_DIRTY=1 (run although the trainer's source differs from the commit: RESULT then says tree=<commit>-dirty)
     RUN_TIMEOUT_S=2400  PREP_TIMEOUT_S=7200  INSTALL_RUST=1 (prep may install rustup)  WARM_DATA=0 (skip the read pass)
     AB_RUNS=4  AB_A=""  AB_B="TABLE_VOTE=1"  AB_SEED0=0
 """
@@ -62,6 +63,19 @@ HOSTMEM_RE = re.compile(r"^host memory: .*$", re.M)
 LOGPATH_RE = re.compile(r"^(logs/[0-9a-f\-]{36}\.txt)\s*$", re.M)
 STAMP_RE = re.compile(r"^\[(\d+\.\d+)\] (.*)$")
 BUILT_RE = re.compile(r"validation index built in ([0-9.]+) s(?: \((\d)-token key\))?")
+STACK_RE = re.compile(r"^Running PyTorch (\S+) compiled for CUDA (\S+)$", re.M)
+TRITON_RE = re.compile(r"^Running Triton version (\S+)$", re.M)
+ATTN_RE = re.compile(r"^attention kernel: pinned=([01])\b.*?(?:kernels=(\S+))?$", re.M)
+DIAG_RE = re.compile(rf"^val diagnostics: network val_loss:({_NUM}) .*?hint rows: 6-token ({_NUM}), 3/4-token ({_NUM}), "
+                     rf"2-token ({_NUM}), none ({_NUM})", re.M)
+THREADS_RE = re.compile(r"^retrieval host plan: (\d+) build threads", re.M)
+# The trainer's own source: a change here changes what is trained or how (the attention loader, above all)
+TREE_PATHS = ("train_gpt.py", "track_1_short", "exact_match/src", "exact_match/Cargo.toml", "requirements.txt")
+# What a run's loss is judged against (val loss; each config's own published numbers). #381 never ran on 8 GPUs:
+# its 8xH100 expectation is #380's 8xH100 mean plus the -0.0009 #381 measured against #380 on 4 GPUs (an estimate).
+REFERENCE = {"381": dict(mean=3.2750, std=0.0016, what="estimate: PR #380's 8xH100 3.2759 (n=16) + PR #381's -0.0009 on "
+                         "4 GPUs (#381 itself: 3.2725, n=3, 4x RTX PRO 6000 only)"),
+             "380": dict(mean=3.2759, std=0.0016, what="PR #380, 8xH100, n=16, range 3.2738-3.2796")}
 ERROR_RE = re.compile(r"^(?:\w+\.)*\w*(?:Error|Exception|Interrupt)\b.*$|^HOST CHECK: .*$|.*CUDA out of memory.*|.*Killed.*", re.M)
 
 
@@ -74,7 +88,23 @@ def parse_log(text):
     vals = [(int(s), int(n), float(v), float(t) / 1000) for s, n, v, t in VAL_RE.findall(text)]
     trains = [(int(s), int(n)) for s, n, _ in TRAIN_RE.findall(text)]
     out = dict(completed=False, val_loss=None, train_time_s=None, steps=None, total_steps=trains[-1][1] if trains else None,
-               last_train_step=trains[-1][0] if trains else None, vote=None, host_memory=None)
+               last_train_step=trains[-1][0] if trains else None, vote=None, host_memory=None, torch=None, cuda=None,
+               triton=None, fa3=None, kernels=None, diag=None, build_threads=None)
+    m = STACK_RE.search(text)
+    if m:
+        out.update(torch=m.group(1), cuda=m.group(2))
+    m = TRITON_RE.search(text)
+    if m:
+        out["triton"] = m.group(1)
+    m = ATTN_RE.search(text)
+    if m:
+        out.update(fa3="pinned" if m.group(1) == "1" else "other", kernels=m.group(2))
+    m = DIAG_RE.search(text)
+    if m:
+        out["diag"] = dict(zip(("network", "six", "three", "two", "none"), map(float, m.groups())))
+    m = THREADS_RE.search(text)
+    if m:
+        out["build_threads"] = int(m.group(1))
     if vals:
         step, total, loss, t = vals[-1]
         out.update(steps=step, total_steps=total, val_loss=loss, train_time_s=t, completed=step == total and loss == loss)
@@ -139,11 +169,37 @@ def describe_timeline(tl):
     return line
 
 
-def result_line(parsed=None, log="", reason=None):
+def result_line(parsed=None, log="", reason=None, tags=None):
+    """The RESULT line. tags (config, torch, triton, fa3, tree, ...) go before log= / reason=, which stay last (a
+    reason runs to the end of the line). Spaces in a tag's value become underscores."""
+    extra = "".join(f" {k}={'_'.join(str(v).split()) or 'unknown'}" for k, v in (tags or {}).items())
     if reason is not None:
-        return f"RESULT variant={VARIANT} status=failed reason={' '.join(str(reason).split())}"
+        return f"RESULT variant={VARIANT} status=failed{extra} reason={' '.join(str(reason).split())}"
     return (f"RESULT variant={VARIANT} val_loss={parsed['val_loss']:.4f} train_time_s={parsed['train_time_s']:.3f} "
-            f"steps={parsed['steps']} target={TARGET:.2f} hit={int(parsed['val_loss'] <= TARGET)} log={log}")
+            f"steps={parsed['steps']} target={TARGET:.2f} hit={int(parsed['val_loss'] <= TARGET)}{extra} log={log}")
+
+
+def run_tags(s, parsed=None, tree=None):
+    """What a result is attributed to: the config, the stack the trainer reported in its log (else the one installed
+    where node.py runs, marked ?), whether the attention kernel was the pinned FA3 binary, the source commit."""
+    parsed = parsed or {}
+    installed = lambda pkg: (pkg_version(pkg) or "none") + "?"
+    commit, dirty = tree if tree is not None else tree_state()
+    return dict(config=s.config, torch=parsed.get("torch") or installed("torch"), triton=parsed.get("triton") or installed("triton"),
+                fa3=parsed.get("fa3") or "unknown", tree=(commit or "unknown") + ("-dirty" if dirty else ""))
+
+
+def reference_line(config, parsed):
+    """The run's loss against what its config should give, in units of PR #380's 16-run std."""
+    ref = REFERENCE[config]
+    d = parsed["val_loss"] - ref["mean"]
+    line = (f"reference: val_loss {parsed['val_loss']:.4f} vs {ref['mean']:.4f} ({ref['what']}): {d:+.4f}, "
+            f"{d / ref['std']:+.1f} std")
+    if parsed.get("diag"):
+        g = parsed["diag"]
+        line += (f"; network alone {g['network']:.4f}; hint rows 6-token {g['six']:.3f}, 3/4-token {g['three']:.3f}, "
+                 f"2-token {g['two']:.3f}, none {g['none']:.3f}")
+    return line
 
 
 # ------------------------------------------------------------------------------------------- settings
@@ -176,6 +232,7 @@ class Settings:
         self.dry = env.get("DRY_RUN", "0") == "1"
         self.force = env.get("FORCE", "0") == "1"
         self.allow_stack = env.get("ALLOW_STACK", "0") == "1"
+        self.allow_dirty = env.get("ALLOW_DIRTY", "0") == "1"
         self.run_timeout = float(env.get("RUN_TIMEOUT_S", "2400"))
         self.prep_timeout = float(env.get("PREP_TIMEOUT_S", "7200"))
 
@@ -202,6 +259,27 @@ class Settings:
 
 
 # ---------------------------------------------------------------------------------------------- check
+
+def pkg_version(pkg):
+    try:
+        return importlib.metadata.version(pkg)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def tree_state(vdir=None):
+    """(short commit or None, the trainer source files that differ from it or are untracked). None, [] outside a git
+    checkout or without git."""
+    vdir = vdir or VDIR
+    try:
+        head = subprocess.run(["git", "-C", vdir, "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True, timeout=30)
+        if head.returncode:
+            return None, []
+        st = subprocess.run(["git", "-C", vdir, "status", "--porcelain", "--", *TREE_PATHS], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None, []
+    return head.stdout.strip(), [line[3:] for line in st.stdout.splitlines() if line.strip()]
+
 
 def shard_ok(path):
     """A shard file is whole: the header's magic, version and token count agree with its size (as exact_match checks)."""
@@ -350,6 +428,15 @@ def check(s, out=print):
             add(True, "FAIL", pkg, importlib.metadata.version(pkg))
         except importlib.metadata.PackageNotFoundError:
             add(False, "FAIL", pkg, "not installed; fix: pip install -r requirements.txt")
+    commit, dirty = tree_state()
+    if commit is None:
+        add(False, "WARN", "trainer source", "not a git checkout: a locally changed trainer (e.g. the attention loader) cannot be detected")
+    else:
+        add(not dirty, "WARN" if s.allow_dirty else "FAIL", "trainer source",
+            (f"as committed ({commit})" if not dirty else
+             f"{len(dirty)} file(s) differ from commit {commit}: {', '.join(dirty[:6])}{' ...' if len(dirty) > 6 else ''} "
+             f"(a changed trainer is not the run this tree describes; ALLOW_DIRTY=1 runs it, and RESULT says tree={commit}-dirty); "
+             f"fix: git -C {VDIR} diff -- {' '.join(TREE_PATHS)} to see the change, git stash or git checkout to undo it"))
     tr = shutil.which("torchrun")
     add(tr is not None, "FAIL", "torchrun", tr or "not on PATH; fix: activate the environment that has torch")
     if tr and os.path.dirname(os.path.realpath(tr)) != os.path.dirname(os.path.realpath(sys.executable)) \
@@ -679,17 +766,37 @@ def run(s, out=print):
         out(f"DRY_RUN config={s.config} nproc={s.nproc} seed={s.seed or 'random'} log_dir={s.log_dir}")
         out(s.shell_line())
         return 0
+    tree = tree_state()
     if check(s, out) and not s.force:
-        out(result_line(reason="preflight failed: see the FAIL lines above (FORCE=1 runs anyway)"))
+        out(result_line(reason="preflight failed: see the FAIL lines above (FORCE=1 runs anyway)", tags=run_tags(s, tree=tree)))
         return 1
     if os.environ.get("WARM_DATA", "1") == "1" and not os.path.realpath(s.data_dir()).startswith("/dev/shm"):
         warm(s.data_dir(), out)
     parsed, log, reason = one_run(s, out=out)
     if reason:
-        out(result_line(reason=reason + (f" (log: {log})" if log else "")))
+        out(result_line(reason=reason + (f" (log: {log})" if log else ""), tags=run_tags(s, tree=tree)))
         return 1
-    out(result_line(parsed, log))
+    tags = run_tags(s, parsed, tree)
+    for line in attribution_lines(s, parsed, tags):
+        out(line)
+    out(result_line(parsed, log, tags=tags))
     return 0
+
+
+def attribution_lines(s, parsed, tags):
+    """WARN lines for what makes a result not this tree's run on the records' stack, then the reference line."""
+    lines = []
+    if tags["torch"] != STACK["torch"] or tags["triton"] != STACK["triton"]:
+        lines.append(f"WARN this run's stack: torch {tags['torch']} / triton {tags['triton']}, not the records' {STACK['torch']} / "
+                     f"{STACK['triton']}: its loss and time are not comparable to theirs")
+    if tags["fa3"] != "pinned":
+        lines.append(f"WARN this run's attention kernel: {tags['fa3']} (the log's 'attention kernel:' line): not the pinned FA3 binary, "
+                     "or a log without the line")
+    if tags["tree"].endswith("-dirty") or tags["tree"] == "unknown":
+        lines.append(f"WARN this run's trainer source: tree={tags['tree']}: not, or not known to be, the committed trainer")
+    if parsed.get("val_loss") is not None and parsed["val_loss"] == parsed["val_loss"]:
+        lines.append(reference_line(s.config, parsed))
+    return lines
 
 
 # ------------------------------------------------------------------------------------------------- ab
@@ -737,13 +844,15 @@ def ab(s, out=print):
         for i, arm in plan:
             out(s.shell_line(dict(arms[arm], TRAIN_SEED=str(seed0 + i))))
         return 0
+    tree = tree_state()
     if check(s, out) and not s.force:
-        out(result_line(reason="preflight failed: see the FAIL lines above (FORCE=1 runs anyway)"))
+        out(result_line(reason="preflight failed: see the FAIL lines above (FORCE=1 runs anyway)", tags=run_tags(s, tree=tree)))
         return 1
     done = {}
     for i, arm in plan:
         parsed, log, reason = one_run(s, dict(arms[arm], TRAIN_SEED=str(seed0 + i)), tag=f"ab{arm}", out=out)
-        out(f"AB_RUN arm={arm} seed={seed0 + i} " + (result_line(reason=reason) if reason else result_line(parsed, log)))
+        tags = run_tags(s, parsed, tree)
+        out(f"AB_RUN arm={arm} seed={seed0 + i} " + (result_line(reason=reason, tags=tags) if reason else result_line(parsed, log, tags=tags)))
         if parsed:
             done[(i, arm)] = parsed
     pairs = [(done[(i, "A")], done[(i, "B")]) for i in range(n) if (i, "A") in done and (i, "B") in done]

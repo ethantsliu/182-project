@@ -64,5 +64,34 @@ def log_environment(print0, code: str) -> None:
     print0(f"Running Python {sys.version}")
     print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
     print0(f"Running Triton version {triton.__version__}")
+    print0(attention_kernel_line(), console=True)
     print0(subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout)
     print0("=" * 100)
+
+
+def attention_kernel_line() -> str:
+    """One line naming the attention kernel the model calls (model/attention.py's flash_attn_interface, whatever
+    loaded it) and whether it is the pinned FA3 binary, so a run on another loader or kernel is visible in its log
+    (182/node.py puts pinned= into the RESULT line)."""
+    import hashlib
+    import importlib.metadata
+    import pathlib
+    try:
+        kernels = importlib.metadata.version("kernels")
+    except importlib.metadata.PackageNotFoundError:
+        kernels = "none"
+    try:
+        from track_1_short.model import attention
+        fai = attention.flash_attn_interface
+        where = pathlib.Path(getattr(fai, "__file__", "") or ".").parent
+        binaries = sorted(where.glob("_flash_attn3_cuda_*.so"))
+        digest = "none"
+        if binaries:
+            b = str(binaries[0])
+            digest = attention.FA3_DIGESTS.get(b) or hashlib.sha256(pathlib.Path(b).read_bytes()).hexdigest()
+        pinned = int(digest == attention.FA3_BINARY_SHA256)
+        return (f"attention kernel: pinned={pinned} module={getattr(fai, '__name__', type(fai).__name__)} "
+                f"binary={binaries[0].name if binaries else 'none'} sha256={digest} repo={attention.FA3_REPO}@{attention.FA3_REVISION[:12]} "
+                f"kernels={kernels}")
+    except Exception as e:  # a report: it must not cost the run
+        return f"attention kernel: pinned=0 unknown ({type(e).__name__}: {e}) kernels={kernels}"
