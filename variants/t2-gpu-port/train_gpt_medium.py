@@ -41,25 +41,25 @@ def _env_float(name: str, default: float) -> float:
 
 # coordinate_descent_tuning is explicitly allowed on the medium track (README); PR #252 measured ~5s.
 COORD_DESCENT_TUNING = _env_int("COORD_DESCENT_TUNING", 0)
-# Canonical token masking at the final validation (track 1 record #91, PR #350 @jvarho).
+# Canonical token masking at the final validation (track 1 record #91, PR #350 jvarho).
 CANON_MASK = _env_int("CANON_MASK", 0)
 # Row chunks of the validation CE (only the logit block size changes, not the per-token losses). #261
 # uses 4; the canonical mask adds a [rows, vocab] gather to every block, so it defaults to 8.
 VAL_CE_CHUNKS = _env_int("VAL_CE_CHUNKS", 8 if CANON_MASK else 4)
-# Prefix-token prediction aux loss (track 1 record #88, PR #337 @jvarho). Weight 0 == off. Schedule:
+# Prefix-token prediction aux loss (track 1 record #88, PR #337 jvarho). Weight 0 == off. Schedule:
 # PREFIX_WEIGHT up to PREFIX_HOLD_FRAC of the scheduled steps, then 4/5, 3/5, 2/5, 1/5 of it in equal
 # steps up to PREFIX_END_FRAC, then 0 -- track 1's 0.25 -> 0.20/0.15/0.10/0.05 -> 0 at its stage ends.
 PREFIX_WEIGHT = _env_float("PREFIX_WEIGHT", 0.0)
 PREFIX_HOLD_FRAC = _env_float("PREFIX_HOLD_FRAC", 0.2854)
 PREFIX_END_FRAC = _env_float("PREFIX_END_FRAC", 0.6063)
-# Learnable per-(layer, head) XSA (track 1 record #82, PR #264 @djdumpling) with the algebraic rewrite
-# of record #86 (PR #317 @aryavohra). XSA_LAYERS: comma list of layer indices, or "all".
+# Learnable per-(layer, head) XSA (track 1 record #82, PR #264 djdumpling) with the algebraic rewrite
+# of record #86 (PR #317 aryavohra). XSA_LAYERS: comma list of layer indices, or "all".
 XSA = _env_int("XSA", 0)
 XSA_LAYERS = os.environ.get("XSA_LAYERS", "all")
 # Sparse attention gate on/off. Record #86 dropped it once XSA was in (both act as attention sinks).
 ATTN_GATE = _env_int("ATTN_GATE", 1)
-# Fused relu^2 MLP: triton_kernels.FusedLinearReLUSquareFunction (track 1 record #59 @andrewbriand
-# @jrauvola, bf16, x @ W1.T -> relu^2 epilogue in one kernel; backward fuses 2*(g @ W2.T)*relu(pre)).
+# Fused relu^2 MLP: triton_kernels.FusedLinearReLUSquareFunction (track 1 record #59 andrewbriand
+# jrauvola, bf16, x @ W1.T -> relu^2 epilogue in one kernel; backward fuses 2*(g @ W2.T)*relu(pre)).
 # Medium forked from track 1 before #59 and still runs the MLP as three inline ops. Same math in bf16.
 FUSED_MLP = _env_int("FUSED_MLP", 0)
 # Step count / lr retune knobs.
@@ -1204,10 +1204,10 @@ class CausalSelfAttention(nn.Module):
                                                         causal=True, softmax_scale=attn_scale, window_size=(bm_size, 0))
         y = y.view(B, T, self.num_heads, self.head_dim)
         if attn_args.xsa_alpha is not None:
-            # Gated XSA (arXiv:2603.09078) with learnable strength, track 1 record #82 @djdumpling: subtract a
+            # Gated XSA (arXiv:2603.09078) with learnable strength, track 1 record #82 djdumpling: subtract a
             # per-head fraction tanh(alpha) of y's component along v (the v this layer attended with, VE and
             # MUDD adds included). Zero init == identity at step 0. Written as dot/denom rather than
-            # normalize(v), which Inductor lowers better (record #86 @aryavohra); same math.
+            # normalize(v), which Inductor lowers better (record #86 aryavohra); same math.
             dot = (y * v).sum(-1, keepdim=True)
             denom = v.square().sum(-1, keepdim=True).clamp_min(1e-8)
             alpha = torch.tanh(attn_args.xsa_alpha).type_as(y).view(1, 1, self.num_heads, 1)
@@ -1953,6 +1953,8 @@ class TrainingManager():
         # between PREFIX_HOLD_FRAC and PREFIX_END_FRAC of the scheduled steps, then 0 (track 1: 0.25 for
         # stage 1, 0.20/0.15/0.10/0.05 over the quarters of stage 2, 0 after).
         assert 0 <= PREFIX_HOLD_FRAC <= PREFIX_END_FRAC <= 1
+        if PREFIX_WEIGHT <= 0:  # off: one shared zero the model never reads
+            return [torch.zeros(1, dtype=torch.float32, device=device)] * (args.num_iterations + 1)
         schedule = []
         for s in range(args.num_iterations + 1):
             x = s / args.num_scheduled_iterations

@@ -2,9 +2,9 @@
 (upstream master, track_1_short/). Both are built only from the static GPT-2 vocabulary, never
 from the training or validation corpus.
 
-* Canonical token masking for the final validation: track 1 record #91 (PR #350, @jvarho),
-  background build from record #92 (PR #360, @DevenPzak). Source: track_1_short/canonical_mask.py.
-* Prefix-token prediction table: track 1 record #88 (PR #337, @jvarho), bucketed build from
+* Canonical token masking for the final validation: track 1 record #91 (PR #350, jvarho),
+  background build from record #92 (PR #360, DevenPzak). Source: track_1_short/canonical_mask.py.
+* Prefix-token prediction table: track 1 record #88 (PR #337, jvarho), bucketed build from
   record #92. Source: track_1_short/model/prefix_prediction.py.
 
 GPT-2's tokenizer never emits certain (prev, cur) token pairs. At the final validation those
