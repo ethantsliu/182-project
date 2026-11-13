@@ -228,7 +228,7 @@ FAKE_PY = r'''#!/usr/bin/env bash
 # Stand-in for the node's python: answers node.py's import probe and "runs" the trainer from a canned log.
 case " $* " in
   *" torch.distributed.run "*)
-    echo "$FLAG_DUMP_PREFIX CANON_MASK=${CANON_MASK:-} FUSED_MLP=${FUSED_MLP:-} DATA_PATH=${DATA_PATH:-} args=$*" >> "$FAKE_CALLS"
+    echo "$FLAG_DUMP_PREFIX CANON_MASK=${CANON_MASK:-} FUSED_MLP=${FUSED_MLP:-} DATA_PATH=${DATA_PATH:-} TRAIN_LOG_DIR=${TRAIN_LOG_DIR:-} args=$*" >> "$FAKE_CALLS"
     [ -n "${FAKE_SLEEP:-}" ] && { echo "step:10/4150 train_time:900ms step_avg:90.00ms"; sleep "$FAKE_SLEEP"; }
     if [ "${FUSED_MLP:-0}" = 1 ] && [ -n "${FAKE_LOG_FUSED:-}" ]; then cat "$FAKE_LOG_FUSED"; else cat "$FAKE_LOG"; fi
     exit "${FAKE_RC:-0}" ;;
@@ -411,3 +411,32 @@ def test_ab_stops_at_the_first_failed_run(fake):
     r = node_py("ab", dict(env, AB_RUNS="2", FAKE_RC="3"))
     assert r.returncode == 1 and "AB status=failed reason=pair 1 arm A:" in r.stdout
     assert len((tmp / "calls.txt").read_text().splitlines()) == 1
+
+
+def test_run_routes_source_logs_under_output_directory(fake):
+    env, tmp = fake
+    r = node_py("run", env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"TRAIN_LOG_DIR={tmp / 'out' / 'trainer'} args=" in (tmp / 'calls.txt').read_text()
+
+
+def test_run_refuses_unusable_source_log_directory(fake):
+    env, tmp = fake
+    blocker = tmp / "not-a-directory"
+    blocker.write_text("keep")
+    env["TRAIN_LOG_DIR"] = str(blocker)
+    r = node_py("run", env)
+    assert r.returncode == 1 and "cannot write run logs" in r.stdout
+    assert not (tmp / "calls.txt").exists() and blocker.read_text() == "keep"
+
+
+def test_run_retains_explicit_source_log_with_spaces(fake):
+    env, tmp = fake
+    source = tmp / "source logs" / "full.txt"
+    source.parent.mkdir()
+    source.write_text("full trainer source")
+    with open(env["FAKE_LOG"], "a") as log:
+        log.write(f"\nTRAIN_LOG_PATH={source}\n")
+    r = node_py("run", env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.strip().splitlines()[-1].endswith(f"log={source}")

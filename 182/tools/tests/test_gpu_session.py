@@ -655,6 +655,26 @@ class TestSessionFlow(SessionRepo):
         self.assertRegex(summary, r"t1gpu: t1-gpu-stack \(PR #397\) +\| 0/4 ok +\| - ")
         self.assertIn("2 planned run(s) never started", summary)
 
+    def test_failed_variant_without_runtime_versions_keeps_cause_and_continues(self):
+        """A pre-training log PermissionError is not evidence of a changed PyTorch stack."""
+        self.add_variants("t1gpu", "t1cpu")
+        node = self.repo / "variants/t1-gpu-stack/182/run_node.sh"
+        reason = "PermissionError: [Errno 13] Permission denied: 'logs/run.txt'"
+        node.write_text(node.read_text().replace("CUDA out of memory on rank 3", reason))
+        rc, out = self.run_session("env", "t1gpu", "t1cpu", "bundle", T1GPU_RUNS="1", T1CPU_RUNS="1",
+                                   PREP_BACKGROUND="0", FAKE_RUN_FAIL="t1-gpu-stack:all", **self.fake_stack())
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.status("env"), "PASS")
+        self.assertEqual(self.status("t1gpu"), "FAIL rc=1")
+        self.assertEqual(self.status("t1cpu"), "PASS")
+        result = self.result("t1gpu", "01.result")
+        self.assertEqual((result["ok"], result["reason"]), (False, reason))
+        self.assertIsNone(result["torch"])
+        self.assertIsNone(result["triton"])
+        self.assertNotIn("stack mismatch", out.lower())
+        self.assertIn(reason, (self.sd / "summary.txt").read_text())
+        self.assertTrue(Path((self.sd / "bundle_path").read_text().strip()).is_file())
+
     def test_run_without_result_line_or_timed_out_is_failed(self):
         self.add_variants("t1gpu", "t1cpu")
         rc, out = self.run_session("t1gpu", "t1cpu", FAKE_RUN_NORESULT="t1-gpu-stack", T1GPU_RUNS="1",
@@ -810,6 +830,8 @@ class TestProfileNcclXab(SessionRepo):
     def test_profile_done_earlier_is_kept_and_summarized(self):
         d = self.sd / "profile/root"
         d.mkdir(parents=True)
+        (d / ".profile_complete").write_text("complete\n")
+        (d / "analysis.json").write_text("{}\n")
         rows = "\n".join(f"{1.0 / (i + 1):8.3f} {10.0:6.1f}% {1.0:6.1f} {100.0:8.1f}  gemm       kernel_{i}" for i in range(25))
         (d / "analysis.txt").write_text("steps profiled: 20 (device 0); GPU window 30.00 ms/step\n\n"
                                         "NCCL: 2.000 ms/step of kernels, 0.500 ms exposed\n\ntop 25 kernels by total time:\n"
@@ -830,7 +852,7 @@ class TestProfileNcclXab(SessionRepo):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("phases: env tests sanity base t1gpu profile t2cpu t2gpu gate attno hadamard bundle\n", r.stdout)
         self.assertRegex(r.stdout, r"profile: \S+ steps 300:20 -> \S+/profile/root")   # run.sh's DRY_RUN plan (t1gpu absent)
-        self.assertRegex(r.stdout, r"\+ cd \S+ && PROFILE_STEPS=300:20 .*torchrun --standalone --nproc_per_node=8 \S+/hook\.py train_gpt\.py")
+        self.assertRegex(r.stdout, r"\+ cd \S+ && PROFILE_STEPS=300:20 .*env TRAIN_LOG_DIR=\S+ torchrun --standalone --nproc_per_node=8 \S+/hook\.py train_gpt\.py")
         r = subprocess.run(["bash", str(self.repo / "182/gpu_session.sh"), "gate"], cwd=self.repo,
                            env=dict(env, DRY_RUN="1", SKIP_PHASES="bogus"), capture_output=True, text=True, timeout=600)
         self.assertEqual(r.returncode, 2)
@@ -1095,6 +1117,25 @@ class TestSummarize(unittest.TestCase):
         self.assertIn("expected t2-gpu-port", r["note"])
         self.assertIn("hit=0 disagrees", ss.parse_result(ok.replace("hit=1", "hit=0"))["note"])
 
+    def test_result_runtime_metadata_is_observed_and_does_not_replace_failure(self):
+        reason = "PermissionError: could not write logs; requested torch=debug"
+        failed = "RESULT variant=t1-gpu-stack status=failed reason=" + reason + "\n"
+        r = ss.parse_run(failed, 1)
+        self.assertEqual(r["reason"], reason)
+        self.assertIsNone(r["torch"])
+        self.assertIsNone(r["triton"])
+        for version in ("2.10.0+cu128", "2.11.0+cu130"):
+            r = ss.parse_run(failed.replace("status=failed", "status=failed torch=" + version +
+                                            " triton=3.6.0 fa3=pinned tree=abc123 config=381"), 1)
+            self.assertEqual((r["torch"], r["triton"], r["fa3"], r["tree"], r["config"]),
+                             (version, "3.6.0", "pinned", "abc123", "381"))
+            self.assertEqual(r["reason"], reason)
+            self.assertFalse(r["ok"])
+        r = ss.parse_run("RESULT variant=t1-gpu-stack val_loss=3.27 train_time_s=31 steps=1053 "
+                         "target=3.28 hit=1 torch=2.10.0+cu128 triton=3.6.0 log=logs/run.txt\n", 0)
+        self.assertTrue(r["ok"])
+        self.assertEqual((r["torch"], r["triton"]), ("2.10.0+cu128", "3.6.0"))
+
     def test_methods_table_is_empty_for_a_session_without_methods_and_honest_about_one_run(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(ss.methods_table(d, {"env": "PASS"}), [])
@@ -1109,6 +1150,8 @@ class TestSummarize(unittest.TestCase):
             self.assertRegex(text, r"base: root record #92 ANVIL2 +\| not run ")
             self.assertIn("not measured by us", text)
             self.assertIn("One run is one run", text)
+            self.assertIn("target hits alone do not establish significance", text)
+            self.assertNotIn("1-4 runs cannot show", text)
             self.assertIn("t1cpu SKIP t1-cpu-ngram check: FAIL ram: 64 GiB", text)
             lines = "\n".join(ss.variant_lines(d, "t2cpu"))
             self.assertIn("run 2: FAILED (rc ?): unreadable result file", lines)

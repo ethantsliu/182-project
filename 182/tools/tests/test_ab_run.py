@@ -111,6 +111,29 @@ class TestAbRun(unittest.TestCase):
         caches = {r["arm"]: r["env"]["TORCHINDUCTOR_CACHE_DIR"] for r in self.ledger_ends()}
         self.assertEqual(len(set(caches.values())), 3)
 
+    def test_attempt_logs_bypass_unusable_legacy_directory(self):
+        self.plan(n=1)
+        plan = ab_run.load_plan(self.out)
+        worktrees = {}
+        for arm in plan["arms"]:
+            wt = ab_run.prepare_arm(plan, arm, False)
+            worktrees[arm["name"]] = wt
+            # A file at cwd/logs guarantees legacy logging fails, even when tests run as root.
+            with open(os.path.join(wt, "logs"), "w") as f:
+                f.write("legacy path is unavailable")
+        # Execute the already prepared arms: the sentinel is intentionally an untracked file,
+        # which would correctly trip the separate source-fingerprint check on re-prepare.
+        arms = {arm["name"]: arm for arm in plan["arms"]}
+        for slot in plan["runs"]:
+            ab_run.execute(plan, self.out, slot, worktrees[slot["arm"]], arms[slot["arm"]])
+        ends = self.ledger_ends()
+        self.assertTrue(ends)
+        self.assertTrue(all(r["status"] == "ok" for r in ends))
+        for record in ends:
+            self.assertTrue(record["env"]["TRAIN_LOG_DIR"].startswith(os.path.join(self.out, "logs")))
+            self.assertTrue(os.path.isfile(record["log"]))
+            self.assertIn("Running PyTorch", open(record["log"]).read())
+
     def test_interrupted_slot_is_logged_and_rerun(self):
         self.plan(n=1)
         ab_run.append_ledger(self.out, dict(event="start", idx=0, arm="base", time=0))

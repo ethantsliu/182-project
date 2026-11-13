@@ -10,6 +10,7 @@ import stat
 import struct
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -189,8 +190,8 @@ case "$FAKE_MODE" in
   crash) echo "logs/11111111-2222-3333-4444-555555555555.txt"; echo "step:25/685 train_time:500ms step_avg:20.00ms"
          echo "RuntimeError: CUDA error: an illegal memory access was encountered" >&2; exit 1;;
 esac
-mkdir -p logs
-log=logs/11111111-2222-3333-4444-555555555555.txt
+mkdir -p "$TRAIN_LOG_DIR"
+log="$TRAIN_LOG_DIR/11111111-2222-3333-4444-555555555555.txt"
 {
   echo 'print0(f"step:{step}/{n} val_loss:{val_loss:.4f} train_time:{t:.0f}ms")'
   echo "Running PyTorch ${FAKE_TORCH:-2.10.0+cu128} compiled for CUDA 12.8"
@@ -205,6 +206,7 @@ log=logs/11111111-2222-3333-4444-555555555555.txt
   echo "host memory: rank 0 peak RSS 181.2 GiB, node in use 402 GiB (incl. /dev/shm 164 GiB)"
 } > "$log"
 echo "$log"
+echo "TRAIN_LOG_PATH=$log"
 echo "seen: args=$* seed=${TRAIN_SEED:-none} data=$DATA_PATH steps=${NUM_SCHEDULED_ITERATIONS:-default}"
 echo "validation index built in 5.40 s (6-token key)"
 grep -v print0 "$log"
@@ -334,3 +336,21 @@ def test_run_attributes_an_off_stack_result(fake_torchrun, tmp_path):
     r = _sh("run", fake_torchrun, cwd=str(tmp_path))  # the records' stack and the pinned kernel: no stack warnings
     assert r.returncode == 0 and " torch=2.10.0+cu128 triton=3.6.0 fa3=pinned " in r.stdout.strip().splitlines()[-1]
     assert "WARN this run's stack" not in r.stdout and "WARN this run's attention kernel" not in r.stdout
+
+
+def test_run_uses_selected_trainer_log_directory(fake_torchrun, tmp_path):
+    selected = tmp_path / "source logs"
+    r = _sh("run", dict(fake_torchrun, TRAIN_LOG_DIR=str(selected)))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert f"TRAIN_LOG_PATH={selected}/11111111-2222-3333-4444-555555555555.txt" in r.stdout
+    copied = r.stdout.strip().splitlines()[-1].rsplit("log=", 1)[1]
+    assert Path(copied).read_text().startswith('print0(')
+
+
+def test_bad_trainer_log_destination_fails_before_launch(fake_torchrun, tmp_path):
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("keep")
+    r = _sh("run", dict(fake_torchrun, TRAIN_LOG_DIR=str(blocker)))
+    assert r.returncode == 1
+    assert "cannot write run logs" in r.stdout and "set LOG_DIR and TRAIN_LOG_DIR" in r.stdout
+    assert "seen: args" not in r.stdout and blocker.read_text() == "keep"

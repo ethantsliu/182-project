@@ -37,7 +37,7 @@ if [[ -f "$TREE/182/run_node.sh" ]]; then
   CMD=(env "PATH=$HERE/shim:$PATH" "NPROC=$NPROC" "LOG_DIR=$OUT/logs" bash "$TREE/182/run_node.sh" run)
 else
   [[ -f "$TREE/train_gpt.py" ]] || { echo "FAIL profile: $TREE has neither 182/run_node.sh nor train_gpt.py"; exit 2; }
-  CMD=(torchrun --standalone "--nproc_per_node=$NPROC" "$HERE/hook.py" train_gpt.py)
+  CMD=(env "TRAIN_LOG_DIR=$OUT/logs" torchrun --standalone "--nproc_per_node=$NPROC" "$HERE/hook.py" train_gpt.py)
 fi
 echo "profile: $TREE steps $PROFILE_STEPS -> $OUT"
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
@@ -46,6 +46,11 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
   echo "+ $PY $HERE/analyze.py $OUT --json $OUT/analysis.json"
   exit 0
 fi
+# An analysis error can leave a partial analysis.txt behind. Only a marker written after a
+# successful analysis makes this attempt resumable; stale traces must not rescue a failed launch.
+rm -f "$OUT/.profile_complete" "$OUT/trace_rank0.json.gz" "$OUT/analysis.txt" "$OUT/analysis.json" || {
+  echo "FAIL profile: cannot clear stale outputs in $OUT"; exit 1;
+}
 (cd "$TREE" && "${CMD[@]}") 2>&1 | tee "$OUT/train.out"
 rc=${PIPESTATUS[0]}
 echo "profile: training run exited $rc"
@@ -61,5 +66,7 @@ if [[ ! -f "$OUT/trace_rank0.json.gz" ]]; then
   exit 1
 fi
 "$PY" "$HERE/analyze.py" "$OUT" --json "$OUT/analysis.json" > "$OUT/analysis.txt" 2>&1 || { cat "$OUT/analysis.txt"; echo "FAIL profile: analyze.py failed"; exit 1; }
+[[ -s "$OUT/analysis.txt" && -s "$OUT/analysis.json" ]] || { echo "FAIL profile: analysis outputs are missing or empty"; exit 1; }
 cat "$OUT/analysis.txt"
+printf '%s\n' complete > "$OUT/.profile_complete" || { echo "FAIL profile: cannot mark completed analysis"; exit 1; }
 exit 0

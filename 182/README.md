@@ -55,6 +55,32 @@ It ends with `SEND THIS FILE BACK: 182/results/session-<date>-<sha>.tar.gz`. Sen
 `python 182/tools/summarize_session.py <bundle>`. The summary starts with one table (method, runs, mean val loss,
 mean time, best reported, official record, target hits) and says plainly when a row is a single run.
 
+### Recovering from a logging-permission failure
+
+Node runners now put each trainer's source/environment log under the selected `LOG_DIR`, in a `trainer/`
+subdirectory. Root A/B and profile runs use their own output directories too. They do not need to write to a
+legacy `logs/` directory left owned by a previous container user. For a direct trainer invocation, use
+`TRAIN_LOG_DIR=/absolute/writable/path`; the default remains `logs/`. An unwritable selected destination fails
+before a node runner starts GPU workers and reports the actual filesystem error. No ownership changes are needed.
+
+After pulling a fix, explicitly reuse the **existing session directory**, since the default includes the current
+Git SHA and would create a new session. Find it with `find 182/results -path '*/status/base' -type f`: use the
+parent of `status/`, not a tarball or the exported `final-results/` report directory. In the same pinned environment
+and container used for the successful baseline:
+
+```bash
+export SESSION_DIR=/absolute/path/to/the/existing/session
+bash 182/gpu_session.sh env sanity base t1gpu profile bundle
+bash 182/gpu_session.sh t1cpu t2cpu t2gpu bundle
+```
+
+Do not set `FORCE=1`: PASS phases and successful runs are retained; failed variant attempts are archived and
+retried. Run both commands even if the first reports a failed phase; its nonzero exit is a summary of failures,
+not a reason to abandon the independent phases. Each invocation still runs its selected later phases and bundles
+the available evidence. Missing runtime metadata on a startup failure means unknown, not a stack mismatch;
+the environment and variant checks establish stack compatibility. The single-GPU gates and A/B commands above
+can follow once their prerequisites succeed.
+
 The order is `env tests sanity base t1gpu profile nccl xab t1cpu t2cpu t2gpu gate attno hadamard bundle`:
 
 - `base` first (2 runs): this node's own reference and its spread, with logs, which the one earlier run did not leave.

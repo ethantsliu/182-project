@@ -8,12 +8,14 @@ val loss 3.2785). The end-to-end tests put a fake `torchrun` on PATH that replay
 the log copy and the RESULT line are exercised without a GPU. Nothing here changes os.environ.
 """
 import os
+from pathlib import Path
 import re
 import stat
 import struct
 import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -23,8 +25,8 @@ import runlib  # noqa: E402
 RUN_NODE = os.path.join(HERE, "..", "run_node.sh")
 FIXTURE = os.path.join(HERE, "fixtures", "pr397_seed3_3012f81e.tail.txt")
 RESULT_OK = re.compile(r"^RESULT variant=t1-gpu-stack val_loss=\d+\.\d+ train_time_s=\d+\.\d+ steps=\d+ target=3\.28 "
-                       r"hit=[01] log=\S+$")
-RESULT_FAILED = re.compile(r"^RESULT variant=t1-gpu-stack status=failed reason=\S.*$")
+                       r"hit=[01] (?:torch=\S+ )?(?:triton=\S+ )?log=\S+$")
+RESULT_FAILED = re.compile(r"^RESULT variant=t1-gpu-stack status=failed (?:torch=\S+ )?(?:triton=\S+ )?reason=\S.*$")
 CHECK_LINE = re.compile(r"^(PASS|WARN|FAIL) [^:]+: \S.*$")
 
 FAKE_TORCHRUN = """#!/usr/bin/env bash
@@ -35,6 +37,25 @@ case "${FAKE_MODE:-ok}" in
   ok) cat "$FAKE_LOG";;
   crash) grep -v 'val_loss' "$FAKE_LOG"; echo "AssertionError: [kernels] the dense G3 (Gluon) kernel is not active: priming fell back to Triton"; exit 1;;
   hang) echo "step:25/1053 train_time:700ms step_avg:28.00ms"; sleep 600;;
+  runlog) "$FAKE_PYTHON" - "$FAKE_RUN_LOG_MODULE" "$FAKE_LOG" <<'PY'
+import os, pathlib, runpy, sys, types
+from unittest import mock
+sys.modules['torch'] = types.ModuleType('torch')
+sys.modules['triton'] = types.ModuleType('triton')
+logger = runpy.run_path(sys.argv[1])
+legacy = pathlib.Path('logs').resolve()
+original = os.makedirs
+def guarded(path, *args, **kwargs):
+    if pathlib.Path(path).resolve() == legacy:
+        raise PermissionError('simulated root-owned legacy logs directory')
+    return original(path, *args, **kwargs)
+with mock.patch('os.makedirs', side_effect=guarded):
+    print0, flush = logger['start_run_log'](True, 'aabbccdd-1234')
+    text = pathlib.Path(sys.argv[2]).read_text()
+    print0(text, console=True)
+    flush()
+PY
+  ;;
 esac
 """
 
@@ -54,7 +75,7 @@ def shell(mode: str, env: dict | None = None, cwd: str | None = None, timeout: f
     """run_node.sh <mode> with the caller's environment plus `env`, never the repo's venv (the tests' python)."""
     full = dict(os.environ, RUN_NODE_NO_VENV="1", PYTHON=sys.executable)
     for key in runlib.FLAG_KEYS + runlib.BASE_KEYS + ("SEED", "STEPS", "EXTRA_ENV", "NPROC", "DRY_RUN", "LOG_DIR",
-                                                      "DATA_PATH", "AB_RUNS", "AB_ARMS", "AB_STEPS", "AB_SEED_BASE"):
+                                                      "TRAIN_LOG_DIR", "DATA_PATH", "AB_RUNS", "AB_ARMS", "AB_STEPS", "AB_SEED_BASE"):
         full.pop(key, None)
     full.update(env or {})
     p = subprocess.run(["bash", RUN_NODE, mode], capture_output=True, text=True, env=full, cwd=cwd, timeout=timeout)
@@ -84,7 +105,8 @@ def fake_node(tmp: str, mode: str = "ok", log_text: str | None = None) -> dict:
     with open(log, "w") as f:
         f.write(log_text if log_text is not None else fixture_text())
     return dict(PATH=bin_dir + os.pathsep + os.environ["PATH"], DATA_PATH=tmp, FAKE_LOG=log, FAKE_MODE=mode,
-                FAKE_ENV_LOG=os.path.join(tmp, "env.txt"), LOG_DIR=os.path.join(tmp, "out"))
+                FAKE_ENV_LOG=os.path.join(tmp, "env.txt"), LOG_DIR=os.path.join(tmp, "out"), FAKE_PYTHON=sys.executable,
+                FAKE_RUN_LOG_MODULE=os.path.join(runlib.VARIANT_DIR, "track_1_short", "run_log.py"))
 
 
 # ------------------------------------------------------------------------------------------- the parser
@@ -225,10 +247,33 @@ def test_run_end_to_end_with_a_fake_torchrun():
         assert code == 0 and RESULT_OK.match(lines[-1]), (lines[-3:], err)
         fields = dict(f.split("=", 1) for f in lines[-1].split()[1:])
         assert (fields["val_loss"], fields["train_time_s"], fields["steps"], fields["hit"]) == ("3.278500", "30.660", "1053", "1")
+        assert fields["torch"] == "2.10.0+cu128" and fields["triton"] == "3.6.0"
         assert os.path.dirname(fields["log"]) == env["LOG_DIR"] and runlib.parse_log(fields["log"]).steps == 1053
         launched = open(env["FAKE_ENV_LOG"]).read().splitlines()
         assert launched == [f"DATA_PATH={tmp}", "HOST_PREP=all", "TRAIN_SEED=3",
                             "args: --standalone --nproc_per_node=8 train_gpt.py"], launched
+
+
+def test_report_reads_stack_from_file_only_environment_headers():
+    with tempfile.TemporaryDirectory() as tmp:
+        source_log = Path(tmp, "trainer-source.txt")
+        source_log.write_text("Running PyTorch 2.10.0+cu128 compiled for CUDA 12.8\n"
+                              "Running Triton version 3.6.0\n")
+        console = Path(tmp, "console.txt")
+        console.write_text(f"TRAIN_LOG_PATH={source_log}\n"
+                           "[final] val_loss:3.277000 train_time_ms:30660 steps:1053 scheduled:981\n")
+        with mock.patch("builtins.print") as output:
+            assert node.report_run(str(console), 0, "", tmp, "copied") == 0
+        result = output.call_args_list[-1].args[0]
+        assert "torch=2.10.0+cu128 triton=3.6.0" in result
+
+
+def test_permission_cause_survives_torchrun_child_failure_wrapper():
+    text = ("[rank0]: PermissionError: [Errno 13] Permission denied: 'logs/run.txt'\n"
+            "torch.distributed.elastic.multiprocessing.errors.ChildFailedError:\n")
+    reason = runlib.failure_reason(text, 1)
+    assert "PermissionError" in reason and "logs/run.txt" in reason
+    assert "ChildFailedError" not in reason
 
 
 def test_run_reports_a_crash_and_a_timeout():
@@ -237,12 +282,67 @@ def test_run_reports_a_crash_and_a_timeout():
         code, lines, _ = shell("run", env)
         assert code == 1 and RESULT_FAILED.match(lines[-1]), lines[-2:]
         assert "exit code 1; AssertionError: [kernels] the dense G3" in lines[-1] and "log=" in lines[-1], lines[-1]
+        assert "torch=2.10.0+cu128 triton=3.6.0" in lines[-1]
     with tempfile.TemporaryDirectory() as tmp:
         env = fake_node(tmp, mode="hang")
         code, lines, _ = shell("run", dict(env, RUN_TIMEOUT_S="2"), timeout=60)
         assert code == 1 and RESULT_FAILED.match(lines[-1]) and "timeout after 2 s" in lines[-1], lines[-2:]
         left = subprocess.run(["pgrep", "-f", os.path.join(tmp, "bin", "torchrun")], capture_output=True, text=True).stdout
         assert not left.strip(), f"the fake torchrun survived its timeout: {left}"
+
+
+def test_run_uses_session_trainer_logs_when_legacy_logs_are_unwritable():
+    with tempfile.TemporaryDirectory(prefix="session logs ") as tmp:
+        env = fake_node(tmp, mode="runlog")
+        code, lines, err = shell("run", env)
+        assert code == 0, (lines, err)
+        trainer = Path(env["LOG_DIR"]) / "trainer" / "aabbccdd-1234.txt"
+        assert trainer.exists() and runlib.parse_log(str(trainer)).steps == 1053
+        marker = f"TRAIN_LOG_PATH={trainer}"
+        assert marker in lines
+        assert runlib.trainer_log_path("\n".join(lines)) == str(trainer)
+        # report_run must preserve the source log even when the destination contains spaces.
+        copies = list(Path(env["LOG_DIR"]).glob("t1-gpu-stack_*.txt"))
+        assert any(p.read_text() == trainer.read_text() for p in copies)
+
+
+def test_log_directory_failure_is_actionable_and_happens_before_launch():
+    with tempfile.TemporaryDirectory() as tmp:
+        env = fake_node(tmp)
+        # An ordinary file deterministically blocks directory creation, even in root-run CI.
+        blocked = Path(tmp) / "blocked"
+        blocked.write_text("keep this file")
+        for variable in ("LOG_DIR", "TRAIN_LOG_DIR"):
+            code, lines, err = shell("run", dict(env, **{variable: str(blocked)}))
+            assert code == 1 and RESULT_FAILED.match(lines[-1]), (lines, err)
+            assert "logging:" in lines[-1] and "writable directories" in lines[-1]
+            assert "Traceback" not in err
+            assert not Path(env["FAKE_ENV_LOG"]).exists(), "torchrun must not launch"
+            assert blocked.read_text() == "keep this file"
+
+
+def test_launch_probes_trainer_log_permissions_before_spawning():
+    with tempfile.TemporaryDirectory() as tmp:
+        console = str(Path(tmp) / "console.txt")
+        # A mocked permission error also covers CI that runs as root and ignores chmod bits.
+        with mock.patch.object(runlib.tempfile, "TemporaryFile", side_effect=PermissionError("root-owned logs")), \
+             mock.patch.object(runlib.subprocess, "Popen") as popen:
+            try:
+                runlib.launch({}, console)
+            except PermissionError as exc:
+                assert "root-owned" in str(exc)
+            else:
+                raise AssertionError("an unwritable trainer directory must fail before torchrun")
+            popen.assert_not_called()
+
+
+def test_trainer_log_parser_keeps_legacy_paths():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "logs" / "aabbccdd-1234.txt"
+        path.parent.mkdir()
+        path.write_text(fixture_text())
+        with mock.patch.object(runlib, "VARIANT_DIR", tmp):
+            assert runlib.trainer_log_path("logs/aabbccdd-1234.txt\n") == str(path)
 
 
 # --------------------------------------------------------------------------------------------------- ab

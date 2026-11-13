@@ -16,6 +16,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 
@@ -44,7 +45,8 @@ CONFIG_RE = re.compile(r"^\[config\] steps (\d+) scheduled", re.M)
 COPY_RE = re.compile(rf"^step:\d+/\d+ val_loss_no_copy:({_NUM}) val_loss_copy:({_NUM}) copy_gain:(-?{_NUM}) "
                      rf"copy_fit_ms:([0-9]+) fit:(\w+)", re.M)
 TRAINER_LOG_RE = re.compile(r"^(logs/[0-9a-f-]+\.txt)\s*$", re.M)
-ERROR_RE = re.compile(r"^\S*(?:Error|Exception|AssertionError)\b.*$|^.*CUDA out of memory.*$|^.*Killed.*$", re.M)
+TRAINER_LOG_PATH_RE = re.compile(r"^TRAIN_LOG_PATH=(.+)$", re.M)
+ERROR_RE = re.compile(r"^(?:\[rank\d+\]:\s*)?\S*(?:Error|Exception|AssertionError)\b.*$|^.*CUDA out of memory.*$|^.*Killed.*$", re.M)
 
 
 @dataclass
@@ -95,6 +97,9 @@ def failure_reason(text: str, exit_code: int | None) -> str:
     if re.search(r"^(?:step:\d+/\d+|\[final\]) val_loss:(?:nan|inf)", text, re.M):
         return "val_loss is not finite"
     errors = [m.group(0).strip() for m in ERROR_RE.finditer(text)]
+    # torchrun appends its generic child-failure exception after the rank's actual traceback.
+    causes = [line for line in errors if "ChildFailedError" not in line]
+    errors = causes or errors
     progress = TRAIN_RE.findall(text)
     where = f"last step {progress[-1][0]}/{progress[-1][1]}" if progress else "no training step logged"
     code = "" if exit_code in (None, 0) else f"exit code {exit_code}; "
@@ -105,8 +110,8 @@ def failure_reason(text: str, exit_code: int | None) -> str:
 
 def trainer_log_path(console_text: str) -> str | None:
     """The trainer's own log (source + environment + every line), which it names on its first stdout line."""
-    m = TRAINER_LOG_RE.search(console_text)
-    path = os.path.join(VARIANT_DIR, m.group(1)) if m else None
+    m = TRAINER_LOG_PATH_RE.search(console_text) or TRAINER_LOG_RE.search(console_text)
+    path = os.path.join(VARIANT_DIR, m.group(1).rstrip("\r")) if m else None
     return path if path and os.path.exists(path) else None
 
 
@@ -131,7 +136,16 @@ def launch(env_set: dict, console_path: str, nproc: int = WORLD_SIZE, timeout_s:
     a timeout, after which the whole process group (torchrun and its 8 ranks) is killed."""
     env = {k: v for k, v in os.environ.items() if k not in clear}
     env.update({k: str(v) for k, v in env_set.items()})
-    os.makedirs(os.path.dirname(os.path.abspath(console_path)), exist_ok=True)
+    console_dir = os.path.dirname(os.path.abspath(console_path))
+    os.makedirs(console_dir, exist_ok=True)
+    trainer_dir = env.get("TRAIN_LOG_DIR") or os.path.join(console_dir, "trainer")
+    trainer_dir = os.path.abspath(os.path.join(VARIANT_DIR, trainer_dir))
+    env["TRAIN_LOG_DIR"] = trainer_dir
+    # Check this before torchrun launches eight ranks. Never repair permissions or silently redirect
+    # an explicitly selected directory: report the path that needs to be changed instead.
+    os.makedirs(trainer_dir, exist_ok=True)
+    with tempfile.TemporaryFile(dir=trainer_dir):
+        pass
     deadline = time.monotonic() + timeout_s
     with open(console_path, "w") as out:
         try:

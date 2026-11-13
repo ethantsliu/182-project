@@ -250,3 +250,47 @@ def test_fa3_cache_check(tmp_path):
     assert node.fa3_cached(tmp_path, pin)[0]
     assert node.fa3_pin()["FA3_REPO"] == "devenpzak/flash-attn3-12864"  # read from model/attention.py
     assert node.hf_hub_dir({"HF_HOME": "/h"}) == Path("/h/hub") and node.hf_hub_dir({"HF_HUB_CACHE": "/c"}) == Path("/c")
+
+
+def test_run_routes_trainer_log_under_selected_output(monkeypatch, tmp_path):
+    script = """import os
+from pathlib import Path
+p = Path(os.environ['TRAIN_LOG_DIR']) / 'full-source.txt'
+p.write_text('complete source and environment')
+print('TRAIN_LOG_PATH=' + str(p))
+print('step:5800/5800 val_loss:2.8770 train_time:221500ms')
+"""
+    row, line = fake_run(monkeypatch, tmp_path, script)
+    assert row is not None
+    source = tmp_path / 'log' / 'trainer' / 'full-source.txt'
+    assert source.read_text() == 'complete source and environment'
+    assert (tmp_path / 'log' / 'full-source.txt').read_text() == source.read_text()
+    assert 'log=' + str(tmp_path / 'log' / 'full-source.txt') in line
+
+
+def test_run_refuses_unusable_trainer_log_directory(monkeypatch, tmp_path):
+    blocker = tmp_path / 'not-a-directory'
+    blocker.write_text('keep')
+    monkeypatch.setenv('TRAIN_LOG_DIR', str(blocker))
+    row, line = fake_run(monkeypatch, tmp_path, "raise AssertionError('must not launch')")
+    assert row is None and 'cannot start run or write run logs' in line
+    assert blocker.read_text() == 'keep'
+
+
+def test_parser_prefers_explicit_source_log_path_with_spaces():
+    text = OURS + 'TRAIN_LOG_PATH=/tmp/source logs/full.txt\n'
+    assert runlib.parse_result(text)['log'] == '/tmp/source logs/full.txt'
+
+
+def test_check_uses_actual_log_destinations_not_legacy_logs(monkeypatch, tmp_path):
+    variant = tmp_path / "variant"
+    variant.mkdir()
+    (variant / "logs").write_text("unusable legacy location")
+    monkeypatch.setattr(node, "VARIANT", variant)
+    monkeypatch.setattr(node, "RESULTS", tmp_path / "results")
+    out = []
+    node.run_check({"LOG_DIR": str(tmp_path / "session")}, out.append)
+    writable = next(l for l in out if " writable: " in l)
+    assert writable.startswith("PASS writable:")
+    assert str(tmp_path / "session" / "trainer") in writable
+    assert (variant / "logs").read_text() == "unusable legacy location"

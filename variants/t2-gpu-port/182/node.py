@@ -22,6 +22,7 @@ import statistics
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 
 VARIANT = "t2-gpu-port"
@@ -52,6 +53,7 @@ WANT_SHARDS = 25  # margin for the tokens BOS alignment skips
 VAL_RE = re.compile(r"^step:(\d+)/(\d+) val_loss:(\S+) train_time:(\d+)ms", re.M)
 TRAIN_RE = re.compile(r"^step:(\d+)/(\d+) train_time:(\d+)ms", re.M)
 CANON_RE = re.compile(r"^canon_mask: val_loss_masked:(\S+) val_loss_unmasked:(\S+) delta:(\S+) canon_ms:(\S+)", re.M)
+TRAIN_LOG_PATH_RE = re.compile(r"^TRAIN_LOG_PATH=(.+)$", re.M)
 LOGPATH_RE = re.compile(r"^(logs/[0-9a-f-]{36}\.txt)\s*$", re.M)
 PEAK_RE = re.compile(r"^peak memory allocated: (\d+) MiB", re.M)
 TORCH_RE = re.compile(r"^Running PyTorch (\S+)", re.M)
@@ -564,9 +566,19 @@ def run_once(extra: dict, tag: str) -> tuple[dict, str | None, str]:
     env, shown = run_env(extra)
     cmd = trainer_cmd()
     log_dir = os.path.abspath(os.environ.get("LOG_DIR") or os.path.join(VARIANT_DIR, "runs"))
-    os.makedirs(log_dir, exist_ok=True)
     out_path = os.path.join(log_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-{tag}.out")
     print(f"run: {shell_form(cmd, shown)}\nrun: stdout -> {out_path}", flush=True)
+    trainer_dir = env.get("TRAIN_LOG_DIR") or os.path.join(log_dir, "trainer")
+    env["TRAIN_LOG_DIR"] = os.path.abspath(os.path.join(VARIANT_DIR, trainer_dir))
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(env["TRAIN_LOG_DIR"], exist_ok=True)
+        with tempfile.TemporaryFile(dir=env["TRAIN_LOG_DIR"]):
+            pass
+        with open(out_path, "w"):
+            pass
+    except OSError as exc:
+        return parse_log(""), f"cannot write run logs: {exc}; set LOG_DIR and TRAIN_LOG_DIR to writable directories", out_path
     interrupted = None
     try:
         rc, timed_out = run_group(cmd, VARIANT_DIR, env, default_timeout(shown), out_path)
@@ -576,7 +588,7 @@ def run_once(extra: dict, tag: str) -> tuple[dict, str | None, str]:
         text = f.read()
     parsed = parse_log(text)
     reason = f"interrupted ({interrupted})" if interrupted else failure_reason(parsed, rc, timed_out)
-    m = LOGPATH_RE.search(text)
+    m = TRAIN_LOG_PATH_RE.search(text) or LOGPATH_RE.search(text)
     log = os.path.join(VARIANT_DIR, m.group(1)) if m and os.path.isfile(os.path.join(VARIANT_DIR, m.group(1))) else out_path
     return parsed, reason, log
 

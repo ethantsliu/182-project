@@ -821,7 +821,9 @@ phase_profile() {
   [[ -n "${PROFILE_TREES// }" ]] || { skip "PROFILE_TREES is empty"; return 0; }
   for t in $PROFILE_TREES; do
     tree=$(tree_of "$t"); out="$d/$t"
-    if [[ "${FORCE:-0}" != 1 && -f "$out/analysis.txt" ]]; then log "profile $t: done earlier ($out/analysis.txt)"; done_=$((done_ + 1)); continue; fi
+    if [[ "${FORCE:-0}" != 1 && -f "$out/.profile_complete" && -s "$out/analysis.txt" && -s "$out/analysis.json" ]]; then
+      log "profile $t: done earlier ($out/analysis.txt)"; done_=$((done_ + 1)); continue
+    fi
     if [[ "${FORCE:-0}" == 1 && -d "$out" && "$DRY_RUN" != 1 ]]; then
       k=1; while [[ -e "$out.attempt$k" ]]; do k=$((k + 1)); done; mv "$out" "$out.attempt$k"
     fi

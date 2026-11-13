@@ -347,6 +347,8 @@ def execute(plan: dict, out: str, slot: dict, wt: str, arm: dict) -> dict:
     # Ignore a caller's relative DATA_PATH: it changes meaning in detached worktrees/variants.
     # prepare_arm links this directory's data/fineweb10B to the plan's shared root shards.
     env_extra.setdefault("DATA_PATH", wt)
+    # Keep source/environment logs with this attempt even if cwd/logs belongs to a previous container user.
+    env_extra.setdefault("TRAIN_LOG_DIR", os.path.abspath(os.path.join(out, "logs", "trainer", tag)))
     if slot["seed"] is not None and plan["seed_env"]:
         env_extra[plan["seed_env"]] = str(slot["seed"])
     if plan["cache"] == "cold":

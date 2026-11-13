@@ -138,6 +138,10 @@ class TestSynthetic(unittest.TestCase):
         self.assertEqual(logparse.find_log_path("logs/abc-123.txt\nstep:1/2 ...\n"), "logs/abc-123.txt")
         self.assertIsNone(logparse.find_log_path("no path here\n"))
 
+    def test_explicit_log_path_supports_spaces_and_takes_precedence(self):
+        path = "/tmp/session with spaces/trainer/abc-123.txt"
+        self.assertEqual(logparse.find_log_path(f"logs/old.txt\nTRAIN_LOG_PATH={path}\nstep:1/2 ...\n"), path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,9 +22,11 @@ if os.path.exists("arm_offset.txt"):
 t = float(os.environ.get("FAKE_TIME", "40.0"))
 fmt = os.environ.get("FAKE_FORMAT", "ms")
 total = 100
-os.makedirs("logs", exist_ok=True)
-path = f"logs/{uuid.uuid4()}.txt"
+directory = os.environ.get("TRAIN_LOG_DIR") or "logs"
+os.makedirs(directory, exist_ok=True)
+path = os.path.join(directory, f"{uuid.uuid4()}.txt")
 print(path, flush=True)
+print(f"TRAIN_LOG_PATH={os.path.abspath(path)}", flush=True)
 with open(path, "w") as f:
     f.write(open(__file__).read())
     f.write("\n" + "=" * 100 + "\nRunning PyTorch 2.10.0+cu128 compiled for CUDA 12.8\n" + "=" * 100 + "\n")

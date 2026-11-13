@@ -2223,9 +2223,16 @@ master_process = (rank == 0) # this process will do logging, checkpointing etc.
 logfile = None
 if master_process:
     run_id = args.run_id
-    os.makedirs("logs", exist_ok=True)
-    logfile = f"logs/{run_id}.txt"
-    print(logfile)
+    log_dir = os.environ.get("TRAIN_LOG_DIR") or "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    logfile = os.path.join(log_dir, f"{run_id}.txt")
+    try:
+        with open(logfile, "a"):
+            pass
+    except OSError as exc:
+        raise OSError(f"cannot write trainer log {logfile}: {exc}; set TRAIN_LOG_DIR to a writable directory") from exc
+    print(logfile, flush=True)
+    print(f"TRAIN_LOG_PATH={os.path.abspath(logfile)}", flush=True)
 def print0(s, console=False):
     if master_process:
         with open(logfile, "a") as f:

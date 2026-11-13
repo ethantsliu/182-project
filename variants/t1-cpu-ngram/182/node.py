@@ -33,6 +33,7 @@ import struct
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,6 +61,7 @@ VAL_RE = re.compile(rf"^step:(\d+)/(\d+) val_loss:({_NUM}) train_time:([0-9.]+)m
 TRAIN_RE = re.compile(r"^step:(\d+)/(\d+) train_time:([0-9.]+)ms", re.M)
 VOTE_RE = re.compile(rf"^table vote: val_loss:({_NUM}) with the table's links, ({_NUM}) without them, ({_NUM}) with PR #399's", re.M)
 HOSTMEM_RE = re.compile(r"^host memory: .*$", re.M)
+TRAIN_LOG_PATH_RE = re.compile(r"^TRAIN_LOG_PATH=(.+)$", re.M)
 LOGPATH_RE = re.compile(r"^(logs/[0-9a-f\-]{36}\.txt)\s*$", re.M)
 STAMP_RE = re.compile(r"^\[(\d+\.\d+)\] (.*)$")
 BUILT_RE = re.compile(r"validation index built in ([0-9.]+) s(?: \((\d)-token key\))?")
@@ -698,10 +700,20 @@ def one_run(s, more=None, tag="run", out=print):
     if running:
         return None, "", f"another trainer is running (pids {running[:8]}): wait for it or kill it"
     clear_tables(out)
-    os.makedirs(s.log_dir, exist_ok=True)
     name = f"{time.strftime('%Y%m%d-%H%M%S')}-{tag}-c{s.config}" + (f"-s{(more or {}).get('TRAIN_SEED', s.seed)}" if (more or {}).get("TRAIN_SEED", s.seed) else "")
     console = os.path.join(s.log_dir, name + ".console.txt")
     env = dict(os.environ, **s.knobs(more), PYTHONUNBUFFERED="1")
+    log_dir = env.get("TRAIN_LOG_DIR") or os.path.join(s.log_dir, "trainer")
+    env["TRAIN_LOG_DIR"] = os.path.abspath(os.path.join(VDIR, log_dir))
+    try:
+        os.makedirs(s.log_dir, exist_ok=True)
+        os.makedirs(env["TRAIN_LOG_DIR"], exist_ok=True)
+        with tempfile.TemporaryFile(dir=env["TRAIN_LOG_DIR"]):
+            pass
+        with open(console, "w"):
+            pass
+    except OSError as exc:
+        return None, console, f"cannot write run logs: {exc}; set LOG_DIR and TRAIN_LOG_DIR to writable directories"
     out(f"launch: {s.shell_line(more)}")
     out(f"console: {console}")
     lines = []
@@ -739,7 +751,7 @@ def one_run(s, more=None, tag="run", out=print):
     text = "\n".join(lines)
     plain = "\n".join(STAMP_RE.sub(r"\2", l) for l in lines)
     log, parsed = console, parse_log(plain)
-    m = LOGPATH_RE.search(plain)
+    m = TRAIN_LOG_PATH_RE.search(plain) or LOGPATH_RE.search(plain)
     if m and os.path.isfile(os.path.join(VDIR, m.group(1))):
         log = os.path.join(s.log_dir, name + ".log.txt")
         shutil.copyfile(os.path.join(VDIR, m.group(1)), log)

@@ -11,7 +11,7 @@ Environment:
   run    NPROC (8; the trainer refuses anything else), SEED (-> TRAIN_SEED; unset = random init, as #397),
          STEPS (-> NUM_SCHEDULED_ITERATIONS, default 981), EXTRA_ENV ("K=V K=V"), exported HOST_PREP / DOC_COPY /
          LAYER_ROPE / COPY_MIX / COPY_MIX_FIT / OPTIM_* / MOE_ROUTER_FUSED / HOST_ASYNC / HOST_ASYNC_DEPTH / EXACT_LEVERS,
-         LOG_DIR (logs/node), RUN_TIMEOUT_S (1800), DRY_RUN=1
+         LOG_DIR (logs/node), TRAIN_LOG_DIR (LOG_DIR/trainer), RUN_TIMEOUT_S (1800), DRY_RUN=1
   ab     AB_RUNS (4), AB_ARMS ("base hostprep copymix"), AB_STEPS ("981"; several counts = equal-loss comparison
          through sweep_steps.py), AB_SEED_BASE (1), LOG_DIR, RUN_TIMEOUT_S, DRY_RUN=1. Resumable: finished runs are kept.
 
@@ -23,6 +23,7 @@ import glob
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import statistics
@@ -506,8 +507,20 @@ def shown_env(env_set: dict, clear: tuple[str, ...] = ()) -> dict:
     return shown
 
 
-def result_failed(reason: str) -> int:
-    print(f"RESULT variant={VARIANT_NAME} status=failed reason={' '.join(reason.split())}", flush=True)
+def observed_stack(text: str) -> str:
+    """Runtime versions from a launched trainer, never guessed from the wrapper's interpreter."""
+    fields = []
+    for key, pattern in (("torch", r"^Running PyTorch (\S+) compiled for CUDA"),
+                         ("triton", r"^Running Triton version (\S+)")):
+        match = re.search(pattern, text, re.M)
+        if match:
+            fields.append(f"{key}={match.group(1)}")
+    return " ".join(fields)
+
+
+def result_failed(reason: str, stack: str = "") -> int:
+    print(f"RESULT variant={VARIANT_NAME} status=failed{(' ' + stack) if stack else ''} "
+          f"reason={' '.join(reason.split())}", flush=True)
     return 1
 
 
@@ -545,27 +558,35 @@ def run() -> int:
     console = os.path.join(log_dir, stem + ".console.txt")
     print(f"run: {runlib.format_cmd(shown_env(env_set), runlib.torchrun_cmd(nproc))}", flush=True)
     print(f"run: console -> {console}", flush=True)
-    code, note = runlib.launch(env_set, console, nproc=nproc, timeout_s=timeout_s, echo=True)
+    try:
+        code, note = runlib.launch(env_set, console, nproc=nproc, timeout_s=timeout_s, echo=True)
+    except OSError as exc:
+        return result_failed(f"logging: {exc}; set LOG_DIR and TRAIN_LOG_DIR to writable directories")
     return report_run(console, code, note, log_dir, stem)
 
 
 def report_run(console: str, code: int | None, note: str, log_dir: str, stem: str) -> int:
     text = open(console, errors="replace").read()
+    stack = observed_stack(text)
     result = runlib.parse_text(text)
     log = console
     trainer_log = runlib.trainer_log_path(text)
     if trainer_log:  # the record-format log (source, environment, every line): keep it next to the console
+        # Environment headers are normally file-only, not console=True output.
+        with open(trainer_log, errors="replace") as source_log:
+            stack = observed_stack(source_log.read()) or stack
         log = os.path.join(log_dir, stem + ".txt")
         shutil.copyfile(trainer_log, log)
     if result is None or code != 0:
-        return result_failed(f"{note or runlib.failure_reason(text, code)} log={log}")
+        return result_failed(f"{note or runlib.failure_reason(text, code)} log={log}", stack)
     if result.copy:
         c = result.copy
         print(f"INFO copy mixture: val_loss_no_copy={c['val_loss_no_copy']:.6f} copy_gain={c['copy_gain']:.6f} "
               f"copy_fit_ms={c['copy_fit_ms']} fit={c['fit']}")
     print(f"INFO scheduled={result.scheduled} flags={ {k: os.environ[k] for k in runlib.FLAG_KEYS if k in os.environ} or 'none'}")
     print(f"RESULT variant={VARIANT_NAME} val_loss={result.val_loss:.6f} train_time_s={result.train_time_s:.3f} "
-          f"steps={result.steps} target={TARGET_LOSS:.2f} hit={int(result.hit)} log={log}", flush=True)
+          f"steps={result.steps} target={TARGET_LOSS:.2f} hit={int(result.hit)} "
+          f"{(stack + ' ') if stack else ''}log={log}", flush=True)
     return 0
 
 
@@ -715,7 +736,11 @@ def ab() -> int:
             print(f"{tag}: skipped, the arm failed twice")
             continue
         print(f"{tag}: running -> {p['path']}", flush=True)
-        code, note = runlib.launch(env_set, p["path"], nproc=nproc, timeout_s=timeout_s, clear=clear)
+        try:
+            code, note = runlib.launch(env_set, p["path"], nproc=nproc, timeout_s=timeout_s, clear=clear)
+        except OSError as exc:
+            print(f"FAIL ab: logging: {exc}; set LOG_DIR and TRAIN_LOG_DIR to writable directories", flush=True)
+            return 1
         done = runlib.parse_log(p["path"]) if code == 0 else None
         if done is None:
             text = open(p["path"], errors="replace").read()

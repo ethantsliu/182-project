@@ -32,6 +32,7 @@ import signal
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 from pathlib import Path
 
@@ -390,7 +391,10 @@ def run_check(env=None, out=print) -> int:
                 say("WARN", "kernel", f"{h.kernel} < 5.14: MADV_POPULATE_WRITE is ignored, so the tables fault in on the clock")
 
     def check_writable():
-        for d in (VARIANT / "logs", RESULTS):
+        console_dir = Path(env["LOG_DIR"]).resolve() if env.get("LOG_DIR") else RESULTS / "node"
+        trainer_dir = (VARIANT / env["TRAIN_LOG_DIR"]).resolve() if env.get("TRAIN_LOG_DIR") else console_dir / "trainer"
+        destinations = (console_dir, trainer_dir, RESULTS)
+        for d in destinations:
             try:
                 d.mkdir(parents=True, exist_ok=True)
                 probe = d / f".write-test-{os.getpid()}"
@@ -399,7 +403,7 @@ def run_check(env=None, out=print) -> int:
             except OSError as e:
                 say("FAIL", "writable", f"{d}: {e}")
                 return
-        say("PASS", "writable", f"{VARIANT / 'logs'} and {RESULTS}")
+        say("PASS", "writable", ", ".join(str(d) for d in destinations))
 
     for fn in (check_platform, check_packages, check_gpus, check_cuda, check_caches, check_extension, check_data, check_host, check_writable):
         try:
@@ -540,6 +544,12 @@ def execute(cmd, env, stdout_path: Path, timeout: int) -> tuple[int, str | None]
     """Run in its own process group, stdout+stderr to the console and stdout_path. (exit code, "timeout" |
     "interrupted" | None). The whole group is killed on a timeout or a signal, so no rank outlives the run."""
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    env = dict(env)
+    log_dir = env.get("TRAIN_LOG_DIR") or str(stdout_path.parent / "trainer")
+    env["TRAIN_LOG_DIR"] = str((VARIANT / log_dir).resolve())
+    Path(env["TRAIN_LOG_DIR"]).mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryFile(dir=env["TRAIN_LOG_DIR"]):
+        pass
     why = []
     with open(stdout_path, "w") as f:
         proc = subprocess.Popen(cmd, cwd=VARIANT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -626,11 +636,15 @@ def run_once(overrides: dict | None, log_dir: Path, dry: bool = False) -> tuple[
         return None, ""
     timeout = env_int("RUN_TIMEOUT_S", 5400)
     t0 = time.time()
-    rc, why = execute(cmd, env, log_dir / "stdout.txt", timeout)
+    try:
+        rc, why = execute(cmd, env, log_dir / "stdout.txt", timeout)
+    except OSError as exc:
+        return None, result_line(None, log_dir / "stdout.txt",
+                                 f"cannot start run or write run logs: {exc}; set LOG_DIR and TRAIN_LOG_DIR to writable directories")
     text = (log_dir / "stdout.txt").read_text(errors="replace")
     result = runlib.parse_result(text)
     log = log_dir / "stdout.txt"
-    if (m := runlib.LOG_PATH.search(text)) and (VARIANT / m.group(1)).exists():
+    if (m := runlib.TRAIN_LOG_PATH.search(text) or runlib.LOG_PATH.search(text)) and (VARIANT / m.group(1)).exists():
         log = log_dir / Path(m.group(1)).name  # the run log: the source, the environment and every step line
         shutil.copyfile(VARIANT / m.group(1), log)
     if rc != 0 or result is None or why:

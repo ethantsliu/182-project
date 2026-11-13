@@ -38,6 +38,7 @@ TORCH_RE = re.compile(r"^Running PyTorch (\S+)", re.MULTILINE)
 GPU_RE = re.compile(r"NVIDIA (H100|A100|H200|B200|GH200)[^|\n]*", re.MULTILINE)
 DRIVER_RE = re.compile(r"Driver Version: ([0-9.]+)")
 LOGPATH_RE = re.compile(r"^(logs/[0-9A-Za-z_.\-]+\.txt)\s*$", re.MULTILINE)
+EXPLICIT_LOGPATH_RE = re.compile(r"^TRAIN_LOG_PATH=([^\r\n]+)$", re.MULTILINE)
 
 
 def _seconds(value: str, unit: str) -> float:
@@ -166,8 +167,8 @@ def parse_file_runs(path: str) -> list[RunLog]:
 
 
 def find_log_path(stdout: str) -> str | None:
-    """The trainers print their log path ("logs/<uuid>.txt") as the first stdout line on rank 0."""
-    m = LOGPATH_RE.search(stdout)
+    """Prefer the explicit trainer-log marker; accept legacy logs/<uuid>.txt output too."""
+    m = EXPLICIT_LOGPATH_RE.search(stdout) or LOGPATH_RE.search(stdout)
     return m.group(1) if m else None
 
 

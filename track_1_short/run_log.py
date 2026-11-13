@@ -29,7 +29,7 @@ def read_source(entry_script: str) -> str:
 
 
 def start_run_log(master_process: bool, run_id: str):
-    """Create logs/<run_id>.txt on rank 0 and return (print0, flush).
+    """Create TRAIN_LOG_DIR/<run_id>.txt (default logs/) on rank 0; return (print0, flush).
 
     print0(s, console=False) always appends to the log file; with console=True it also prints to
     stdout. The file is one block-buffered handle rather than an open() + close() per line (record #360):
@@ -38,10 +38,16 @@ def start_run_log(master_process: bool, run_id: str):
     """
     logfile = None
     if master_process:
-        os.makedirs("logs", exist_ok=True)
-        path = f"logs/{run_id}.txt"
-        print(path)
-        logfile = open(path, "a", buffering=LOG_BUFFER_BYTES)
+        directory = os.environ.get("TRAIN_LOG_DIR") or "logs"
+        path = os.path.join(directory, f"{run_id}.txt")
+        try:
+            os.makedirs(directory, exist_ok=True)
+            logfile = open(path, "a", buffering=LOG_BUFFER_BYTES)
+        except OSError as exc:
+            raise OSError(f"Cannot write trainer log {path!r}: {exc}. "
+                          "Set TRAIN_LOG_DIR to a writable directory.") from exc
+        print(path, flush=True)
+        print(f"TRAIN_LOG_PATH={os.path.abspath(path)}", flush=True)
         atexit.register(logfile.close)  # close() flushes
 
     def print0(s, console=False):

@@ -14,6 +14,7 @@ TARGET = 2.92
 _ENDPOINT_KV = re.compile(r"^endpoint_result: (.*)$", re.M)
 _ENDPOINT_JSON = re.compile(r"^endpoint_result:(\{.*\})$", re.M)  # ldmberman's attachment format
 _VAL_LINE = re.compile(r"^step:(\d+)/(\d+) val_loss:([\d.]+) train_time:(\d+)ms", re.M)
+TRAIN_LOG_PATH = re.compile(r"^TRAIN_LOG_PATH=(.+)$", re.M)
 LOG_PATH = re.compile(r"^(logs/[0-9a-f-]+\.txt)$", re.M)
 _STEP = re.compile(r"^step:(\d+)/(\d+) ", re.M)
 _PEAK = re.compile(r"^peak memory allocated: (\d+) MiB reserved: (\d+) MiB", re.M)
@@ -39,7 +40,7 @@ def parse_result(text: str) -> dict | None:
         out = dict(steps=j["steps"], val_loss=j["val_loss"], train_time_ms=j["train_time_ms"], seed=j.get("seed"))
     if out is not None and not math.isfinite(out["val_loss"]):
         return None  # a diverged run has no result
-    if out is not None and (p := LOG_PATH.search(text)):
+    if out is not None and (p := TRAIN_LOG_PATH.search(text) or LOG_PATH.search(text)):
         out["log"] = p.group(1)
     return out
 

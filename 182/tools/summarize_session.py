@@ -406,13 +406,21 @@ def attno_lines(ab: dict) -> list[str]:
 
 def parse_result(text: str) -> dict:
     """The last `RESULT k=v ...` line of a run's output (the node contract) -> dict(ok, val_loss, train_time_s,
-    steps, target, hit, log, variant, reason). ok needs a finite val_loss and train_time_s and no status=failed."""
+    steps, target, hit, log, variant, reason). ok needs a finite val_loss and train_time_s and no status=failed.
+
+    Runtime versions are observations, not a failure classifier: a trainer can fail before printing them.
+    Missing torch/triton stay None (unknown), never a stack mismatch; the env/check phases verify the stack.
+    """
     lines = RESULT_RE.findall(text)
     if not lines:
         tail = [ln for ln in text.splitlines() if ln.strip()][-1:] or ["(no output)"]
         return dict(ok=False, reason="no RESULT line; last output line: " + tail[0][:200])
-    kv = dict(item.split("=", 1) for item in lines[-1].split() if "=" in item)
-    out = dict(ok=False, variant=kv.get("variant"), raw="RESULT " + lines[-1])
+    # reason is free text and may itself mention torch= or another metadata-looking word.
+    fields = lines[-1].split(" reason=", 1)[0]
+    kv = dict(item.split("=", 1) for item in fields.split() if "=" in item)
+    out = dict(ok=False, variant=kv.get("variant"), raw="RESULT " + lines[-1],
+               torch=kv.get("torch"), triton=kv.get("triton"))
+    out.update({key: kv[key] for key in ("fa3", "tree", "config", "log") if key in kv})
     if kv.get("status") == "failed":
         m = re.search(r"reason=(.*)$", lines[-1])
         return dict(out, reason=(m.group(1) if m else "status=failed without a reason")[:300])
@@ -530,7 +538,8 @@ def methods_table(root: str, smap: dict) -> list[str]:
     out += ["  best reported = the best time claimed for that tree on its author's node, not measured by us; it and the",
             "  official record are other machines, so only rows of this table compare like with like. 'target hit' counts",
             "  single runs at or under the target: a record needs the MEAN under it with p < 0.01 (stats.py gate), which",
-            "  1-4 runs cannot show. One run is one run: no spread, no significance.",
+            "  must be tested from the mean and spread; target hits alone do not establish significance.",
+            "  One run is one run: no spread, no significance.",
             "  " + PRIOR_NODE_RUNS]
     for phase in METHODS:
         st = smap.get(phase, "")
