@@ -96,6 +96,22 @@ assert any(s.train_max_seq_len > VIRTUAL_SEQ_CAP for s in TRAINING_STAGES), "VIR
 
 
 # -----------------------------------------------------------------------------
+# Run-metric knobs (182/README.md "Run metrics"; track_1_short/run_metrics.py). Both off by default, and
+# neither changes a compiled graph, a kernel or the training state.
+# RUN_METRICS=1: `METRIC ...` lines after the timed loop: per-step latency (one host perf_counter per step,
+# no synchronize), peak GPU memory of every rank over the timed loop (the peak counters are reset right
+# before the clock starts, so the legacy "peak memory allocated" line then covers the timed loop only),
+# and each validation's loss to 6 digits. Meant to be on in both arms of a timing A/B.
+# VAL_CURVE=N: also validate every N steps (N > 0, not at step 0), with the clock stopped exactly as for the
+# final validation. A curve run, not a timing run: each validation leaves its reads, pulls and gathers on
+# the clock (see val_loss_every above), so every val line is tagged INVALID_FOR_RECORD(val_curve).
+RUN_METRICS = os.environ.get("RUN_METRICS", "0") == "1"
+VAL_CURVE = int(os.environ.get("VAL_CURVE", "0"))
+assert os.environ.get("RUN_METRICS", "0") in ("0", "1"), f"RUN_METRICS={os.environ['RUN_METRICS']!r}: use 0 or 1"
+assert VAL_CURVE >= 0, f"VAL_CURVE={VAL_CURVE}: use 0 (off) or a step interval"
+
+
+# -----------------------------------------------------------------------------
 # FP8 experiment knobs (182/hadamard-fp8). Every default is the record's behaviour; they are module
 # constants, so torch.compile sees them as trace-time constants and the default graphs are unchanged.
 

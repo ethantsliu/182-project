@@ -39,6 +39,9 @@ GPU_RE = re.compile(r"NVIDIA (H100|A100|H200|B200|GH200)[^|\n]*", re.MULTILINE)
 DRIVER_RE = re.compile(r"Driver Version: ([0-9.]+)")
 LOGPATH_RE = re.compile(r"^(logs/[0-9A-Za-z_.\-]+\.txt)\s*$", re.MULTILINE)
 EXPLICIT_LOGPATH_RE = re.compile(r"^TRAIN_LOG_PATH=([^\r\n]+)$", re.MULTILINE)
+# RUN_METRICS=1 / VAL_CURVE=N lines of the root trainer (track_1_short/run_metrics.py): "METRIC <name> k=v ...".
+METRIC_RE = re.compile(r"^METRIC ([a-z_]+)((?: [A-Za-z_0-9]+=\S+)+)\s*$", re.MULTILINE)
+SEED_RE = re.compile(r"^attention heads=.* seed=(\S+) steps=", re.MULTILINE)
 
 
 def _seconds(value: str, unit: str) -> float:
@@ -155,6 +158,18 @@ def _parse_body(body: str, path: str | None) -> RunLog:
         gpu=gpu.group(0).strip() if gpu else None,
         driver=drv.group(1) if drv else None,
     )
+
+
+def parse_metrics(text: str) -> list[tuple[str, dict]]:
+    """Every METRIC line after the source dump, in order: (name, {key: value string})."""
+    return [(m.group(1), dict(kv.split("=", 1) for kv in m.group(2).split()))
+            for m in METRIC_RE.finditer(_body(text))]
+
+
+def parse_seed(text: str) -> str | None:
+    """The trainer's seed from its startup line; None when unseeded ("random") or absent."""
+    m = SEED_RE.search(_body(text))
+    return None if m is None or m.group(1) == "random" else m.group(1)
 
 
 def parse_file(path: str) -> RunLog:

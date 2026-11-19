@@ -40,8 +40,10 @@ from track_1_short.config import (
     FP8_OFF,
     HADAMARD_FP8,
     LR_COOLDOWN_FRAC,
+    RUN_METRICS,
     SPLIT_EMBED_STAGE,
     TRAINING_STAGES,
+    VAL_CURVE,
     WS_POST_YARN_EXT,
     Hyperparameters,
 )
@@ -68,6 +70,7 @@ from track_1_short.perf.kernels.mlp import prime_stage_cache
 from track_1_short.perf.pinned_batches import PinnedBatchStaging
 from track_1_short.perf.row_prefetch import PrefetchStaging, RowPrefetch
 from track_1_short.perf.value_embed_pull import ValueEmbedPull
+from track_1_short.run_metrics import peak_mem_lines, run_config_line, step_latency_lines, val_line
 from track_1_short.sampled_softmax import SampledSoftmax
 from track_1_short.schedule import TrainingSchedule
 from track_1_short.tail_average import TailAverages
@@ -86,7 +89,9 @@ PRINT_EVERY = 25
 # clock, so its val lines are tagged too.
 HADAMARD_SAT_STATS = os.environ.get("HADAMARD_SAT_STATS", "0") == "1"
 TIMING_TAG = ((" INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else "")
-              + (" INVALID_FOR_RECORD(sat_stats)" if HADAMARD_SAT_STATS else ""))
+              + (" INVALID_FOR_RECORD(sat_stats)" if HADAMARD_SAT_STATS else "")
+              # VAL_CURVE=N (config.py): intermediate validations leave their reads, pulls and gathers on the clock.
+              + (" INVALID_FOR_RECORD(val_curve)" if VAL_CURVE else ""))
 
 
 def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
@@ -189,6 +194,9 @@ def main():
            + f" HADAMARD_SAT_STATS={int(HADAMARD_SAT_STATS)}"
            + "".join(f" {k}={os.environ[k]}" for k in ("HADAMARD_GEMMS", "HADAMARD_BLOCK") if k in os.environ)
            + (f" FP8_ATTN_O=1 FP8_ATTN_O_SCALES={FP8_ATTN_O_SCALES}" if FP8_ATTN_O else ""), console=True)
+    if RUN_METRICS or VAL_CURVE:
+        print0(run_config_line(RUN_METRICS, VAL_CURVE, args.train_seed, env.world_size, training_schedule.total_steps),
+               console=True)
     if MONARCH_MLP:
         ms = model.monarch_shape
         print0(f"MONARCH_MLP=1: blocks={ms.blocks} expand={ms.expand} hidden={ms.hidden} block=[{ms.q}, {ms.p}] "
@@ -350,6 +358,14 @@ def main():
         dist.barrier()
         t0 += time.perf_counter() - pause
 
+    # RUN_METRICS=1 (config.py; all None / unused otherwise): the end-of-step clock readings, the steps that
+    # began with a validation, and the peak-memory counters split at the clock start.
+    step_clock = [0.0] * training_schedule.total_steps if RUN_METRICS else None
+    validated_steps = []
+    if RUN_METRICS:
+        warmup_peak = (torch.cuda.max_memory_allocated(), torch.cuda.max_memory_reserved())
+        torch.cuda.reset_peak_memory_stats()
+
     training_time_ms = 0
     # start the clock
     torch.cuda.synchronize()
@@ -368,7 +384,8 @@ def main():
         last_step = (step == training_schedule.total_steps)
         training_manager.advance_schedule(step)
         # --------------- VALIDATION SECTION -----------------
-        if last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0):
+        if (last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0)
+                or (VAL_CURVE > 0 and step > 0 and step % VAL_CURVE == 0)):
             # HADAMARD_SAT_STATS: the last step's amaxes under the scales it used, before the refresh clears them.
             sat_snapshot = uncompiled_model.fp8_sat_snapshot() if HADAMARD_SAT_STATS else None
             # The deferred gathers land first: validation reads the banks and, at the last step, ships
@@ -417,6 +434,9 @@ def main():
             dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
             print0(f"step:{step}/{training_schedule.total_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms"
                    + TIMING_TAG, console=True)
+            if RUN_METRICS or VAL_CURVE:  # the clock is stopped
+                print0(val_line(step, training_schedule.total_steps, training_time_ms, float(val_loss)), console=True)
+                validated_steps.append(step)
             if sat_snapshot is not None:
                 # Ratios: the max over ranks (each rank's delayed scales follow its own tokens); scales: rank 0's.
                 names, snap = sat_snapshot
@@ -447,6 +467,8 @@ def main():
                    step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps,
                    before_forward=fp8_dump_hook if FP8_DUMP_DIR and step in FP8_DUMP_STEPS else None)
         tail_averages.tick(step)
+        if step_clock is not None:  # RUN_METRICS=1: a host clock reading, no synchronize
+            step_clock[step] = training_time_ms + 1000 * (time.perf_counter() - t0)
 
         # logging, thinned to every PRINT_EVERY steps and the last two
         if (step + 1) % PRINT_EVERY == 0 or step + 1 >= training_schedule.total_steps - 1:
@@ -454,6 +476,16 @@ def main():
             print0(f"step:{step+1}/{training_schedule.total_steps} train_time:{approx_training_time_ms:.0f}ms step_avg:{approx_training_time_ms/(step + 1):.2f}ms", console=True)
 
     gc.enable()
+    if RUN_METRICS:
+        # After the timed loop (the final validation has synchronized): step latency, then every rank's peaks.
+        for line in step_latency_lines(step_clock, validated_steps, training_schedule.boundaries):
+            print0(line, console=True)
+        timed_peak = (torch.cuda.max_memory_allocated(), torch.cuda.max_memory_reserved())
+        peaks = torch.zeros(env.world_size, 4, dtype=torch.int64, device=env.device)
+        peaks[env.rank] = torch.tensor(timed_peak + warmup_peak, dtype=torch.int64, device=env.device)
+        dist.all_reduce(peaks)
+        for line in peak_mem_lines(peaks.tolist()):
+            print0(line, console=True)
     if args.run_evals:
         model.eval()
         from evals import hellaswag

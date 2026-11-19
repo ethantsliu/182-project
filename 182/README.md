@@ -113,6 +113,34 @@ bash variants/t1-gpu-stack/182/run_node.sh run     # one timed run; the last lin
 torchrun --standalone --nproc_per_node=8 train_gpt.py   # the root record, from the repo root
 ```
 
+### Run metrics for the kernel comparison (root trainer)
+
+Two flags, off by default (`track_1_short/config.py`; flags off is the upstream run), print greppable `METRIC` lines
+(`track_1_short/run_metrics.py`) to the console and the run log:
+
+- `RUN_METRICS=1`, for both arms of a timing A/B: `METRIC step_latency scope=all|stageN ... mean_ms median_ms p95_ms`
+  (one host clock reading per step, no synchronize; validation excluded), `METRIC peak_mem rank=R|max allocated_mib
+  reserved_mib warmup_*` (every rank, timed loop and before the clock separately, read after the loop) and
+  `METRIC val step= train_time_s= val_loss= final=` (6 digits).
+- `VAL_CURVE=N`: also validates every N steps with the clock stopped. This is a curve run, not a timing run (each
+  validation leaves reads and pulls on the clock; val lines are tagged `INVALID_FOR_RECORD(val_curve)`).
+
+```bash
+W=182/results/kernel-work                      # shared worktrees and warm compile caches
+python 182/tools/ab_run.py plan --out 182/results/kernel-timing --work-root $W --arm base=ref:HEAD --arm kern=ref:HEAD \
+  --common-env RUN_METRICS=1 --env kern:ANVIL_KERNEL=<value> --n 4 --seeds 1,2,3,4 --warmup 1 --cache warm --go
+python 182/tools/ab_run.py plan --out 182/results/kernel-curve --work-root $W --arm base=ref:HEAD --arm kern=ref:HEAD \
+  --common-env RUN_METRICS=1 --common-env VAL_CURVE=100 --env kern:ANVIL_KERNEL=<value> --n 2 --seeds 1,2 --cache warm --go
+python 182/tools/compare_runs.py --names base,kernel --csv 182/results/kernel-curves.csv \
+  --a 182/results/kernel-timing@base 182/results/kernel-curve@base \
+  --b 182/results/kernel-timing@kern 182/results/kernel-curve@kern
+```
+
+`compare_runs.py` (sources: logs, directories, globs or `ABDIR@ARM`) prints, per arm, n, mean ± sd and the 95% interval of
+train time, step latency, final val loss and peak memory, the paired B - A differences by seed, and the time to 3.28
+interpolated from the curve runs, and writes the curves as CSV. The intermediate validations and the `METRIC` path have
+not run on a GPU.
+
 ## Layout
 
 | Path | What |
