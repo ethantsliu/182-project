@@ -32,6 +32,8 @@ from torch import nn
 # torch._inductor.config.coordinate_descent_tuning = True # we have banned this flag for new records because it causes compilation to take 30min
 from track_1_short.canonical_mask import BackgroundCanonicalMask
 from track_1_short.config import (
+    ANVIL_ABLATE,
+    ANVIL_KERNEL,
     FP8_ATTN_O,
     FP8_ATTN_O_SCALES,
     FP8_DUMP_DIR,
@@ -59,6 +61,7 @@ from track_1_short.ngram_table import (
     is_update_step,
     ngram_row_ids,
 )
+from track_1_short.perf import anvil_kernel
 from track_1_short.perf.cuda_graphs.baked_addresses import assert_addresses_unchanged, baked_addresses
 from track_1_short.perf.cuda_graphs.capture_plan import plan_warmup, step_graph_key
 from track_1_short.perf.cuda_graphs.fp8_refresh_graphs import Fp8RefreshGraphs
@@ -88,10 +91,13 @@ PRINT_EVERY = 25
 # scales and amax / limit ratios (model/gpt.py format_fp8_sat). The snapshot is a few device copies on the
 # clock, so its val lines are tagged too.
 HADAMARD_SAT_STATS = os.environ.get("HADAMARD_SAT_STATS", "0") == "1"
+# ANVIL_ABLATE (182/optim-kernel, measurement only): the whitening cascade is skipped, so the run is not a training
+# run at all; its val lines are tagged as well.
 TIMING_TAG = ((" INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else "")
               + (" INVALID_FOR_RECORD(sat_stats)" if HADAMARD_SAT_STATS else "")
               # VAL_CURVE=N (config.py): intermediate validations leave their reads, pulls and gathers on the clock.
-              + (" INVALID_FOR_RECORD(val_curve)" if VAL_CURVE else ""))
+              + (" INVALID_FOR_RECORD(val_curve)" if VAL_CURVE else "")
+              + (" INVALID_FOR_RECORD(anvil_ablate)" if ANVIL_ABLATE else ""))
 
 
 def train_step(training_manager, step_graphs, row_prefetch, sampled_softmax, batches, deferred_gathers,
@@ -197,6 +203,8 @@ def main():
     if RUN_METRICS or VAL_CURVE:
         print0(run_config_line(RUN_METRICS, VAL_CURVE, args.train_seed, env.world_size, training_schedule.total_steps),
                console=True)
+    if ANVIL_KERNEL or ANVIL_ABLATE:  # 182/optim-kernel (both unset in the record configuration)
+        print0(anvil_kernel.describe(), console=True)
     if MONARCH_MLP:
         ms = model.monarch_shape
         print0(f"MONARCH_MLP=1: blocks={ms.blocks} expand={ms.expand} hidden={ms.hidden} block=[{ms.q}, {ms.p}] "
