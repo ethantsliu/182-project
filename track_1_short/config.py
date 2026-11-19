@@ -2,8 +2,8 @@
 
 The run's own environment variables (DATA_PATH, NUM_SCHEDULED_ITERATIONS, TRAIN_SEED, and the FP8
 experiment knobs FP8_OFF, HADAMARD_FP8, HADAMARD_SEED, HADAMARD_BLOCK, HADAMARD_GEMMS, FP8_DUMP_DIR /
-_STEPS / _ROWS / _SLOTS, FP8_ATTN_O / FP8_ATTN_O_SCALES, SPARSE24_MLP / _BACKEND / _MASK / _DENSE_FROM_WS at the
-bottom) are read here. The others: the
+_STEPS / _ROWS / _SLOTS, FP8_ATTN_O / FP8_ATTN_O_SCALES, SPARSE24_MLP / _BACKEND / _MASK / _DENSE_FROM_WS and the
+optimizer-kernel knobs ANVIL_KERNEL / ANVIL_ABLATE / ANVIL_BANKS at the bottom) are read here. The others: the
 experiment knob HADAMARD_SAT_STATS (train_gpt.py; read here too, to decide whether FP8_ATTN_O records amaxes)
 and MONARCH_MLP / _BLOCKS / _EXPAND / _LR_MUL / _DOWN_LR_MUL (model/monarch.py); torchrun's
 RANK / LOCAL_RANK / WORLD_SIZE (distributed.py; train_gpt.py also reads LOCAL_RANK), PYTORCH_ALLOC_CONF
@@ -183,3 +183,46 @@ assert SPARSE24_MASK in ("greedy", "optimal"), f"SPARSE24_MASK={SPARSE24_MASK!r}
 assert SPARSE24_DENSE_FROM_WS >= 0, f"SPARSE24_DENSE_FROM_WS={SPARSE24_DENSE_FROM_WS}: use 0 (off) or a block count"
 # The sparse MLP is bf16 and bypasses the fp8 MLP: HADAMARD_FP8 (fp8 MLP only) would be a silent no-op.
 assert not (SPARSE24_MLP and HADAMARD_FP8), "HADAMARD_FP8 rotates the fp8 MLP; SPARSE24_MLP replaces it with a bf16 2:4 MLP"
+
+# -----------------------------------------------------------------------------
+# Optimizer-kernel experiment knobs (182/optim-kernel, perf/anvil_kernel.py). All off by default: the record's
+# anvil_cascade then runs untouched (optim/anvil.py tests one module constant per bank update, on the host).
+# ANVIL_KERNEL: an alternative implementation of the whitening cascade with the SAME update rule (the six ANVIL_MAPS
+# after the Frobenius normalization); only the floating-point evaluation order differs. Each name is (map groups,
+# symmetric small products): the maps of one group are composed in the small Gram space (one Gram and one large
+# GEMM per group instead of one of each per map); the "s" names compute the small products with the half-work
+# symmetric Triton kernel (perf/kernels/anvil_chain.py) instead of cuBLAS baddbmm.
+ANVIL_KERNELS = {
+    "gram222": ((2, 2, 2), False),
+    "gram222s": ((2, 2, 2), True),
+    "gram33": ((3, 3), False),
+    "gram33s": ((3, 3), True),
+}
+ANVIL_BANK_LABELS = ("qk_bank", "vo_bank", "mlp_bank")
+
+
+def _anvil_flag(name: str, allowed) -> str:
+    value = os.environ.get(name, "").strip().lower()
+    value = "" if value in ("0", "off", "none") else value
+    assert value == "" or value in allowed, f"{name}={value!r}: use one of {sorted(allowed)} (or unset)"
+    return value
+
+
+def _anvil_banks(value: str, default: tuple[str, ...]) -> frozenset[str]:
+    labels = frozenset(p.strip() for p in value.split(",") if p.strip()) or frozenset(default)
+    assert labels <= set(ANVIL_BANK_LABELS), f"ANVIL_BANKS: unknown banks {sorted(labels - set(ANVIL_BANK_LABELS))}"
+    return labels
+
+
+ANVIL_KERNEL = _anvil_flag("ANVIL_KERNEL", ANVIL_KERNELS)
+# ANVIL_ABLATE=skip_matrix: MEASUREMENT ONLY, NOT A VALID TRAINING RUN. The cascade's Grams, polynomials and update
+# GEMMs are skipped (the update is the Frobenius-normalized momentum: the cascade with zero maps); the rails, the
+# equalizer, the decay/update and all comms stay. Its step time against the record's is the latency the cascade's
+# matrix work exposes; its loss means nothing, and its val lines are tagged INVALID_FOR_RECORD(anvil_ablate).
+ANVIL_ABLATE = _anvil_flag("ANVIL_ABLATE", ("skip_matrix",))
+assert not (ANVIL_KERNEL and ANVIL_ABLATE), "ANVIL_KERNEL and ANVIL_ABLATE are separate arms: set one"
+# ANVIL_BANKS: comma list of the banks the kernel / ablation applies to. Default: mlp_bank for ANVIL_KERNEL (the
+# only bank whose matrices are tall enough for the Gram-space composition to cut work: 2816x768, against vo's
+# 768x768 and qk's 256x768), every bank for ANVIL_ABLATE.
+ANVIL_BANKS = (_anvil_banks(os.environ.get("ANVIL_BANKS", ""), ANVIL_BANK_LABELS if ANVIL_ABLATE else ("mlp_bank",))
+               if ANVIL_KERNEL or ANVIL_ABLATE else frozenset())
