@@ -15,5 +15,5 @@ git log --oneline -1 | tee "$OUT/sha"
 bash -c "$1"; rc=$?
 echo "LOR command rc=$rc secs=$(( $(date +%s) - t0 ))"
 cp node_report.txt "$OUT/" 2>/dev/null
-echo "LOR-RESULTS-BEGIN"; tar -C /work -czf - --exclude='*.pt' --exclude='*.json.gz' out | base64 -w 76; echo "LOR-RESULTS-END"
+echo "LOR-RESULTS-BEGIN"; (cd /work && find out -type f -size -1500k ! -name '*.pt' ! -name '*.json.gz' ! -name '*.tar.gz' -print0 | tar -czf - --null -T -) | base64 -w 76; echo "LOR-RESULTS-END"
 exit $rc
