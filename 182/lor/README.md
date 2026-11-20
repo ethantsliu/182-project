@@ -17,3 +17,7 @@ results into the log and exits; the node is released (and billing stops) when th
   compile on the first run of a tree; warm runs are about 4 min. Put several runs in one job.
 - `jobs/fastest.sh` is an example job. Trainers must run with `HF_HUB_OFFLINE=1` after setup (the kernels hub API
   answers 401 without a login; `node_setup.sh` seeds the cache).
+- `variants/t1-cpu-ngram` and `variants/t2-cpu-ngram` each install their own build of the `exact_match` extension
+  into the same venv. Whichever `prep` ran last wins, and the other tree's check then FAILs ("an older build"). Run
+  one tree's prep and its runs before the other tree's prep (`jobs/ngram_final.sh` got this wrong on 2026-11-20:
+  its Track 1 pairs did not run).
