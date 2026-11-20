@@ -168,6 +168,23 @@ node fails on both counts and a 512 GiB node passes. The published runs had 16 v
    Confirmed if `host memory:` drops by about 46 GiB (32 threads) or 62 GiB (64) with time and loss inside the A
    arm's spread; killed if the time CI excludes zero on the slow side.
 
+## Our result: 668 scheduled steps (the default here)
+
+#381 schedules 675 steps; this tree defaults to 668. `NUM_SCHEDULED_ITERATIONS=675` reproduces #381. Measured on one
+8xH100 node (Lor, pinned stack), 675 and 668 interleaved with the same seed per pair, after a warm-up run:
+
+| | 675 (upstream) | 668 (ours) |
+| --- | --- | --- |
+| mean time, 8 interleaved runs | 9.959 s | 9.828 s |
+| mean val loss | about 3.2751 | 3.27688 (11 seeds, sd 0.00146) |
+
+- Paired time difference: -0.131 s (se 0.039, 95% interval +/-0.093, t = -3.33); 668 was faster in 7 of 8 pairs.
+  Without the first pair of each job (warm-up drift): -0.077 s (+/-0.061).
+- Loss rule: the 11-seed mean is under 3.28 with t = 7.09 (p < 0.01). The margin is thin; the worst run was 3.2800.
+- 662 steps was too few: 3.2795, 3.2771, 3.2784 over three seeds.
+
+Jobs: `182/lor/jobs/ngram_steps.sh`, `ngram_confirm.sh`, `ngram_final.sh` at the repo root.
+
 ## What changed on top of #381
 
 | knob (default) | what it does | tested on CPU |

@@ -12,7 +12,7 @@ export HF_HUB_OFFLINE=1
 r=$(SEED=21 LOG_DIR="$OUT/warm" bash $V/182/run_node.sh run 2>&1 | grep '^RESULT' | tail -1); t "WARMUP ${r:0:120}"
 # The Track 2 prep (downloads, a build) must not overlap timed runs.
 wait $T2PREP; t "t2 prep rc=$(cat "$OUT/prep-t2.rc" 2>/dev/null)"; grep -E "^FAIL" "$OUT/prep-t2.log" | tail -5
-t "ab start"; AB_RUNS=${AB_RUNS:-4} AB_SEED0=${AB_SEED0:-7} AB_B="NUM_SCHEDULED_ITERATIONS=${N:-668}" LOG_DIR="$OUT/ab" bash $V/182/run_node.sh ab > "$OUT/ab.log" 2>&1; t "ab rc=$?"
+t "ab start"; AB_RUNS=${AB_RUNS:-4} AB_SEED0=${AB_SEED0:-7} AB_A="NUM_SCHEDULED_ITERATIONS=675" AB_B="NUM_SCHEDULED_ITERATIONS=${N:-668}" LOG_DIR="$OUT/ab" bash $V/182/run_node.sh ab > "$OUT/ab.log" 2>&1; t "ab rc=$?"
 grep -E "^AB(_RUN| n=| A )" "$OUT/ab.log" | sed -E 's/ target=.*//' | cut -c1-300
 t "track 2 start"
 SESSION_DIR=$OUT/session T2CPU_RUNS=1 bash 182/gpu_session.sh env t2cpu bundle > "$OUT/session.log" 2>&1; t "session rc=$?"
