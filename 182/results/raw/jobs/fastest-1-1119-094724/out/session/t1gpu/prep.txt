@@ -1,0 +1,6 @@
+prep data: 9 train shards + validation already in /work/182-project/data/fineweb10B
+prep fa3: devenpzak/flash-attn3-12864@64c1e6d1 already in the HF cache
+prep tokenizer: /work/182-project/.venv-run/bin/python -c 'import tiktoken; tiktoken.get_encoding('"'"'gpt2'"'"'); print('"'"'gpt2 encoding cached'"'"')'
+gpt2 encoding cached
+prep: nothing to build (no extension). The first run compiles for ~7 minutes before its clock starts; later runs reuse the Inductor / Triton caches.
+prep: done

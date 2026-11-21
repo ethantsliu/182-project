@@ -1,0 +1,7 @@
+data: 103 train shards + validation present in /work/182-project/data/fineweb10B
++ /work/182-project/.venv-run/bin/python -m pip install -q 'maturin>=1.9,<2'
++ /work/182-project/.venv-run/bin/python -m pip install -q --force-reinstall --no-deps /work/182-project/variants/t2-cpu-ngram/exact_match
+FA3 kernel: cached
++ /work/182-project/.venv-run/bin/python -c 'import tiktoken; tiktoken.get_encoding('"'"'gpt2'"'"'); print('"'"'GPT-2 tokenizer file cached'"'"')'
+GPT-2 tokenizer file cached
+prep: done; next: bash variants/t2-cpu-ngram/182/run_node.sh check

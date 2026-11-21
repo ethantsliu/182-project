@@ -1,0 +1,78 @@
+[1795135982.916] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135982.917] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135985.370] /work/out/ab/trainer/d4b78525-b5dd-4813-8b67-e69a9110e996.txt
+[1795135985.370] TRAIN_LOG_PATH=/work/out/ab/trainer/d4b78525-b5dd-4813-8b67-e69a9110e996.txt
+[1795135985.371] attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+[1795135990.672] host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1794 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+[1795135990.672] retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[1795135990.929] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.929] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.929] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.929] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.930] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.930] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : [Gloo] Rank 7
+[1795135990.930] 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795135990.930] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136036.111] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136045.684] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795136055.736] retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+[1795136056.699] Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+[1795136056.708] Sampling steps [0, 1, 189, 190, 191, 192, 403, 404, 405, 406, 552, 553, 554, 555, 626, 627, 628, 629, 666, 667, 668, 669, 670, 671, 672] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 627
+[1795136167.681] Resetting Model
+[1795136167.688] CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+[1795136170.773] step:25/678 train_time:656ms step_avg:26.24ms
+[1795136171.031] step:50/678 train_time:915ms step_avg:18.29ms
+[1795136171.323] step:75/678 train_time:1207ms step_avg:16.09ms
+[1795136171.455] validation index built in 0.68 s (2-token key)
+[1795136171.620] step:100/678 train_time:1503ms step_avg:15.03ms
+[1795136171.908] step:125/678 train_time:1792ms step_avg:14.34ms
+[1795136172.208] step:150/678 train_time:2091ms step_avg:13.94ms
+[1795136172.370] validation index built in 0.73 s (3-token key)
+[1795136172.496] step:175/678 train_time:2380ms step_avg:13.60ms
+[1795136172.791] step:200/678 train_time:2675ms step_avg:13.37ms
+[1795136173.086] step:225/678 train_time:2969ms step_avg:13.20ms
+[1795136173.382] step:250/678 train_time:3266ms step_avg:13.06ms
+[1795136173.681] step:275/678 train_time:3565ms step_avg:12.96ms
+[1795136173.990] step:300/678 train_time:3874ms step_avg:12.91ms
+[1795136174.291] step:325/678 train_time:4174ms step_avg:12.84ms
+[1795136174.595] step:350/678 train_time:4479ms step_avg:12.80ms
+[1795136174.933] step:375/678 train_time:4816ms step_avg:12.84ms
+[1795136175.376] step:400/678 train_time:5259ms step_avg:13.15ms
+[1795136175.810] step:425/678 train_time:5694ms step_avg:13.40ms
+[1795136175.894] validation index built in 3.34 s (6-token key)
+[1795136176.085] step:450/678 train_time:5969ms step_avg:13.26ms
+[1795136176.483] step:475/678 train_time:6366ms step_avg:13.40ms
+[1795136176.912] step:500/678 train_time:6796ms step_avg:13.59ms
+[1795136177.246] step:525/678 train_time:7130ms step_avg:13.58ms
+[1795136177.576] step:550/678 train_time:7459ms step_avg:13.56ms
+[1795136177.895] step:575/678 train_time:7778ms step_avg:13.53ms
+[1795136178.229] step:600/678 train_time:8111ms step_avg:13.52ms
+[1795136178.556] step:625/678 train_time:8439ms step_avg:13.50ms
+[1795136178.913] step:650/678 train_time:8796ms step_avg:13.53ms
+[1795136179.285] step:675/678 train_time:9168ms step_avg:13.58ms
+[1795136179.314] step:677/678 train_time:9197ms step_avg:13.59ms
+[1795136179.327] step:678/678 train_time:9211ms step_avg:13.59ms
+[1795136188.305] step:678/678 val_loss:3.2762 train_time:9833ms step_avg:14.50ms
+[1795136188.305] val diagnostics: network val_loss:3.3322 (before the chain; the chain adds -0.0561); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+[1795136188.329] peak memory allocated: 49531 MiB reserved: 55816 MiB
+[1795136188.335] host memory: rank 0 peak RSS 308.3 GiB, node in use 240 GiB (incl. /dev/shm 144 GiB)

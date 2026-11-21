@@ -1,0 +1,19 @@
+{
+ "python": "3.12.3",
+ "executable": "/work/182-project/.venv-run/bin/python",
+ "prefix": "/work/182-project/.venv-run",
+ "git_sha": "2411736109b1d328cdf52935a9e8e3883d5a7f58",
+ "dirty_files": [],
+ "git_dirty": false,
+ "driver": "580.178.04",
+ "torch": "2.10.0+cu128",
+ "torch_cuda": "12.8",
+ "devices": 8,
+ "torch_file": "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/__init__.py",
+ "triton": "3.6.0",
+ "torchrun": "/work/182-project/.venv-run/bin/torchrun",
+ "torchrun_prefix": "/work/182-project/.venv-run",
+ "fa3": "ok",
+ "problems": [],
+ "allow_stack": false
+}

@@ -1,0 +1,23 @@
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python (needs >= 3.10; #397 ran 3.12)
+PASS torch: 2.10.0+cu128
+PASS triton: 3.6.0
+PASS triton gluon: triton.experimental.gluon imports (the dense and MoE G3 kernels)
+PASS kernels: 0.16.1
+PASS python packages: numpy, tiktoken, huggingface_hub import
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 x NVIDIA H100 80GB HBM3
+PASS driver: 580.178.04 (the ANVIL2 record README measured a ~35% slowdown below 580)
+PASS gpu memory: 81559 MiB per GPU, idle
+PASS libcudart.so.13: found (ldconfig)
+PASS cuda headers: /usr/local/cuda/include/cuda_bf16.h
+PASS fa3: devenpzak/flash-attn3-12864@64c1e6d1 is in the HF cache
+PASS data: 9 train shards + the validation shard in /work/182-project/data/fineweb10B
+PASS vcpus: 208 (26.0 per GPU; each rank runs a prep thread and a loader beside its main thread, want >= 4 per GPU)
+PASS ram: 1843 GiB (8 ranks hold a 200 MB shard or two each plus pinned staging; want >= 96 GiB)
+PASS /dev/shm: 1798.4 GiB free (NCCL's shared-memory transport; in docker pass --ipc=host or --shm-size=16g)
+PASS disk (tree): 5599 GiB free at /work/182-project/variants/t1-gpu-stack (logs, Inductor / Triton caches; want >= 10)
+PASS disk (compile caches): 5599 GiB free at /root (logs, Inductor / Triton caches; want >= 10)
+PASS disk (/tmp): 5599 GiB free at /tmp (logs, Inductor / Triton caches; want >= 10)
+PASS extensions: none to build: every kernel is JIT (Triton, nvrtc) or the prebuilt FA3; no rust / cargo
+PASS flags: none exported (run = #397 unless a flag is exported)
+check: 0 FAIL, 0 WARN -- ready: 182/run_node.sh run

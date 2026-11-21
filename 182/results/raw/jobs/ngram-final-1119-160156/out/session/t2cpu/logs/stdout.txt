@@ -1,0 +1,356 @@
+stack: torch=2.10.0+cu128 triton=3.6.0 cuda=12.8
+track 2 settings: {'MODEL_DIM': '1024', 'MODEL_LAYERS': '16', 'MLP_HIDDEN_DIM': '4096', 'LR_COOLDOWN_FRAC': '0.70', 'LR_FLOOR': '0.10', 'VAL_BATCH_SIZE': '1048576', 'NUM_SCHEDULED_ITERATIONS': '5790', 'TARGET_LOSS': '2.92'} coordinate_descent_tuning=False
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t2cpu/logs/trainer/ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt
+TRAIN_LOG_PATH=/work/out/session/t2cpu/logs/trainer/ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt
+memory budget (estimate) d=1024 layers=16 mlp_hidden=4096 val_batch=1048576 steps=5800 train_shards=103 (excluded 12):
+  gpu  ngram table shard                                20.29 GiB
+  gpu  ngram cycle grads + row cache                     0.75 GiB
+  gpu  value_embeds                                      1.44 GiB
+  gpu  dense matrices                                    1.50 GiB
+  gpu  fixed buffers                                     1.02 GiB
+  gpu  exact counts (corpus share + table)               6.25 GiB
+  gpu  other (activations, graph pools; calibrated)     28.57 GiB
+  gpu  peak allocated, estimated                        59.81 GiB of 79.2 GiB
+  final validation, 131072 tokens per rank, loss slabs of 32768 rows (from shapes):
+  val  held at the forward, dropped by FINAL_VAL_RELEASE=1: fit steps' hidden states (list + concatenation)    5.62 GiB
+  val  held at the forward, dropped by FINAL_VAL_RELEASE=1: exact-count queries and counts                     1.66 GiB
+  val  held at the forward, dropped by FINAL_VAL_RELEASE=1: exact counts (corpus share + table)                6.25 GiB
+  val  the forward: layer cache + MLP hidden, bf16                         6.25 GiB
+  val  the forward: loss slab, fused (bf16 matmul + fp32 logits)           9.21 GiB
+  val  the forward: loss slab, unfused (+ fp32 copy, uint8 + bool mask)   18.42 GiB
+  val  the release drops 13.5 GiB plus the step graphs' pool; the forward then adds 15.5 (fused) to 24.7 GiB (unfused) to what is left; the trainer prints the measured allocation before the forward
+  host model build, transient (all local ranks)         12.64 GiB
+  host pinned staging (all local ranks)                  0.03 GiB
+  host canonical mask build (one child)                  2.36 GiB
+  host MemTotal 1842.6 GiB, MemAvailable 1800.6 GiB
+model_configuration:layers=16 width=1024 mlp_hidden=4096 parameters=528536207 lr_cooldown=0.7 lr_floor=0.1 val_batch_size=1048576 target_loss=2.92 coordinate_descent_tuning=False
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1706 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+retrieval host plan: 64 build threads; 6-token index 91 shards (9.06B tokens), 3-/2-token indexes 20 shards; estimated arenas 147 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 388 GiB
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank 
+1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 4 is connected to 7 peer ranks. 5Expected number of connected peer ranks is :  is connected to 77 peer ranks. Expected number of connected peer ranks is : 
+7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank 
+6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 3 is connected to 75 peer ranks.  is connected to Expected number of connected peer ranks is : 77 peer ranks. 
+Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 1651, 1652, 1653, 1654, 3511, 3512, 3513, 3514, 4798, 4799, 4800, 4801, 5441, 5442, 5443, 5444, 5788, 5789, 5790, 5791, 5792, 5793, 5794] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 5442
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+memory after setup (measured, rank 0): allocated 41.24 GiB reserved 52.27 GiB
+step:25/5800 train_time:1186ms step_avg:47.44ms
+validation index built in 0.75 s
+step:50/5800 train_time:2108ms step_avg:42.17ms
+validation index built in 0.80 s
+step:75/5800 train_time:3022ms step_avg:40.29ms
+step:100/5800 train_time:3940ms step_avg:39.40ms
+step:125/5800 train_time:4851ms step_avg:38.81ms
+step:150/5800 train_time:5771ms step_avg:38.47ms
+validation index built in 3.35 s
+step:175/5800 train_time:6683ms step_avg:38.19ms
+step:200/5800 train_time:7659ms step_avg:38.29ms
+step:225/5800 train_time:8570ms step_avg:38.09ms
+step:250/5800 train_time:9484ms step_avg:37.93ms
+step:275/5800 train_time:12022ms step_avg:43.72ms
+step:300/5800 train_time:12933ms step_avg:43.11ms
+step:325/5800 train_time:13841ms step_avg:42.59ms
+step:350/5800 train_time:14751ms step_avg:42.15ms
+step:375/5800 train_time:15658ms step_avg:41.75ms
+step:400/5800 train_time:16568ms step_avg:41.42ms
+step:425/5800 train_time:17475ms step_avg:41.12ms
+step:450/5800 train_time:18387ms step_avg:40.86ms
+step:475/5800 train_time:19294ms step_avg:40.62ms
+step:500/5800 train_time:20208ms step_avg:40.42ms
+step:525/5800 train_time:21114ms step_avg:40.22ms
+step:550/5800 train_time:22025ms step_avg:40.05ms
+step:575/5800 train_time:22933ms step_avg:39.88ms
+step:600/5800 train_time:23845ms step_avg:39.74ms
+step:625/5800 train_time:24753ms step_avg:39.60ms
+step:650/5800 train_time:25665ms step_avg:39.48ms
+step:675/5800 train_time:26573ms step_avg:39.37ms
+step:700/5800 train_time:27485ms step_avg:39.26ms
+step:725/5800 train_time:28393ms step_avg:39.16ms
+step:750/5800 train_time:29304ms step_avg:39.07ms
+step:775/5800 train_time:30212ms step_avg:38.98ms
+step:800/5800 train_time:31123ms step_avg:38.90ms
+step:825/5800 train_time:32032ms step_avg:38.83ms
+step:850/5800 train_time:32941ms step_avg:38.75ms
+step:875/5800 train_time:33847ms step_avg:38.68ms
+step:900/5800 train_time:34758ms step_avg:38.62ms
+step:925/5800 train_time:35666ms step_avg:38.56ms
+step:950/5800 train_time:36577ms step_avg:38.50ms
+step:975/5800 train_time:37487ms step_avg:38.45ms
+step:1000/5800 train_time:38399ms step_avg:38.40ms
+step:1025/5800 train_time:39308ms step_avg:38.35ms
+step:1050/5800 train_time:40220ms step_avg:38.31ms
+step:1075/5800 train_time:41128ms step_avg:38.26ms
+step:1100/5800 train_time:42040ms step_avg:38.22ms
+step:1125/5800 train_time:42947ms step_avg:38.18ms
+step:1150/5800 train_time:43860ms step_avg:38.14ms
+step:1175/5800 train_time:44768ms step_avg:38.10ms
+step:1200/5800 train_time:45679ms step_avg:38.07ms
+step:1225/5800 train_time:46587ms step_avg:38.03ms
+step:1250/5800 train_time:47497ms step_avg:38.00ms
+step:1275/5800 train_time:48406ms step_avg:37.97ms
+step:1300/5800 train_time:49318ms step_avg:37.94ms
+step:1325/5800 train_time:50228ms step_avg:37.91ms
+step:1350/5800 train_time:51140ms step_avg:37.88ms
+step:1375/5800 train_time:52046ms step_avg:37.85ms
+step:1400/5800 train_time:52960ms step_avg:37.83ms
+step:1425/5800 train_time:53869ms step_avg:37.80ms
+step:1450/5800 train_time:54780ms step_avg:37.78ms
+step:1475/5800 train_time:55687ms step_avg:37.75ms
+step:1500/5800 train_time:56599ms step_avg:37.73ms
+step:1525/5800 train_time:57507ms step_avg:37.71ms
+step:1550/5800 train_time:58416ms step_avg:37.69ms
+step:1575/5800 train_time:59322ms step_avg:37.66ms
+step:1600/5800 train_time:60232ms step_avg:37.65ms
+step:1625/5800 train_time:61139ms step_avg:37.62ms
+step:1650/5800 train_time:62042ms step_avg:37.60ms
+step:1675/5800 train_time:62965ms step_avg:37.59ms
+step:1700/5800 train_time:63902ms step_avg:37.59ms
+step:1725/5800 train_time:64833ms step_avg:37.58ms
+step:1750/5800 train_time:65764ms step_avg:37.58ms
+step:1775/5800 train_time:66691ms step_avg:37.57ms
+step:1800/5800 train_time:67629ms step_avg:37.57ms
+step:1825/5800 train_time:68560ms step_avg:37.57ms
+step:1850/5800 train_time:69493ms step_avg:37.56ms
+step:1875/5800 train_time:70425ms step_avg:37.56ms
+step:1900/5800 train_time:71362ms step_avg:37.56ms
+step:1925/5800 train_time:72288ms step_avg:37.55ms
+step:1950/5800 train_time:73219ms step_avg:37.55ms
+step:1975/5800 train_time:74147ms step_avg:37.54ms
+step:2000/5800 train_time:75080ms step_avg:37.54ms
+step:2025/5800 train_time:76010ms step_avg:37.54ms
+step:2050/5800 train_time:76943ms step_avg:37.53ms
+step:2075/5800 train_time:77871ms step_avg:37.53ms
+step:2100/5800 train_time:78808ms step_avg:37.53ms
+step:2125/5800 train_time:79738ms step_avg:37.52ms
+step:2150/5800 train_time:80670ms step_avg:37.52ms
+step:2175/5800 train_time:81600ms step_avg:37.52ms
+step:2200/5800 train_time:82537ms step_avg:37.52ms
+step:2225/5800 train_time:83466ms step_avg:37.51ms
+step:2250/5800 train_time:84400ms step_avg:37.51ms
+step:2275/5800 train_time:85329ms step_avg:37.51ms
+step:2300/5800 train_time:86265ms step_avg:37.51ms
+step:2325/5800 train_time:87196ms step_avg:37.50ms
+step:2350/5800 train_time:88127ms step_avg:37.50ms
+step:2375/5800 train_time:89054ms step_avg:37.50ms
+step:2400/5800 train_time:89993ms step_avg:37.50ms
+step:2425/5800 train_time:90922ms step_avg:37.49ms
+step:2450/5800 train_time:91852ms step_avg:37.49ms
+step:2475/5800 train_time:92782ms step_avg:37.49ms
+step:2500/5800 train_time:93717ms step_avg:37.49ms
+step:2525/5800 train_time:94647ms step_avg:37.48ms
+step:2550/5800 train_time:95580ms step_avg:37.48ms
+step:2575/5800 train_time:96510ms step_avg:37.48ms
+step:2600/5800 train_time:97445ms step_avg:37.48ms
+step:2625/5800 train_time:98374ms step_avg:37.48ms
+step:2650/5800 train_time:99306ms step_avg:37.47ms
+step:2675/5800 train_time:100233ms step_avg:37.47ms
+step:2700/5800 train_time:101169ms step_avg:37.47ms
+step:2725/5800 train_time:102098ms step_avg:37.47ms
+step:2750/5800 train_time:103031ms step_avg:37.47ms
+step:2775/5800 train_time:103964ms step_avg:37.46ms
+step:2800/5800 train_time:104899ms step_avg:37.46ms
+step:2825/5800 train_time:105829ms step_avg:37.46ms
+step:2850/5800 train_time:106762ms step_avg:37.46ms
+step:2875/5800 train_time:107694ms step_avg:37.46ms
+step:2900/5800 train_time:108630ms step_avg:37.46ms
+step:2925/5800 train_time:109558ms step_avg:37.46ms
+step:2950/5800 train_time:110490ms step_avg:37.45ms
+step:2975/5800 train_time:111420ms step_avg:37.45ms
+step:3000/5800 train_time:112356ms step_avg:37.45ms
+step:3025/5800 train_time:113286ms step_avg:37.45ms
+step:3050/5800 train_time:114215ms step_avg:37.45ms
+step:3075/5800 train_time:115143ms step_avg:37.44ms
+step:3100/5800 train_time:116080ms step_avg:37.45ms
+step:3125/5800 train_time:117008ms step_avg:37.44ms
+step:3150/5800 train_time:117939ms step_avg:37.44ms
+step:3175/5800 train_time:118867ms step_avg:37.44ms
+step:3200/5800 train_time:119803ms step_avg:37.44ms
+step:3225/5800 train_time:120729ms step_avg:37.44ms
+step:3250/5800 train_time:121661ms step_avg:37.43ms
+step:3275/5800 train_time:122589ms step_avg:37.43ms
+step:3300/5800 train_time:123523ms step_avg:37.43ms
+step:3325/5800 train_time:124451ms step_avg:37.43ms
+step:3350/5800 train_time:125382ms step_avg:37.43ms
+step:3375/5800 train_time:126312ms step_avg:37.43ms
+step:3400/5800 train_time:127246ms step_avg:37.43ms
+step:3425/5800 train_time:128176ms step_avg:37.42ms
+step:3450/5800 train_time:129106ms step_avg:37.42ms
+step:3475/5800 train_time:130034ms step_avg:37.42ms
+step:3500/5800 train_time:130966ms step_avg:37.42ms
+step:3525/5800 train_time:131904ms step_avg:37.42ms
+step:3550/5800 train_time:132860ms step_avg:37.43ms
+step:3575/5800 train_time:133814ms step_avg:37.43ms
+step:3600/5800 train_time:134773ms step_avg:37.44ms
+step:3625/5800 train_time:135727ms step_avg:37.44ms
+step:3650/5800 train_time:136681ms step_avg:37.45ms
+step:3675/5800 train_time:137634ms step_avg:37.45ms
+step:3700/5800 train_time:138596ms step_avg:37.46ms
+step:3725/5800 train_time:139549ms step_avg:37.46ms
+step:3750/5800 train_time:140506ms step_avg:37.47ms
+step:3775/5800 train_time:141461ms step_avg:37.47ms
+step:3800/5800 train_time:142422ms step_avg:37.48ms
+step:3825/5800 train_time:143374ms step_avg:37.48ms
+step:3850/5800 train_time:144331ms step_avg:37.49ms
+step:3875/5800 train_time:145282ms step_avg:37.49ms
+step:3900/5800 train_time:146242ms step_avg:37.50ms
+step:3925/5800 train_time:147197ms step_avg:37.50ms
+step:3950/5800 train_time:148154ms step_avg:37.51ms
+step:3975/5800 train_time:149107ms step_avg:37.51ms
+step:4000/5800 train_time:150069ms step_avg:37.52ms
+step:4025/5800 train_time:151022ms step_avg:37.52ms
+step:4050/5800 train_time:151977ms step_avg:37.53ms
+step:4075/5800 train_time:152930ms step_avg:37.53ms
+step:4100/5800 train_time:153891ms step_avg:37.53ms
+step:4125/5800 train_time:154844ms step_avg:37.54ms
+step:4150/5800 train_time:155800ms step_avg:37.54ms
+step:4175/5800 train_time:156750ms step_avg:37.54ms
+step:4200/5800 train_time:157711ms step_avg:37.55ms
+step:4225/5800 train_time:158666ms step_avg:37.55ms
+step:4250/5800 train_time:159622ms step_avg:37.56ms
+step:4275/5800 train_time:160574ms step_avg:37.56ms
+step:4300/5800 train_time:161533ms step_avg:37.57ms
+step:4325/5800 train_time:162488ms step_avg:37.57ms
+step:4350/5800 train_time:163444ms step_avg:37.57ms
+step:4375/5800 train_time:164397ms step_avg:37.58ms
+step:4400/5800 train_time:165356ms step_avg:37.58ms
+step:4425/5800 train_time:166309ms step_avg:37.58ms
+step:4450/5800 train_time:167268ms step_avg:37.59ms
+step:4475/5800 train_time:168223ms step_avg:37.59ms
+step:4500/5800 train_time:169183ms step_avg:37.60ms
+step:4525/5800 train_time:170137ms step_avg:37.60ms
+step:4550/5800 train_time:171092ms step_avg:37.60ms
+step:4575/5800 train_time:172045ms step_avg:37.61ms
+step:4600/5800 train_time:173004ms step_avg:37.61ms
+step:4625/5800 train_time:173958ms step_avg:37.61ms
+step:4650/5800 train_time:174913ms step_avg:37.62ms
+step:4675/5800 train_time:175868ms step_avg:37.62ms
+step:4700/5800 train_time:176828ms step_avg:37.62ms
+step:4725/5800 train_time:177781ms step_avg:37.63ms
+step:4750/5800 train_time:178735ms step_avg:37.63ms
+step:4775/5800 train_time:179689ms step_avg:37.63ms
+step:4800/5800 train_time:180652ms step_avg:37.64ms
+step:4825/5800 train_time:181629ms step_avg:37.64ms
+step:4850/5800 train_time:182622ms step_avg:37.65ms
+step:4875/5800 train_time:183604ms step_avg:37.66ms
+step:4900/5800 train_time:184597ms step_avg:37.67ms
+step:4925/5800 train_time:185586ms step_avg:37.68ms
+step:4950/5800 train_time:186571ms step_avg:37.69ms
+step:4975/5800 train_time:187555ms step_avg:37.70ms
+step:5000/5800 train_time:188549ms step_avg:37.71ms
+step:5025/5800 train_time:189534ms step_avg:37.72ms
+step:5050/5800 train_time:190526ms step_avg:37.73ms
+step:5075/5800 train_time:191510ms step_avg:37.74ms
+step:5100/5800 train_time:192506ms step_avg:37.75ms
+step:5125/5800 train_time:193490ms step_avg:37.75ms
+step:5150/5800 train_time:194477ms step_avg:37.76ms
+step:5175/5800 train_time:195466ms step_avg:37.77ms
+step:5200/5800 train_time:196458ms step_avg:37.78ms
+step:5225/5800 train_time:197447ms step_avg:37.79ms
+step:5250/5800 train_time:198436ms step_avg:37.80ms
+step:5275/5800 train_time:199424ms step_avg:37.81ms
+step:5300/5800 train_time:200414ms step_avg:37.81ms
+step:5325/5800 train_time:201403ms step_avg:37.82ms
+step:5350/5800 train_time:202389ms step_avg:37.83ms
+step:5375/5800 train_time:203379ms step_avg:37.84ms
+step:5400/5800 train_time:204372ms step_avg:37.85ms
+step:5425/5800 train_time:205364ms step_avg:37.86ms
+step:5450/5800 train_time:206372ms step_avg:37.87ms
+step:5475/5800 train_time:207427ms step_avg:37.89ms
+step:5500/5800 train_time:208488ms step_avg:37.91ms
+step:5525/5800 train_time:209542ms step_avg:37.93ms
+step:5550/5800 train_time:210595ms step_avg:37.95ms
+step:5575/5800 train_time:211651ms step_avg:37.96ms
+step:5600/5800 train_time:212710ms step_avg:37.98ms
+step:5625/5800 train_time:213763ms step_avg:38.00ms
+step:5650/5800 train_time:214817ms step_avg:38.02ms
+step:5675/5800 train_time:215877ms step_avg:38.04ms
+step:5700/5800 train_time:216937ms step_avg:38.06ms
+step:5725/5800 train_time:217992ms step_avg:38.08ms
+step:5750/5800 train_time:219048ms step_avg:38.10ms
+step:5775/5800 train_time:220102ms step_avg:38.11ms
+step:5799/5800 train_time:221119ms step_avg:38.13ms
+step:5800/5800 train_time:221165ms step_avg:38.13ms
+memory before the final validation (measured, rank 0): allocated 47.39 GiB reserved 55.49 GiB
+final validation memory release: 18.60 GiB freed (exact counts 7.75 GiB, 12 step graphs and their pool, gradients, fit buffers); now (measured, rank 0): allocated 28.79 GiB reserved 29.69 GiB
+step:5800/5800 val_loss:2.8786 train_time:221988ms step_avg:38.27ms
+endpoint_result: steps=5800 seed=None val_loss=2.878556 train_time_ms=221988 target_loss=2.92 target_reached=True
+val_loss_parts: model_only=2.900701 with_chain=2.878556 chain_gain=0.022145
+peak memory allocated: 50482 MiB reserved: 60186 MiB
+host memory: rank 0 peak RSS 313.6 GiB, node in use 336 GiB (incl. /dev/shm 144 GiB)

@@ -1,0 +1,313 @@
+raw/ built by 182/results/collect_raw.py: 186 files, 1590579 bytes
+
+REDACTIONS (file, pattern, count)
+  none
+
+COPIED (bytes, sha256[:12], path)
+      6533  71edb874e51d  bringup-1119/base-s2.log
+      6533  14b8c2c83bf1  bringup-1119/base-s3.log
+      6533  63f2864c3dc4  bringup-1119/base-s4.log
+     12236  d7dd88d0045c  bringup-1119/base.log
+     15158  6d94eb026554  bringup-1119/bench.log
+      6639  402ac7011990  bringup-1119/gram222s-s1.log
+      6639  d93d3a3557b8  bringup-1119/gram222s-s2.log
+      6639  29633c1d6433  bringup-1119/gram222s-s3.log
+     18878  fec3d1eafeba  bringup-1119/kbench.json
+     12073  337fe5077680  bringup-1119/node_report.txt
+       894  741bbd06d048  bringup-1119/progress
+      3192  2f962babce2f  bringup-1119/setup.log
+       127  88c2b543f293  bringup-1119/sha
+      6739  6efabf9cf6cf  bringup-1119/skipmatrix-s2.log
+      6739  6d822b3cfc3e  bringup-1119/skipmatrix-s3.log
+      6733  23135cc77886  bringup-1119/skipmatrix.log
+      2897  2118d57fbe5b  bringup-1119/test.log
+       571  44aa0e4cf6b4  jobs/fastest-1-1119-094724/job.json
+     17263  5fb1f5c6c06a  jobs/fastest-1-1119-094724/log.txt
+     11556  2755b5a319dd  jobs/fastest-1-1119-094724/out/node_report.txt
+     11396  ab20c5333987  jobs/fastest-1-1119-094724/out/prep.log
+      6115  132ec7171945  jobs/fastest-1-1119-094724/out/root-gram222s-s4.log
+      6213  e0519210f92a  jobs/fastest-1-1119-094724/out/root-skipmatrix-s4.log
+      2671  3d261a390f85  jobs/fastest-1-1119-094724/out/setup.log
+       136  0d3d0c981a54  jobs/fastest-1-1119-094724/out/sha
+        49  b036faca0ace  jobs/fastest-1-1119-094724/out/session/bundle_path
+       197  c9a66fdf0499  jobs/fastest-1-1119-094724/out/session/meta.txt
+         7  a92ad0b3ab19  jobs/fastest-1-1119-094724/out/session/prep_chain.pid
+         2  9a271f2a916b  jobs/fastest-1-1119-094724/out/session/prep_chain.rc
+         0  e3b0c44298fc  jobs/fastest-1-1119-094724/out/session/prep_chain.txt
+     95109  f158931c78b8  jobs/fastest-1-1119-094724/out/session/session.log
+      7665  a19c25590966  jobs/fastest-1-1119-094724/out/session/summary.txt
+      5207  87c039b4f4c8  jobs/fastest-1-1119-094724/out/session/env/env.txt
+       771  fe88f1b92e47  jobs/fastest-1-1119-094724/out/session/env/node_check.txt
+     11556  2755b5a319dd  jobs/fastest-1-1119-094724/out/session/env/node_report.setup.txt
+      9336  49db345d7ad7  jobs/fastest-1-1119-094724/out/session/env/node_report.txt
+      1786  1fbbd56de249  jobs/fastest-1-1119-094724/out/session/env/pip_freeze.txt
+       583  b03c72b03dc3  jobs/fastest-1-1119-094724/out/session/env/stack.json
+         9  37a40f08d854  jobs/fastest-1-1119-094724/out/session/profile/root/.profile_complete
+    162068  eadd0b647f48  jobs/fastest-1-1119-094724/out/session/profile/root/analysis.json
+      5771  ab069d76bf9a  jobs/fastest-1-1119-094724/out/session/profile/root/analysis.txt
+       408  7c0f61c9570c  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank0.json
+       406  0a63cbc29830  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank1.json
+       409  57bd1a089f91  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank2.json
+       409  e2b304502c74  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank3.json
+       406  558fc1ab4401  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank4.json
+       404  acd73e26a4ee  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank5.json
+       404  297edff66d62  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank6.json
+       408  d76f1b6713d6  jobs/fastest-1-1119-094724/out/session/profile/root/meta_rank7.json
+     16943  7ddfb975a9a9  jobs/fastest-1-1119-094724/out/session/profile/root/rank0_summary.json
+     17020  be8c1a0a3648  jobs/fastest-1-1119-094724/out/session/profile/root/rank1_summary.json
+     17016  2d7a36f983b4  jobs/fastest-1-1119-094724/out/session/profile/root/rank2_summary.json
+     16876  3b5ad9527a87  jobs/fastest-1-1119-094724/out/session/profile/root/rank3_summary.json
+     16911  a75dcbc31949  jobs/fastest-1-1119-094724/out/session/profile/root/rank4_summary.json
+     16912  1b68f37db94e  jobs/fastest-1-1119-094724/out/session/profile/root/rank5_summary.json
+     16940  afb95e924023  jobs/fastest-1-1119-094724/out/session/profile/root/rank6_summary.json
+     16951  2b624124e271  jobs/fastest-1-1119-094724/out/session/profile/root/rank7_summary.json
+     17998  b1f698044b39  jobs/fastest-1-1119-094724/out/session/profile/root/run.txt
+     12122  99dbd2a9e97a  jobs/fastest-1-1119-094724/out/session/profile/root/train.out
+      8028  1d663858c5d4  jobs/fastest-1-1119-094724/out/session/sanity/sanity.json
+      4944  78870b31b6ae  jobs/fastest-1-1119-094724/out/session/sanity/sanity.txt
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/bundle
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/env
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/profile
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/sanity
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/t1cpu
+         5  c26de83abdc9  jobs/fastest-1-1119-094724/out/session/status/t1gpu
+      3045  68f9e737d1d1  jobs/fastest-1-1119-094724/out/session/t1cpu/check.txt
+      3045  c7b4c1d98651  jobs/fastest-1-1119-094724/out/session/t1cpu/check_pre.txt
+         2  1121cfccd591  jobs/fastest-1-1119-094724/out/session/t1cpu/planned
+         2  9a271f2a916b  jobs/fastest-1-1119-094724/out/session/t1cpu/prep.rc
+      3548  c7251a735d44  jobs/fastest-1-1119-094724/out/session/t1cpu/prep.txt
+     14096  9fc49c6f63b2  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-182308-run-c381.console.txt
+      7565  262bdf470a42  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-183207-run-c381.console.txt
+      7565  25b203a39642  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-183630-run-c381.console.txt
+     16117  1f893cc976e3  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/01.out
+       593  12a7e98401ba  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/01.result
+     10402  7714022e301a  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/02.out
+       593  8e471187b73e  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/02.result
+     10400  3d8527b5fbb8  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/03.out
+       591  f64a74c2c18c  jobs/fastest-1-1119-094724/out/session/t1cpu/runs/03.result
+      1615  ffd248f88ae1  jobs/fastest-1-1119-094724/out/session/t1gpu/check.txt
+      1615  ffd248f88ae1  jobs/fastest-1-1119-094724/out/session/t1gpu/check_pre.txt
+         2  53c234e5e847  jobs/fastest-1-1119-094724/out/session/t1gpu/planned
+         2  9a271f2a916b  jobs/fastest-1-1119-094724/out/session/t1gpu/prep.rc
+       490  0acab57a77f8  jobs/fastest-1-1119-094724/out/session/t1gpu/prep.txt
+     16970  bff072145c2a  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/t1-gpu-stack_20261119T180031_seedrand.console.txt
+      9355  180c86dacd3d  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/t1-gpu-stack_20261119T180919_seedrand.console.txt
+     17422  33338e58df36  jobs/fastest-1-1119-094724/out/session/t1gpu/runs/01.out
+       519  4b365b94d288  jobs/fastest-1-1119-094724/out/session/t1gpu/runs/01.result
+      9807  7c77221e024a  jobs/fastest-1-1119-094724/out/session/t1gpu/runs/02.out
+       518  8fa6c06304d6  jobs/fastest-1-1119-094724/out/session/t1gpu/runs/02.result
+       568  1d267be1fe5a  jobs/ngram-ab-1119-112013/job.json
+      3025  819b6b4375a9  jobs/ngram-ab-1119-112013/log.txt
+     52087  14b0beda1f22  jobs/ngram-ab-1119-112013/out/ab.log
+     11554  8d6c70cb90a6  jobs/ngram-ab-1119-112013/out/node_report.txt
+     10874  24e239ec7426  jobs/ngram-ab-1119-112013/out/prep.log
+      2671  7dfd73961b96  jobs/ngram-ab-1119-112013/out/setup.log
+        69  5c3c2d91850e  jobs/ngram-ab-1119-112013/out/sha
+     14064  bd4baf091d18  jobs/ngram-ab-1119-112013/out/ab/20261119-193516-abA-c381-s0.console.txt
+      7692  88e930faeb75  jobs/ngram-ab-1119-112013/out/ab/20261119-194409-abB-c381-s0.console.txt
+      7690  0de7b1ab65d2  jobs/ngram-ab-1119-112013/out/ab/20261119-194823-abB-c381-s1.console.txt
+      7532  6e4e8cbb217f  jobs/ngram-ab-1119-112013/out/ab/20261119-195209-abA-c381-s1.console.txt
+      7534  2737e7ebdeee  jobs/ngram-ab-1119-112013/out/ab/20261119-195600-abA-c381-s2.console.txt
+      7689  373b4668316c  jobs/ngram-ab-1119-112013/out/ab/20261119-195949-abB-c381-s2.console.txt
+       574  042a7d359264  jobs/ngram-confirm-1119-150812/job.json
+      2154  11fa403e932e  jobs/ngram-confirm-1119-150812/log.txt
+     59574  9943e5d1b59c  jobs/ngram-confirm-1119-150812/out/ab.log
+     11558  4058fe66c3cf  jobs/ngram-confirm-1119-150812/out/node_report.txt
+     10874  c279a1b4d406  jobs/ngram-confirm-1119-150812/out/prep.log
+      2671  85f469018685  jobs/ngram-confirm-1119-150812/out/setup.log
+        95  1febe8aabd75  jobs/ngram-confirm-1119-150812/out/sha
+      7534  ba26beaf7b86  jobs/ngram-confirm-1119-150812/out/ab/20261119-232451-abA-c381-s3.console.txt
+      7539  5e68fe08b72d  jobs/ngram-confirm-1119-150812/out/ab/20261119-232904-abB-c381-s3.console.txt
+      7539  2aff82e01867  jobs/ngram-confirm-1119-150812/out/ab/20261119-233300-abB-c381-s4.console.txt
+      7535  929c83f1e357  jobs/ngram-confirm-1119-150812/out/ab/20261119-233651-abA-c381-s4.console.txt
+      7534  72b48341d3cb  jobs/ngram-confirm-1119-150812/out/ab/20261119-234039-abA-c381-s5.console.txt
+      7540  6a371149b6af  jobs/ngram-confirm-1119-150812/out/ab/20261119-234429-abB-c381-s5.console.txt
+      7539  9f7ddf01225d  jobs/ngram-confirm-1119-150812/out/ab/20261119-234827-abB-c381-s6.console.txt
+      7534  72d80c05d943  jobs/ngram-confirm-1119-150812/out/ab/20261119-235217-abA-c381-s6.console.txt
+     14065  b183ba987cbd  jobs/ngram-confirm-1119-150812/out/warm/20261119-231551-run-c381-s20.console.txt
+       571  e97aee9b3ab7  jobs/ngram-final-1119-160156/job.json
+      1561  2b2f4bac5eea  jobs/ngram-final-1119-160156/log.txt
+      3377  7c672fe9901d  jobs/ngram-final-1119-160156/out/ab.log
+     11546  c129236f1fed  jobs/ngram-final-1119-160156/out/node_report.txt
+     10874  49e9eb0391c5  jobs/ngram-final-1119-160156/out/prep-t1.log
+       558  b4eff60b7a75  jobs/ngram-final-1119-160156/out/prep-t2.log
+         2  9a271f2a916b  jobs/ngram-final-1119-160156/out/prep-t2.rc
+      2661  3d27f75a28c5  jobs/ngram-final-1119-160156/out/setup.log
+        94  3f9edc6bfa45  jobs/ngram-final-1119-160156/out/sha
+        49  91b941d1d606  jobs/ngram-final-1119-160156/out/session/bundle_path
+       176  ff1e4411cdbc  jobs/ngram-final-1119-160156/out/session/meta.txt
+         7  f4ad37fadd50  jobs/ngram-final-1119-160156/out/session/prep_chain.pid
+         2  9a271f2a916b  jobs/ngram-final-1119-160156/out/session/prep_chain.rc
+         0  e3b0c44298fc  jobs/ngram-final-1119-160156/out/session/prep_chain.txt
+     37825  53a6420f017f  jobs/ngram-final-1119-160156/out/session/session.log
+      2122  1da4d27f24e2  jobs/ngram-final-1119-160156/out/session/summary.txt
+      5165  0b866adcb7e8  jobs/ngram-final-1119-160156/out/session/env/env.txt
+       771  b7f651219785  jobs/ngram-final-1119-160156/out/session/env/node_check.txt
+     11546  c129236f1fed  jobs/ngram-final-1119-160156/out/session/env/node_report.setup.txt
+      9336  e795b4c96597  jobs/ngram-final-1119-160156/out/session/env/node_report.txt
+      1802  01978d11f711  jobs/ngram-final-1119-160156/out/session/env/pip_freeze.txt
+       583  a94e1d1e71a5  jobs/ngram-final-1119-160156/out/session/env/stack.json
+         5  c26de83abdc9  jobs/ngram-final-1119-160156/out/session/status/bundle
+         5  c26de83abdc9  jobs/ngram-final-1119-160156/out/session/status/env
+         5  c26de83abdc9  jobs/ngram-final-1119-160156/out/session/status/t2cpu
+      1465  544b6505e7ba  jobs/ngram-final-1119-160156/out/session/t2cpu/check.txt
+      1465  110c54c876b6  jobs/ngram-final-1119-160156/out/session/t2cpu/check_pre.txt
+         2  4355a46b19d3  jobs/ngram-final-1119-160156/out/session/t2cpu/planned
+         2  9a271f2a916b  jobs/ngram-final-1119-160156/out/session/t2cpu/prep.rc
+       444  9c857af9883d  jobs/ngram-final-1119-160156/out/session/t2cpu/prep.txt
+     24837  1d5bb89b9c69  jobs/ngram-final-1119-160156/out/session/t2cpu/logs/stdout.txt
+       570  d9c8e0d9711b  jobs/ngram-final-1119-160156/out/session/t2cpu/logs/summary.txt
+     27206  4f7e637210e8  jobs/ngram-final-1119-160156/out/session/t2cpu/runs/01.out
+       503  23d2234d6bfc  jobs/ngram-final-1119-160156/out/session/t2cpu/runs/01.result
+     12094  4a055c5a22b3  jobs/ngram-final-1119-160156/out/warm/20261120-001035-run-c381-s21.console.txt
+       573  ae3f563dba67  jobs/ngram-pairs2-1119-162744/job.json
+      2164  a80f000c3370  jobs/ngram-pairs2-1119-162744/log.txt
+     59576  b0001227a170  jobs/ngram-pairs2-1119-162744/out/ab.log
+     11548  9d7506da4c20  jobs/ngram-pairs2-1119-162744/out/node_report.txt
+     10874  f0970ba8d88e  jobs/ngram-pairs2-1119-162744/out/prep.log
+      2661  e1bdd8302137  jobs/ngram-pairs2-1119-162744/out/setup.log
+       103  f6915a1a9f63  jobs/ngram-pairs2-1119-162744/out/sha
+      7535  9577efcf6bde  jobs/ngram-pairs2-1119-162744/out/ab/20261120-004437-abA-c381-s7.console.txt
+      7538  23906815428f  jobs/ngram-pairs2-1119-162744/out/ab/20261120-004854-abB-c381-s7.console.txt
+      7540  1bcf5d9058a8  jobs/ngram-pairs2-1119-162744/out/ab/20261120-005248-abB-c381-s8.console.txt
+      7534  e2bb037e900a  jobs/ngram-pairs2-1119-162744/out/ab/20261120-005643-abA-c381-s8.console.txt
+      7534  2c171666c652  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010034-abA-c381-s9.console.txt
+      7537  e7cbfe1f2c2b  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010426-abB-c381-s9.console.txt
+      7537  c6cb8f950341  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010821-abB-c381-s10.console.txt
+      7533  d0d75ab4d6d6  jobs/ngram-pairs2-1119-162744/out/ab/20261120-011221-abA-c381-s10.console.txt
+     14066  804791f579b2  jobs/ngram-pairs2-1119-162744/out/warm/20261120-003536-run-c381-s20.console.txt
+       572  1e23ca000e0e  jobs/ngram-steps-1119-141852/job.json
+      2312  dd6b13ad0f29  jobs/ngram-steps-1119-141852/log.txt
+     11546  20726a435cac  jobs/ngram-steps-1119-141852/out/node_report.txt
+     10874  0211fe8b3cdc  jobs/ngram-steps-1119-141852/out/prep.log
+     78333  d1a295fa8bd7  jobs/ngram-steps-1119-141852/out/runs.log
+      2661  5a507f74b01c  jobs/ngram-steps-1119-141852/out/setup.log
+       112  968117560f79  jobs/ngram-steps-1119-141852/out/sha
+     14066  ab8515841e22  jobs/ngram-steps-1119-141852/out/runs/20261119-223350-run-c381-s3.console.txt
+      7542  cf20734143b8  jobs/ngram-steps-1119-141852/out/runs/20261119-224301-run-c381-s0.console.txt
+      7545  635897eceb66  jobs/ngram-steps-1119-141852/out/runs/20261119-224723-run-c381-s1.console.txt
+      7545  96c2b318021a  jobs/ngram-steps-1119-141852/out/runs/20261119-225119-run-c381-s2.console.txt
+      7478  de4ad8eff23a  jobs/ngram-steps-1119-141852/out/runs/20261119-225515-run-c381-s0.console.txt
+      7479  96b7473b59d1  jobs/ngram-steps-1119-141852/out/runs/20261119-225912-run-c381-s1.console.txt
+      7479  be43e4cdb26a  jobs/ngram-steps-1119-141852/out/runs/20261119-230302-run-c381-s2.console.txt
+
+SKIPPED (bytes, path, reason)
+     23164  bringup-1119/logs.tgz  (archive of the files beside it)
+        68  jobs/fastest-1-1119-094724/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3465  jobs/fastest-1-1119-094724/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/fastest-1-1119-094724/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+     24933  jobs/fastest-1-1119-094724/log_now.txt  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/fastest-1-1119-094724/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/fastest-1-1119-094724/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1211  jobs/fastest-1-1119-094724/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+     95109  jobs/fastest-1-1119-094724/out/session.log  (duplicate of out/session/session.log)
+    630665  jobs/fastest-1-1119-094724/out/root/gram222s-s4/25da5351-e919-4a74-abfc-f9368dcaf175.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    630759  jobs/fastest-1-1119-094724/out/root/skipmatrix-s4/81a812cc-1118-472a-a0cb-1ef00eb9ab95.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    628571  jobs/fastest-1-1119-094724/out/session/profile/root/logs/6c8fc79a-387a-4ae6-8241-77aa35ac93ed.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-182308-run-c381.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-183207-run-c381.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/20261119-183630-run-c381.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/trainer/4beb6e70-a573-43d9-9cfe-096437003380.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715405  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/trainer/5cf9639b-62a8-476d-8105-a8fb47a8114a.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/fastest-1-1119-094724/out/session/t1cpu/logs/trainer/858ee6e8-92f3-4928-963a-b77f214760f5.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    806050  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/t1-gpu-stack_20261119T180031_seedrand.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    806051  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/t1-gpu-stack_20261119T180919_seedrand.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    806051  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/trainer/830a34e3-d924-4e94-adbd-2c911ac53c4a.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    806050  jobs/fastest-1-1119-094724/out/session/t1gpu/logs/trainer/ec49f849-8cca-4610-a05c-6b31f2b3830c.txt  (duplicate of the *.log.txt / *.txt one folder up)
+        68  jobs/ngram-ab-1119-112013/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3393  jobs/ngram-ab-1119-112013/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/ngram-ab-1119-112013/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/ngram-ab-1119-112013/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/ngram-ab-1119-112013/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1212  jobs/ngram-ab-1119-112013/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+    715400  jobs/ngram-ab-1119-112013/out/ab/20261119-193516-abA-c381-s0.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715539  jobs/ngram-ab-1119-112013/out/ab/20261119-194409-abB-c381-s0.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715539  jobs/ngram-ab-1119-112013/out/ab/20261119-194823-abB-c381-s1.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-ab-1119-112013/out/ab/20261119-195209-abA-c381-s1.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-ab-1119-112013/out/ab/20261119-195600-abA-c381-s2.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715538  jobs/ngram-ab-1119-112013/out/ab/20261119-195949-abB-c381-s2.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715539  jobs/ngram-ab-1119-112013/out/ab/trainer/0d9e3fae-9bc7-4c1b-9c3a-be22a3f42cf4.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715538  jobs/ngram-ab-1119-112013/out/ab/trainer/89989bc3-f6ae-4c6d-9569-153e158a6268.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-ab-1119-112013/out/ab/trainer/a3f2b7f7-8872-4462-be48-1ca56828d186.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715400  jobs/ngram-ab-1119-112013/out/ab/trainer/c4be3c1a-1899-49bf-9b77-42007a0be604.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-ab-1119-112013/out/ab/trainer/ccfacd9f-beb1-46dd-99c1-75a6b25e5a81.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715539  jobs/ngram-ab-1119-112013/out/ab/trainer/eed79a29-2264-45d4-9341-dbf70c4c1510.txt  (duplicate of the *.log.txt / *.txt one folder up)
+        68  jobs/ngram-confirm-1119-150812/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3477  jobs/ngram-confirm-1119-150812/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/ngram-confirm-1119-150812/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/ngram-confirm-1119-150812/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/ngram-confirm-1119-150812/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1217  jobs/ngram-confirm-1119-150812/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+    715400  jobs/ngram-confirm-1119-150812/out/ab/20261119-232451-abA-c381-s3.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-confirm-1119-150812/out/ab/20261119-232904-abB-c381-s3.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-confirm-1119-150812/out/ab/20261119-233300-abB-c381-s4.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-confirm-1119-150812/out/ab/20261119-233651-abA-c381-s4.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-confirm-1119-150812/out/ab/20261119-234039-abA-c381-s5.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-confirm-1119-150812/out/ab/20261119-234429-abB-c381-s5.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-confirm-1119-150812/out/ab/20261119-234827-abB-c381-s6.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-confirm-1119-150812/out/ab/20261119-235217-abA-c381-s6.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-confirm-1119-150812/out/ab/trainer/356b4a20-6b16-4989-84b3-507e823c4b1b.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-confirm-1119-150812/out/ab/trainer/7dc9c9b0-de52-44d3-843e-ad89ffbc6594.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-confirm-1119-150812/out/ab/trainer/9b336d97-dd45-417f-8925-f69c31bfcc5a.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-confirm-1119-150812/out/ab/trainer/9ce91594-b2ec-4cde-bbc8-7b7ae93f039a.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-confirm-1119-150812/out/ab/trainer/a995486f-4fb2-423c-94bf-53531333eaff.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-confirm-1119-150812/out/ab/trainer/b16fb939-8f6b-4390-b49f-c2c5eaadbf46.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715400  jobs/ngram-confirm-1119-150812/out/ab/trainer/beb58a1f-f242-43c8-849f-aab8090250f6.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-confirm-1119-150812/out/ab/trainer/e6317c85-115f-47f7-b577-9c77ccca5db2.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715401  jobs/ngram-confirm-1119-150812/out/warm/20261119-231551-run-c381-s20.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715401  jobs/ngram-confirm-1119-150812/out/warm/trainer/d4aee4ba-04e5-4c20-9f1b-1e8e6de89654.txt  (duplicate of the *.log.txt / *.txt one folder up)
+        68  jobs/ngram-final-1119-160156/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3474  jobs/ngram-final-1119-160156/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/ngram-final-1119-160156/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/ngram-final-1119-160156/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/ngram-final-1119-160156/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1215  jobs/ngram-final-1119-160156/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+     37825  jobs/ngram-final-1119-160156/out/session.log  (duplicate of out/session/session.log)
+    679207  jobs/ngram-final-1119-160156/out/session/t2cpu/logs/ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    679207  jobs/ngram-final-1119-160156/out/session/t2cpu/logs/trainer/ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    712297  jobs/ngram-final-1119-160156/out/warm/20261120-001035-run-c381-s21.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    712297  jobs/ngram-final-1119-160156/out/warm/trainer/73024860-674a-4882-a11d-d721c2a2ca7f.txt  (duplicate of the *.log.txt / *.txt one folder up)
+        68  jobs/ngram-pairs2-1119-162744/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3484  jobs/ngram-pairs2-1119-162744/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/ngram-pairs2-1119-162744/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/ngram-pairs2-1119-162744/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/ngram-pairs2-1119-162744/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1228  jobs/ngram-pairs2-1119-162744/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+    715400  jobs/ngram-pairs2-1119-162744/out/ab/20261120-004437-abA-c381-s7.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/20261120-004854-abB-c381-s7.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/20261120-005248-abB-c381-s8.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-pairs2-1119-162744/out/ab/20261120-005643-abA-c381-s8.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715399  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010034-abA-c381-s9.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010426-abB-c381-s9.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/ngram-pairs2-1119-162744/out/ab/20261120-010821-abB-c381-s10.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715400  jobs/ngram-pairs2-1119-162744/out/ab/20261120-011221-abA-c381-s10.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715400  jobs/ngram-pairs2-1119-162744/out/ab/trainer/3199d842-eba6-4c14-9ba7-d9c9a113612e.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-pairs2-1119-162744/out/ab/trainer/3c18cee2-249c-4dec-8370-3b1942d61cfb.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715400  jobs/ngram-pairs2-1119-162744/out/ab/trainer/47cca9cb-486f-4612-9e17-ae6868a964bf.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/trainer/4a85bb8a-767d-4f86-b099-100f56930a56.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715399  jobs/ngram-pairs2-1119-162744/out/ab/trainer/7e45668b-03f1-43e5-a0da-c0694c2bdd3b.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/trainer/be6a84db-2445-4b05-aeb3-547708656b57.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715405  jobs/ngram-pairs2-1119-162744/out/ab/trainer/caa02e8f-5219-4e4b-94ff-de997a6b70c9.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715404  jobs/ngram-pairs2-1119-162744/out/ab/trainer/d4b78525-b5dd-4813-8b67-e69a9110e996.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715401  jobs/ngram-pairs2-1119-162744/out/warm/20261120-003536-run-c381-s20.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715401  jobs/ngram-pairs2-1119-162744/out/warm/trainer/744bfa69-43c6-4f25-9574-d9ed716dc643.txt  (duplicate of the *.log.txt / *.txt one folder up)
+        68  jobs/ngram-steps-1119-141852/create.err  (submit-side file (account ids) or a partial copy of log.txt)
+      3473  jobs/ngram-steps-1119-141852/create.json  (submit-side file (account ids) or a partial copy of log.txt)
+        37  jobs/ngram-steps-1119-141852/job_id  (submit-side file (account ids) or a partial copy of log.txt)
+       232  jobs/ngram-steps-1119-141852/pod.yaml  (submit-side file (account ids) or a partial copy of log.txt)
+       109  jobs/ngram-steps-1119-141852/resources.json  (submit-side file (account ids) or a partial copy of log.txt)
+      1215  jobs/ngram-steps-1119-141852/spec.json  (submit-side file (account ids) or a partial copy of log.txt)
+    715400  jobs/ngram-steps-1119-141852/out/runs/20261119-223350-run-c381-s3.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/ngram-steps-1119-141852/out/runs/20261119-224301-run-c381-s0.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/ngram-steps-1119-141852/out/runs/20261119-224723-run-c381-s1.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715405  jobs/ngram-steps-1119-141852/out/runs/20261119-225119-run-c381-s2.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715356  jobs/ngram-steps-1119-141852/out/runs/20261119-225515-run-c381-s0.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715356  jobs/ngram-steps-1119-141852/out/runs/20261119-225912-run-c381-s1.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715356  jobs/ngram-steps-1119-141852/out/runs/20261119-230302-run-c381-s2.log.txt  (over 200 kB (trainer log with a source dump; see the console file beside it))
+    715356  jobs/ngram-steps-1119-141852/out/runs/trainer/02bd4bfa-17fd-4fd3-bcab-fa9e1ec25b4b.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715356  jobs/ngram-steps-1119-141852/out/runs/trainer/3e894499-81de-4d34-a36d-67c63333adfc.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715405  jobs/ngram-steps-1119-141852/out/runs/trainer/5a449d0b-01a1-4f7a-afb8-6cce83d4e519.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715356  jobs/ngram-steps-1119-141852/out/runs/trainer/84c7ae1e-f573-40db-91f8-37971e3f9716.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715405  jobs/ngram-steps-1119-141852/out/runs/trainer/96f24f7e-30d3-4c9c-a46b-234c5bd34434.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715405  jobs/ngram-steps-1119-141852/out/runs/trainer/d269082e-b651-4882-a8a2-0e6b654eae03.txt  (duplicate of the *.log.txt / *.txt one folder up)
+    715400  jobs/ngram-steps-1119-141852/out/runs/trainer/f2a1d922-e267-4984-876f-4ea63fd40bf4.txt  (duplicate of the *.log.txt / *.txt one folder up)

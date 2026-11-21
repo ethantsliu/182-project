@@ -1,0 +1,6 @@
+data: 103 train shards + validation present in /work/182-project/data/fineweb10B
+exact_match: built (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match/__init__.py)
+FA3 kernel: cached
++ /work/182-project/.venv-run/bin/python -c 'import tiktoken; tiktoken.get_encoding('"'"'gpt2'"'"'); print('"'"'GPT-2 tokenizer file cached'"'"')'
+GPT-2 tokenizer file cached
+prep: done; next: bash variants/t2-cpu-ngram/182/run_node.sh check

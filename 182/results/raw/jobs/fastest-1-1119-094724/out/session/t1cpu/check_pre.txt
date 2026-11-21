@@ -1,0 +1,35 @@
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5599 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)

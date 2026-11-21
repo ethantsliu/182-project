@@ -1,0 +1,39 @@
+..................................................F......                [100%]
+=================================== FAILURES ===================================
+_________________ test_gpu_kernels_match_cpu_reference[gram33] _________________
+
+kernel = 'gram33'
+
+    @needs_cuda
+    @pytest.mark.parametrize("kernel", KERNELS)
+    def test_gpu_kernels_match_cpu_reference(kernel):
+        groups, sym = config.ANVIL_KERNELS[kernel]
+        for label in bench.BANK_SHAPES:
+            X = bench.synthetic(bench.chunk_shape(label), "p05", torch.device("cuda"), seed=1)
+            exact = bench.exact_cascade(X)
+            base = AK.reference_cascade(X, AK.ops_for(X), MAPS, MARGIN, EPS, X.size(-2) > bench.SPLIT_MIN_ROWS)
+            alt = AK.gram_cascade(X, AK.ops_for(X, sym), MAPS, groups, MARGIN, EPS)
+            cpu = AK.gram_cascade(X.cpu(), AK.RefOps(sym), MAPS, groups, MARGIN, EPS)
+            base_exact = bench.fro_rel(base, exact)
+>           assert bench.fro_rel(alt, exact) < 3.0 * base_exact + 2e-3
+E           AssertionError: assert 0.06326763906831578 < ((3.0 * 0.006008412275233016) + 0.002)
+E            +  where 0.06326763906831578 = <function fro_rel at 0x782f55bc6660>(tensor([[[ 0.0408,  0.0057,  0.0112,  ..., -0.0427, -0.0075, -0.0020],\n         [ 0.0513,  0.0017, -0.0175,  ..., -0.0...\n         [-0.0211,  0.0068,  0.0029,  ...,  0.0022, -0.0557, -0.0452]]],\n       device='cuda:0', dtype=torch.bfloat16), tensor([[[ 0.0393,  0.0064,  0.0097,  ..., -0.0419, -0.0059, -0.0016],\n         [ 0.0493,  0.0039, -0.0182,  ..., -0.0...,\n         [-0.0145,  0.0044,  0.0009,  ...,  0.0030, -0.0557, -0.0436]]],\n       device='cuda:0', dtype=torch.float64))
+E            +    where <function fro_rel at 0x782f55bc6660> = bench.fro_rel
+
+182/optim-kernel/test_optim_kernel.py:321: AssertionError
+=============================== warnings summary ===============================
+.venv-run/lib/python3.12/site-packages/anyio/pytest_plugin.py:14
+  /work/182-project/.venv-run/lib/python3.12/site-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+182/optim-kernel/test_optim_kernel.py: 14 warnings
+  /work/182-project/.venv-run/lib/python3.12/site-packages/torch/jit/_script.py:362: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED 182/optim-kernel/test_optim_kernel.py::test_gpu_kernels_match_cpu_reference[gram33]
+1 failed, 56 passed, 15 warnings in 6.87s

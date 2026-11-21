@@ -1,0 +1,225 @@
+lor: running as your lor login sign-in for https://lor.mirendil.dev
+Waiting for task to start. It may take a few minutes.
+Waiting for task resources on 1 node.
+Job started.
+W: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+debconf: delaying package configuration, since apt-utils is not installed
+LOR setup rc=0 secs=157
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))
+2411736 182/lor: fastest.sh batch job (fast Track 1 trees, root profile, last kernel A/B seeds); results tarball keeps small files only
+LOR 17:55:49 prep start (online: data shards, rust build)
+LOR 17:59:25 prep done
+t1gpu prep rc=0
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+t1cpu prep rc=0
+LOR 17:59:25 session start
+LOR 18:40:24 session rc=0
+== env: PASS
+== sanity: PASS
+RESULT variant=t1-gpu-stack val_loss=3.276719 train_time_s=30.719 steps=1053 target=3.28 hit=1 torch=2.10.0+cu128 triton=3.6.0 log=/work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180031_seedrand.txt
+RESULT variant=t1-gpu-stack val_loss=3.277120 train_time_s=30.719 steps=1053 target=3.28 hit=1 torch=2.10.0+cu128 triton=3.6.0 log=/work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180919_seedrand.txt
+== t1gpu: PASS
+== profile: PASS
+RESULT variant=t1-cpu-ngram val_loss=3.2748 train_time_s=10.553 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-182308-run-c381.log.txt
+RESULT variant=t1-cpu-ngram val_loss=3.2763 train_time_s=10.522 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-183207-run-c381.log.txt
+RESULT variant=t1-cpu-ngram val_loss=3.2717 train_time_s=9.914 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-183630-run-c381.log.txt
+== t1cpu: PASS
+== bundle: PASS
+LOR profile /work/out/session/profile/root/logs/6c8fc79a-387a-4ae6-8241-77aa35ac93ed.txt
+"""NanoGPT speedrun, track 1: train a GPT-2 small-scale model to 3.28 FineWeb val loss on 8xH100.
+
+Launch: torchrun --standalone --nproc_per_node=8 train_gpt.py
+
+This file is the outline of the whole run. The model, optimizer, data and schedules live in
+the `track_1_short/` package; `track_1_short/perf/` holds the kernels and precision tricks that make it
+fast, and can be skipped when reading for the algorithm.
+"""
+import os
+import sys
+
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
+from track_1_short.run_log import log_environment, read_source, start_run_log
+
+# Read the source ASAP, for the run log.
+code = read_source(sys.argv[0])
+
+import copy
+import gc
+import time
+
+import torch
+
+torch.empty(
+    1, device=f"cuda:{os.environ['LOCAL_RANK']}", requires_grad=True
+).backward()  # prevents a bug on some systems
+import torch._dynamo as dynamo
+import torch.distributed as dist
+from torch import nn
+
+# torch._inductor.config.coordinate_descent_tuning = True # we have banned this flag for new records because it causes compilation to take 30min
+from track_1_short.canonical_mask import BackgroundCanonicalMask
+from track_1_short.config import (
+    ANVIL_ABLATE,
+    ANVIL_KERNEL,
+    FP8_ATTN_O,
+    FP8_ATTN_O_SCALES,
+    FP8_DUMP_DIR,
+    FP8_DUMP_ROWS,
+    FP8_DUMP_STEPS,
+    FP8_OFF,
+    HADAMARD_FP8,
+    LR_COOLDOWN_FRAC,
+    RUN_METRICS,
+    SPLIT_EMBED_STAGE,
+    TRAINING_STAGES,
+    VAL_CURVE,
+    WS_POST_YARN_EXT,
+    Hyperparameters,
+)
+from track_1_short.data import ScheduledBatches, cu_seqlens_rows, distributed_data_generator
+from track_1_short.distributed import setup_distributed
+from track_1_short.model.gpt import ATTN_BANK_ORDER, FP8_EXACT_SCALE_CALLS, GPT, MLP_HIDDEN_DIM, format_fp8_sat
+from track_1_short.model.monarch import MONARCH_MLP
+from track_1_short.model.prefix_prediction import build_prefix_table_bucket
+from track_1_short.ngram_table import (
+    MAX_CYCLE_STEPS,
+    NGRAM_DIM,
+    NgramTable,
+LOR profile /work/out/session/profile/root/run.txt
+profile: /work/182-project steps 300:20 -> /work/out/session/profile/root
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/profiler/profiler.py:217: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank 
+5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/profile/root/logs/6c8fc79a-387a-4ae6-8241-77aa35ac93ed.txt
+TRAIN_LOG_PATH=/work/out/session/profile/root/logs/6c8fc79a-387a-4ae6-8241-77aa35ac93ed.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+LOR profile /work/out/session/profile/root/analysis.txt
+steps profiled: 20 (device 0); GPU window 17.55 ms/step, CPU step 14.00 ms; busy 16.89 ms, idle 0.66 ms (3.7%)
+graph coverage: 140 cudaGraphLaunch call(s), 16817 of 18182 kernels traced from graph replays
+
+category                                              ms/step  % step
+NCCL communication                                      2.297   13.1%
+attention backward                                      1.513    8.6%
+attention forward                                       0.519    3.0%
+optimizer (polar/Newton-Schulz, Adam)                   0.442    2.5%
+dense GEMMs (MLP, projections, head)                    8.410   47.9%
+fp8 quantize / scales                                   0.616    3.5%
+loss / head (CE, sampled softmax, CPLM)                 0.190    1.1%
+row gather/scatter (n-gram, value-embed, MoE dispatch)    0.752    4.3%
+memcpy / memset                                         0.273    1.6%
+elementwise / other                                     3.454   19.7%
+idle (window minus union of all kernels)                0.658    3.7%
+NCCL: 2.297 ms/step of kernels, 0.074 ms exposed (not under any compute kernel); 97% overlapped
+(categories overlap across streams, so they may sum past 100%)
+
+top 25 kernels by total time:
+ ms/step  % step  calls   avg us  category   kernel
+   2.483   14.2%   22.0    112.9  gemm       linear_relu_square_kernel
+   0.897    5.1%    3.5    256.4  nccl       ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   0.782    4.5%   12.0     65.2  gemm       nvjet_qrtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   0.707    4.0%   12.0     58.9  gemm       nvjet_rqtst_128x128_128x6_2x1_v_bz_coopA_algo2_TNT
+   0.696    4.0%   17.0     41.0  gemm       nvjet_qqtst_128x256_128x4_2x1_v_bz_coopA_TNN
+   0.686    3.9%    3.5    196.0  nccl       ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   0.635    3.6%    3.0    211.7  nccl       ncclDevKernel_SendRecv(ncclDevKernelArgsStorage<4096ul>)
+   0.565    3.2%    7.0     80.7  attn_bwd   _qkv_norm_rope_pack_fp8_backward_kernel
+   0.498    2.8%   11.0     45.3  gemm       nvjet_qrtst_128x128_128x6_1x2_h_bz_coopA_algo2_TNT
+   0.369    2.1%   29.5     12.5  other      _transpose_copy_kernel
+   0.260    1.5%    7.0     37.2  gemm       nvjet_qqtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   0.259    1.5%    2.0    129.6  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.245    1.4%    3.0     81.5  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.203    1.2%    1.0    202.6  gemm       nvjet_qqhsq_256x128_128x4_1x2_h_bz_coopA_TNT
+   0.202    1.1%    5.0     40.3  gemm       nvjet_tst_96x64_64x8_2x4_v_bz_NTN
+   0.192    1.1%    8.0     24.0  gemm       nvjet_tst_192x128_64x5_1x2_h_bz_coopB_NNT
+   0.191    1.1%    1.0    190.7  gemm       triton_red_fused__fused_rms_norm__fused_rms_norm_backward__to_copy__unsafe_view_add_bmm_clamp_div_expand_glue_
+   0.191    1.1%    7.0     27.2  gemm       nvjet_tst_256x128_64x4_1x2_h_bz_coopA_TNT
+   0.190    1.1%    1.0    189.5  loss_head  ce_fwd_bwd_kernel
+   0.181    1.0%    7.0     25.9  attn_fwd   _qk_norm_rope_forward_kernel
+   0.173    1.0%    7.0     24.8  gemm       nvjet_tst_256x128_64x4_1x2_h_bz_coopA_NNT
+   0.167    1.0%    4.0     41.7  gemm       nvjet_qqtst_192x192_128x4_1x2_h_bz_coopB_TNN
+   0.156    0.9%   30.5      5.1  memcpy     Memcpy DtoD (Device -> Device)
+   0.155    0.9%    1.0    154.7  gemm       triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_div_index_lift_fresh_mean_mul_permut
+   0.153    0.9%   18.0      8.5  optim      ba_plus_cAA_kernel
+
+largest idle gaps:
+     117.1 us in step 300: after Memcpy DtoD (Device -> Device) -> before triton_poi_fused__to_copy_select_0
+      43.1 us in step 300: after void at::native::index_elementwise_kernel<128, 4, at::native -> before Memcpy DtoD (Device -> Device)
+      37.0 us in step 300: after void at::native::vectorized_elementwise_kernel<4, at::native -> before void at::native::index_elementwise_kernel<128, 4, at::native
+      13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      13.2 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      10.7 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      10.6 us in step 319: after Memcpy HtoD (Pinned -> Device) -> before Memcpy HtoD (Pinned -> Device)
+      10.3 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+       9.5 us in step 300: after _transpose_copy_kernel -> before void at::native::vectorized_elementwise_kernel<4, at::native
+
+per rank (each rank's own trace):
+rank window ms  busy ms  idle ms  nccl ms  exposed  graph k  status
+LOR 18:40:25 gram222s-s4 start
+LOR 18:45:38 gram222s-s4 rc=0 train_time_s=40.4962 val_loss=3.275853 final=1
+LOR 18:45:38 skipmatrix-s4 start
+LOR 18:49:44 skipmatrix-s4 rc=0 train_time_s=40.3003 val_loss=3.457042 final=1
+LOR 18:49:44 all done
+LOR command rc=0 secs=3392
+LOR-RESULTS-BEGIN
+[collect_raw.py: 48909 base64 lines removed here; they are the out/ folder]
+LOR-RESULTS-END
+✓ Job finished (status: SUCCEEDED).

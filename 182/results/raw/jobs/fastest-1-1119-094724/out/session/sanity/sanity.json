@@ -1,0 +1,366 @@
+{
+ "off": {
+  "hadamard": false,
+  "device": "NVIDIA H100 80GB HBM3",
+  "env": {},
+  "stages": {
+   "fwd-bf16": 4,
+   "fwd-fp8-emit": 3,
+   "bwd-fp8": 3
+  },
+  "bench": {
+   "refresh": {
+    "kernels": {
+     "other_pointwise": 0.04642919999999991,
+     "w_quant_dual": 0.08047299999999982,
+     "memcpy": 0.004304000000000087
+    },
+    "total": 0.5983808040618896
+   },
+   "T": {
+    "16384": {
+     "fwd": {
+      "other_pointwise": 0.1960439000000008,
+      "fp8_transpose": 0.006809600000000001,
+      "linear_relu_square": 0.0924125,
+      "memset": 0.0008000000000000909
+     },
+     "bwd": {
+      "other_pointwise": 0.29796340000000016,
+      "fp8_transpose": 0.00672319999999977,
+      "linear_relu_square": 0.13597689999999962,
+      "memset": 0.0008736999999998261
+     },
+     "fwd_total": 1.1033503532409668,
+     "bwd_total": 1.0917407989501953
+    },
+    "32768": {
+     "fwd": {
+      "other_pointwise": 0.3819406999999996,
+      "fp8_transpose": 0.014684600000000044,
+      "linear_relu_square": 0.1819644000000001,
+      "memset": 0.0009184999999999036
+     },
+     "bwd": {
+      "other_pointwise": 0.5807456999999993,
+      "fp8_transpose": 0.0143808,
+      "linear_relu_square": 0.25014590000000003,
+      "memset": 0.0008544999999999618
+     },
+     "fwd_total": 1.1566656112670899,
+     "bwd_total": 1.1615263938903808
+    },
+    "40960": {
+     "fwd": {
+      "other_pointwise": 0.4731209999999999,
+      "fp8_transpose": 0.018319899999999827,
+      "linear_relu_square": 0.22030970000000014,
+      "memset": 0.0008064000000003715
+     },
+     "bwd": {
+      "other_pointwise": 0.7149531999999995,
+      "fp8_transpose": 0.01839020000000028,
+      "linear_relu_square": 0.2989933,
+      "memset": 0.0009471999999997479
+     },
+     "fwd_total": 1.1305343627929687,
+     "bwd_total": 1.2440095901489259
+    },
+    "49152": {
+     "fwd": {
+      "other_pointwise": 0.5572070000000001,
+      "fp8_transpose": 0.023433399999999778,
+      "linear_relu_square": 0.2605622000000001,
+      "memset": 0.0008414999999999737
+     },
+     "bwd": {
+      "other_pointwise": 0.8551705000000001,
+      "fp8_transpose": 0.02320640000000001,
+      "linear_relu_square": 0.35368789999999983,
+      "memset": 0.0009951999999999316
+     },
+     "fwd_total": 1.0848159790039062,
+     "bwd_total": 1.3562303543090821
+    }
+   }
+  },
+  "kernels": [
+   [
+    "linear_relu_square_kernel",
+    "FORWARD,STORE_POST_BF,STORE_PRE",
+    4,
+    8,
+    229408,
+    158,
+    0
+   ],
+   [
+    "linear_relu_square_kernel",
+    "EMIT_F8,EMIT_T,FORWARD,USE_FP8",
+    3,
+    8,
+    163896,
+    252,
+    0
+   ],
+   [
+    "linear_relu_square_kernel",
+    "USE_FP8",
+    3,
+    8,
+    196648,
+    255,
+    4
+   ],
+   [
+    "_quantize_weights_dual_kernel",
+    "",
+    2,
+    4,
+    8192,
+    56,
+    0
+   ]
+  ]
+ },
+ "on": {
+  "hadamard": true,
+  "device": "NVIDIA H100 80GB HBM3",
+  "env": {},
+  "stages": {
+   "fwd-bf16": 4,
+   "fwd-fp8-emit": 3,
+   "bwd-fp8": 3,
+   "fwd-fp8-emit-ROT_T-HB128": 3,
+   "bwd-fp8-ROT_ROW-ROT_T-HB128": 3
+  },
+  "amax_check": {
+   "mlp.py implements the post_t contract": [
+    true,
+    ""
+   ],
+   "x_t amax only in the target slot": [
+    true,
+    "slot 5: 5.033, max of other slots: 0"
+   ],
+   "x_t amax = max|rotate(x, tokens)|": [
+    true,
+    "got 5.0326, want 5.0326 (rel err 0.00e+00, tolerance 0.01)"
+   ],
+   "post_amax only in the target slot": [
+    true,
+    "slot 5: 19.97, max of other slots: 0"
+   ],
+   "post_t_amax only in the target slot": [
+    true,
+    "slot 5: 5.801, max of other slots: 0"
+   ],
+   "dpre_amax only in the target slot": [
+    true,
+    "slot 5: 0.06075, max of other slots: 0"
+   ],
+   "post amax = max|post| (unrotated: record forward numerics)": [
+    true,
+    "got 19.97, want 20.049 (rel err 3.98e-03, tolerance 0.15)"
+   ],
+   "post_t amax = max|rotate(post, tokens)|": [
+    true,
+    "got 5.8013, want 5.875 (rel err 1.25e-02, tolerance 0.15)"
+   ],
+   "post vs post_t references differ enough to tell a shared amax apart": [
+    true,
+    "post_t/post reference ratio 0.29 (a check only discriminates if this is far from 1)"
+   ],
+   "captured refresh moves xt_scales[5] only": [
+    true,
+    "0.0625 -> 0.012357 (want 0.012357); other slots at init: True"
+   ],
+   "captured refresh moves post_t_scales[5] only": [
+    true,
+    "1 -> 0.013338 (want 0.013338); other slots at init: True"
+   ]
+  },
+  "bench": {
+   "refresh": {
+    "kernels": {
+     "other_pointwise": 0.07956179999999795,
+     "w_quant_dual": 0.07839349999999967,
+     "w_quant_rotated": 0.09379830000000007,
+     "memcpy": 0.006361600000000908
+    },
+    "total": 0.891926383972168
+   },
+   "T": {
+    "16384": {
+     "fwd": {
+      "other_pointwise": 0.19887949999999952,
+      "hadamard_quant": 0.027123300000000017,
+      "memcpy": 0.0011902999999999792,
+      "linear_relu_square": 0.15028079999999994,
+      "memset": 0.0008928000000002613
+     },
+     "bwd": {
+      "hadamard_quant": 0.02947489999999998,
+      "other_pointwise": 0.1550618999999997,
+      "linear_relu_square": 0.2018869000000001,
+      "memset": 0.0008256000000001677
+     },
+     "fwd_total": 1.1647007942199707,
+     "bwd_total": 1.0146080017089845
+    },
+    "32768": {
+     "fwd": {
+      "other_pointwise": 0.38465459999999974,
+      "hadamard_quant": 0.049532400000000004,
+      "memcpy": 0.0011584000000000743,
+      "linear_relu_square": 0.2926099000000001,
+      "memset": 0.0008608999999999469
+     },
+     "bwd": {
+      "hadamard_quant": 0.05649260000000002,
+      "other_pointwise": 0.30274449999999997,
+      "linear_relu_square": 0.3792240000000001,
+      "memset": 0.000806400000000076
+     },
+     "fwd_total": 1.1878496170043946,
+     "bwd_total": 1.0153152465820312
+    },
+    "40960": {
+     "fwd": {
+      "other_pointwise": 0.4754256,
+      "hadamard_quant": 0.060687799999999945,
+      "memcpy": 0.0011872999999998457,
+      "linear_relu_square": 0.34933609999999987,
+      "memset": 0.000902400000000057
+     },
+     "bwd": {
+      "hadamard_quant": 0.06975989999999997,
+      "other_pointwise": 0.36922820000000045,
+      "linear_relu_square": 0.4527029999999998,
+      "memset": 0.0008161000000002788
+     },
+     "fwd_total": 1.1806015968322754,
+     "bwd_total": 1.034940814971924
+    },
+    "49152": {
+     "fwd": {
+      "other_pointwise": 0.5609033999999999,
+      "hadamard_quant": 0.07045719999999991,
+      "memcpy": 0.0012351999999998951,
+      "linear_relu_square": 0.41204029999999986,
+      "memset": 0.0010847999999997683
+     },
+     "bwd": {
+      "hadamard_quant": 0.08368920000000005,
+      "other_pointwise": 0.43792800000000015,
+      "linear_relu_square": 0.5420106999999998,
+      "memset": 0.0008639999999999417
+     },
+     "fwd_total": 1.273795223236084,
+     "bwd_total": 1.187401580810547
+    }
+   }
+  },
+  "kernels": [
+   [
+    "linear_relu_square_kernel",
+    "FORWARD,STORE_POST_BF,STORE_PRE",
+    4,
+    8,
+    229408,
+    158,
+    0
+   ],
+   [
+    "linear_relu_square_kernel",
+    "EMIT_F8,EMIT_T,FORWARD,USE_FP8",
+    3,
+    8,
+    163896,
+    252,
+    0
+   ],
+   [
+    "linear_relu_square_kernel",
+    "USE_FP8",
+    3,
+    8,
+    196648,
+    255,
+    4
+   ],
+   [
+    "linear_relu_square_kernel",
+    "EMIT_F8,EMIT_T,FORWARD,ROT_T,USE_FP8",
+    3,
+    8,
+    229400,
+    255,
+    2
+   ],
+   [
+    "linear_relu_square_kernel",
+    "ROT_ROW,ROT_T,USE_FP8",
+    3,
+    8,
+    229400,
+    255,
+    34
+   ],
+   [
+    "_quantize_weights_dual_kernel",
+    "",
+    2,
+    4,
+    8192,
+    56,
+    0
+   ],
+   [
+    "_hadamard_quant_dual_kernel",
+    "RECORD_T_AMAX,ROT_T",
+    3,
+    8,
+    65536,
+    128,
+    0
+   ],
+   [
+    "_hadamard_quant_dual_kernel",
+    "E5M2,EMIT_ROW,ROT_ROW,ROT_T",
+    3,
+    8,
+    81920,
+    128,
+    0
+   ],
+   [
+    "_hadamard_quant_dual_kernel",
+    "RECORD_T_AMAX,ROT_T",
+    3,
+    8,
+    65536,
+    128,
+    0
+   ],
+   [
+    "_quantize_weights_rotated_kernel",
+    "ALONG_H",
+    1,
+    8,
+    65536,
+    127,
+    0
+   ],
+   [
+    "_quantize_weights_rotated_kernel",
+    "",
+    1,
+    8,
+    65536,
+    127,
+    0
+   ]
+  ]
+ }
+}

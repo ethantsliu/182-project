@@ -1,0 +1,1114 @@
+GPU session 2411736109b1 -> /work/out/session
+phases: env sanity t1gpu profile t1cpu bundle
+estimates (node-min on 8 GPUs; guesses until a run exists, variant preps not included):
+  env          2
+  sanity       3
+  t1gpu       13  (2 run(s) of variants/t1-gpu-stack; skipped if its check FAILs)
+  profile      5  (torch.profiler, steps 300:20 of: root; not timing runs)
+  t1cpu       17  (3 run(s) of variants/t1-cpu-ngram; skipped if its check FAILs)
+  bundle       0
+  total       40 node-min upper bound (~320 GPU-min)
+prep: check + prep of t1gpu t1cpu started in the background (pid 150957; logs /work/out/session/<phase>/prep.txt)
+
+== env: est. 2 node-min (~16 GPU-min) -- 2026-11-19 17:59:25
+date 2026-11-19T17:59:25+00:00  host fastest-1-cc03b8-2622-sa-f9bc7ea193ee0271-head
+git 2411736109b1d328cdf52935a9e8e3883d5a7f58 (HEAD)
+2411736 182/lor: fastest.sh batch job (fast Track 1 trees, root profile, last kernel A/B seeds); results tarball keeps small files only
+modified tracked files (git status --porcelain --untracked-files=no):
+untracked files (not used by the A/B arms, which run the committed HEAD):
+
+## nvidia-smi
+Thu Nov 19 17:59:26 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.178.04             Driver Version: 580.178.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100 80GB HBM3          Off |   00000000:04:00.0 Off |                    0 |
+| N/A   31C    P0             72W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100 80GB HBM3          Off |   00000000:05:00.0 Off |                    0 |
+| N/A   29C    P0             70W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100 80GB HBM3          Off |   00000000:0A:00.0 Off |                    0 |
+| N/A   31C    P0             68W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100 80GB HBM3          Off |   00000000:0B:00.0 Off |                    0 |
+| N/A   29C    P0             67W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   4  NVIDIA H100 80GB HBM3          Off |   00000000:84:00.0 Off |                    0 |
+| N/A   31C    P0             71W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   5  NVIDIA H100 80GB HBM3          Off |   00000000:85:00.0 Off |                    0 |
+| N/A   28C    P0             70W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   6  NVIDIA H100 80GB HBM3          Off |   00000000:8A:00.0 Off |                    0 |
+| N/A   29C    P0             66W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   7  NVIDIA H100 80GB HBM3          Off |   00000000:8B:00.0 Off |                    0 |
+| N/A   29C    P0             67W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+## python stack
+python 3.12.3 (/work/182-project/.venv-run/bin/python)
+torch 2.10.0+cu128 cuda 12.8 devices 8
+triton 3.6.0
+torchrun /work/182-project/.venv-run/bin/torchrun
+FA3 ok
+
+## CPU / RAM / shm
+CPUs 1
+               total        used        free      shared  buff/cache   available
+Mem:            1842          26        1761           0          63        1816
+Swap:              0           0           0
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           1.8T   12K  1.8T   1% /dev/shm
+gpu 0 NVIDIA H100 80GB HBM3: bf16 GEMM 757 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 1 NVIDIA H100 80GB HBM3: bf16 GEMM 761 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+gpu 2 NVIDIA H100 80GB HBM3: bf16 GEMM 758 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 3 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+gpu 4 NVIDIA H100 80GB HBM3: bf16 GEMM 794 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 5 NVIDIA H100 80GB HBM3: bf16 GEMM 762 TFLOP/s  (sm clock MHz, temp C: 1965, 31)
+gpu 6 NVIDIA H100 80GB HBM3: bf16 GEMM 803 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 7 NVIDIA H100 80GB HBM3: bf16 GEMM 751 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 431 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5
+data: 103 train shards + val present
+== env: PASS
+
+== sanity: est. 3 node-min (~24 GPU-min) -- 2026-11-19 17:59:49
+HADAMARD_FP8 gpu_sanity on NVIDIA H100 80GB HBM3; env passed through: {}
+
+(i) linear_relu_square num_stages after prime_stage_cache
+  bwd-fp8                off=3   on=3
+  bwd-fp8-ROT_ROW-ROT_T-HB128 off=-   on=3
+  fwd-bf16               off=4   on=4
+  fwd-fp8-emit           off=3   on=3
+  fwd-fp8-emit-ROT_T-HB128 off=-   on=3
+    kernel resources (setting kernel [variant flags]: stages warps shared regs spills)
+  off linear_relu_square_kernel          [FORWARD,STORE_POST_BF,STORE_PRE]: 4 8 229408 158 0
+  off linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,USE_FP8]: 3 8 163896 252 0
+  off linear_relu_square_kernel          [USE_FP8]: 3 8 196648 255 4  <-- SPILLS
+  off _quantize_weights_dual_kernel      []: 2 4 8192 56 0
+  on  linear_relu_square_kernel          [FORWARD,STORE_POST_BF,STORE_PRE]: 4 8 229408 158 0
+  on  linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,USE_FP8]: 3 8 163896 252 0
+  on  linear_relu_square_kernel          [USE_FP8]: 3 8 196648 255 4  <-- SPILLS
+  on  linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,ROT_T,USE_FP8]: 3 8 229400 255 2  <-- SPILLS
+  on  linear_relu_square_kernel          [ROT_ROW,ROT_T,USE_FP8]: 3 8 229400 255 34  <-- SPILLS
+  on  _quantize_weights_dual_kernel      []: 2 4 8192 56 0
+  on  _hadamard_quant_dual_kernel        [RECORD_T_AMAX,ROT_T]: 3 8 65536 128 0
+  on  _hadamard_quant_dual_kernel        [E5M2,EMIT_ROW,ROT_ROW,ROT_T]: 3 8 81920 128 0
+  on  _hadamard_quant_dual_kernel        [RECORD_T_AMAX,ROT_T]: 3 8 65536 128 0
+  on  _quantize_weights_rotated_kernel   [ALONG_H]: 1 8 65536 127 0
+  on  _quantize_weights_rotated_kernel   []: 1 8 65536 127 0
+
+(ii) compiled x_t / post_t amax check (HADAMARD_FP8=1)
+  PASS  mlp.py implements the post_t contract: 
+  PASS  x_t amax only in the target slot: slot 5: 5.033, max of other slots: 0
+  PASS  x_t amax = max|rotate(x, tokens)|: got 5.0326, want 5.0326 (rel err 0.00e+00, tolerance 0.01)
+  PASS  post_amax only in the target slot: slot 5: 19.97, max of other slots: 0
+  PASS  post_t_amax only in the target slot: slot 5: 5.801, max of other slots: 0
+  PASS  dpre_amax only in the target slot: slot 5: 0.06075, max of other slots: 0
+  PASS  post amax = max|post| (unrotated: record forward numerics): got 19.97, want 20.049 (rel err 3.98e-03, tolerance 0.15)
+  PASS  post_t amax = max|rotate(post, tokens)|: got 5.8013, want 5.875 (rel err 1.25e-02, tolerance 0.15)
+  PASS  post vs post_t references differ enough to tell a shared amax apart: post_t/post reference ratio 0.29 (a check only discriminates if this is far from 1)
+  PASS  captured refresh moves xt_scales[5] only: 0.0625 -> 0.012357 (want 0.012357); other slots at init: True
+  PASS  captured refresh moves post_t_scales[5] only: 1 -> 0.013338 (want 0.013338); other slots at init: True
+
+(iii) device ms per MLP call, on - off  (columns: off / on / delta per token count)
+                             |         T=16384         |         T=32768         |         T=40960         |         T=49152        
+  phase kernel               |     off      on   delta |     off      on   delta |     off      on   delta |     off      on   delta
+  fwd   fp8_transpose        |   0.007   0.000  -0.007 |   0.015   0.000  -0.015 |   0.018   0.000  -0.018 |   0.023   0.000  -0.023
+  fwd   hadamard_quant       |   0.000   0.027  +0.027 |   0.000   0.050  +0.050 |   0.000   0.061  +0.061 |   0.000   0.070  +0.070
+  fwd   linear_relu_square   |   0.092   0.150  +0.058 |   0.182   0.293  +0.111 |   0.220   0.349  +0.129 |   0.261   0.412  +0.151
+  fwd   memcpy               |   0.000   0.001  +0.001 |   0.000   0.001  +0.001 |   0.000   0.001  +0.001 |   0.000   0.001  +0.001
+  fwd   memset               |   0.001   0.001  +0.000 |   0.001   0.001  -0.000 |   0.001   0.001  +0.000 |   0.001   0.001  +0.000
+  fwd   other_pointwise      |   0.196   0.199  +0.003 |   0.382   0.385  +0.003 |   0.473   0.475  +0.002 |   0.557   0.561  +0.004
+  bwd   fp8_transpose        |   0.007   0.000  -0.007 |   0.014   0.000  -0.014 |   0.018   0.000  -0.018 |   0.023   0.000  -0.023
+  bwd   hadamard_quant       |   0.000   0.029  +0.029 |   0.000   0.056  +0.056 |   0.000   0.070  +0.070 |   0.000   0.084  +0.084
+  bwd   linear_relu_square   |   0.136   0.202  +0.066 |   0.250   0.379  +0.129 |   0.299   0.453  +0.154 |   0.354   0.542  +0.188
+  bwd   memset               |   0.001   0.001  -0.000 |   0.001   0.001  -0.000 |   0.001   0.001  -0.000 |   0.001   0.001  -0.000
+  bwd   other_pointwise      |   0.298   0.155  -0.143 |   0.581   0.303  -0.278 |   0.715   0.369  -0.346 |   0.855   0.438  -0.417
+  all   events fwd+bwd       |   2.195   2.179  -0.016 |   2.318   2.203  -0.115 |   2.375   2.216  -0.159 |   2.441   2.461  +0.020
+  weight refresh per step (12 slots): off 0.598 on 0.892 delta +0.294 ms
+  projected over 1194 steps x 11 MLP calls (+ refresh/step): -0.19 s (friend measured +3.17 s on 8xH100 for the round-1 kernels)
+== sanity: PASS
+
+== t1gpu: est. 13 node-min (~104 GPU-min) -- 2026-11-19 18:00:26
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python (needs >= 3.10; #397 ran 3.12)
+PASS torch: 2.10.0+cu128
+PASS triton: 3.6.0
+PASS triton gluon: triton.experimental.gluon imports (the dense and MoE G3 kernels)
+PASS kernels: 0.16.1
+PASS python packages: numpy, tiktoken, huggingface_hub import
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 x NVIDIA H100 80GB HBM3
+PASS driver: 580.178.04 (the ANVIL2 record README measured a ~35% slowdown below 580)
+PASS gpu memory: 81559 MiB per GPU, idle
+PASS libcudart.so.13: found (ldconfig)
+PASS cuda headers: /usr/local/cuda/include/cuda_bf16.h
+PASS fa3: devenpzak/flash-attn3-12864@64c1e6d1 is in the HF cache
+PASS data: 9 train shards + the validation shard in /work/182-project/data/fineweb10B
+PASS vcpus: 208 (26.0 per GPU; each rank runs a prep thread and a loader beside its main thread, want >= 4 per GPU)
+PASS ram: 1843 GiB (8 ranks hold a 200 MB shard or two each plus pinned staging; want >= 96 GiB)
+PASS /dev/shm: 1798.4 GiB free (NCCL's shared-memory transport; in docker pass --ipc=host or --shm-size=16g)
+PASS disk (tree): 5599 GiB free at /work/182-project/variants/t1-gpu-stack (logs, Inductor / Triton caches; want >= 10)
+PASS disk (compile caches): 5599 GiB free at /root (logs, Inductor / Triton caches; want >= 10)
+PASS disk (/tmp): 5599 GiB free at /tmp (logs, Inductor / Triton caches; want >= 10)
+PASS extensions: none to build: every kernel is JIT (Triton, nvrtc) or the prebuilt FA3; no rust / cargo
+PASS flags: none exported (run = #397 unless a flag is exported)
+check: 0 FAIL, 0 WARN -- ready: 182/run_node.sh run
+-- t1gpu run 1/2 -- 18:00:31
+run: cd /work/182-project/variants/t1-gpu-stack && env DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py
+run: console -> /work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180031_seedrand.console.txt
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1gpu/logs/trainer/ec49f849-8cca-4610-a05c-6b31f2b3830c.txt
+TRAIN_LOG_PATH=/work/out/session/t1gpu/logs/trainer/ec49f849-8cca-4610-a05c-6b31f2b3830c.txt
+[config] steps 981 scheduled + 52 growth + 20 extension = 1053; seed random; train files ../../data/fineweb10B/fineweb_train_*.bin
+[config] MoE 8 experts x h1024, top-1, layers (1, 3, 5, 6, 8), aux 0.01; ANVIL 4-map cascade, expert-bank margin 1.1 (dense banks 1.05); skipped layers [7, 9], attention-less layers [4, 6, 7, 9], no attention output gate; n-gram table 84602880 x 768 on normalized token ids (PR #375); CPLM copy band 2048 train / 8192 val; canonical mask on
+[moe] moe_bank (80, 1024, 768); mlp_bank (8, 2, 2816, 768): slot by dense layer {0: 0, 2: 1, 4: 2, 10: 3}, parallel slot 4, 3 frozen padding slots
+[exact-levers] EXACT_LEVERS=bankinplace,fa3copy,prescatter,rsearly
+[folds] HOST_PREP=none DOC_COPY=0 LAYER_ROPE=0 COPY_MIX=0
+[kernels] dense G3 (Gluon fused linear-relu-square) True, G3 forward ping-pong 1, grouped MoE G3 True, CPLM LUT cross-entropy True
+[sampled-head] dW of the LM head sampled 1 row in 4 (positive part) at >= 32768 rows; negative part, <copy> and dX exact (PR #371/#382)
+[cplm] copy-sink pointer mixture, d=128 qk-normed, band 2048 train / 8192 val; steps 1053; CE kernels [10240, 14336, 24576, 50304]; LUT == plain CE kernels byte for byte
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 278, 279, 280, 281, 593, 594, 595, 596, 846, 847, 848, 849, 972, 973, 974, 975, 1031, 1032, 1033, 1034, 1035, 1036] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 973
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+[graph:step] rank 0 self-check rel: no_grad eager 6.76e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 5.91e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 7.14e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 6.43e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 5.67e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 6.59e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 7.39e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 7.02e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 6.39e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 8.57e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 6.58e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 6.11e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 5.25e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 7.27e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 6.26e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 6.51e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 8.99e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 5.45e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 6.11e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 5.17e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 4.28e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 7.52e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 5.62e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 6.12e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 9.05e-06 (sign -), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 1.32e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 7.52e-06 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 1.09e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 7.00e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 3.31e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 1.36e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 1.79e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 2.31e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 7.01e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 5.90e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 3.16e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 3.05e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 4.20e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 3.83e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 3.46e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 5.57e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 3.08e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 6.38e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 1.78e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 1.58e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 3.28e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 5.96e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 2.11e-05 (sign -), grad eager 0.00e+00
+Resetting Model
+CUDA graphs sealed: 12 step, 4 optimizer, 5 fp8 refresh; addresses unchanged across the reset
+[barrier] rank 0 waited 0.5 ms before the clock start
+step:25/1053 train_time:496ms step_avg:19.84ms
+step:50/1053 train_time:892ms step_avg:17.83ms
+step:75/1053 train_time:1275ms step_avg:17.00ms
+step:100/1053 train_time:1670ms step_avg:16.70ms
+step:125/1053 train_time:2053ms step_avg:16.42ms
+step:150/1053 train_time:2447ms step_avg:16.32ms
+step:175/1053 train_time:2830ms step_avg:16.17ms
+step:200/1053 train_time:3225ms step_avg:16.12ms
+step:225/1053 train_time:3607ms step_avg:16.03ms
+step:250/1053 train_time:4001ms step_avg:16.01ms
+step:275/1053 train_time:4384ms step_avg:15.94ms
+step:300/1053 train_time:4941ms step_avg:16.47ms
+step:325/1053 train_time:5593ms step_avg:17.21ms
+step:350/1053 train_time:6252ms step_avg:17.86ms
+step:375/1053 train_time:6906ms step_avg:18.41ms
+step:400/1053 train_time:7569ms step_avg:18.92ms
+step:425/1053 train_time:8215ms step_avg:19.33ms
+step:450/1053 train_time:8874ms step_avg:19.72ms
+step:475/1053 train_time:9527ms step_avg:20.06ms
+step:500/1053 train_time:10194ms step_avg:20.39ms
+step:525/1053 train_time:10838ms step_avg:20.64ms
+step:550/1053 train_time:11499ms step_avg:20.91ms
+step:575/1053 train_time:12154ms step_avg:21.14ms
+step:600/1053 train_time:12823ms step_avg:21.37ms
+step:625/1053 train_time:13771ms step_avg:22.03ms
+step:650/1053 train_time:14737ms step_avg:22.67ms
+step:675/1053 train_time:15698ms step_avg:23.26ms
+step:700/1053 train_time:16672ms step_avg:23.82ms
+step:725/1053 train_time:17620ms step_avg:24.30ms
+step:750/1053 train_time:18586ms step_avg:24.78ms
+step:775/1053 train_time:19547ms step_avg:25.22ms
+step:800/1053 train_time:20522ms step_avg:25.65ms
+step:825/1053 train_time:21472ms step_avg:26.03ms
+step:850/1053 train_time:22440ms step_avg:26.40ms
+step:875/1053 train_time:23442ms step_avg:26.79ms
+step:900/1053 train_time:24468ms step_avg:27.19ms
+step:925/1053 train_time:25462ms step_avg:27.53ms
+step:950/1053 train_time:26479ms step_avg:27.87ms
+step:975/1053 train_time:27449ms step_avg:28.15ms
+step:1000/1053 train_time:28438ms step_avg:28.44ms
+step:1025/1053 train_time:29459ms step_avg:28.74ms
+step:1050/1053 train_time:30272ms step_avg:28.83ms
+step:1052/1053 train_time:30312ms step_avg:28.81ms
+step:1053/1053 train_time:30330ms step_avg:28.80ms
+step:1053/1053 val_loss:3.2767 train_time:30719ms step_avg:29.17ms
+[final] val_loss:3.276719 train_time_ms:30719 steps:1053 scheduled:981
+step:1053 cplm_diag nll:3.2767 lm_nll:3.3635 alpha:0.0664 a_sink:0.0038 copy_share:0.0664
+peak memory allocated: 34310 MiB reserved: 52616 MiB
+INFO scheduled=981 flags=none
+RESULT variant=t1-gpu-stack val_loss=3.276719 train_time_s=30.719 steps=1053 target=3.28 hit=1 torch=2.10.0+cu128 triton=3.6.0 log=/work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180031_seedrand.txt
+-- t1gpu run 2/2 -- 18:09:19
+run: cd /work/182-project/variants/t1-gpu-stack && env DATA_PATH=../.. torchrun --standalone --nproc_per_node=8 train_gpt.py
+run: console -> /work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180919_seedrand.console.txt
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 7 is connected to 37 is connected to  peer ranks. 7Expected number of connected peer ranks is :  peer ranks. 7Expected number of connected peer ranks is : 7
+
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1gpu/logs/trainer/830a34e3-d924-4e94-adbd-2c911ac53c4a.txt
+TRAIN_LOG_PATH=/work/out/session/t1gpu/logs/trainer/830a34e3-d924-4e94-adbd-2c911ac53c4a.txt
+[config] steps 981 scheduled + 52 growth + 20 extension = 1053; seed random; train files ../../data/fineweb10B/fineweb_train_*.bin
+[config] MoE 8 experts x h1024, top-1, layers (1, 3, 5, 6, 8), aux 0.01; ANVIL 4-map cascade, expert-bank margin 1.1 (dense banks 1.05); skipped layers [7, 9], attention-less layers [4, 6, 7, 9], no attention output gate; n-gram table 84602880 x 768 on normalized token ids (PR #375); CPLM copy band 2048 train / 8192 val; canonical mask on
+[moe] moe_bank (80, 1024, 768); mlp_bank (8, 2, 2816, 768): slot by dense layer {0: 0, 2: 1, 4: 2, 10: 3}, parallel slot 4, 3 frozen padding slots
+[exact-levers] EXACT_LEVERS=bankinplace,fa3copy,prescatter,rsearly
+[folds] HOST_PREP=none DOC_COPY=0 LAYER_ROPE=0 COPY_MIX=0
+[kernels] dense G3 (Gluon fused linear-relu-square) True, G3 forward ping-pong 1, grouped MoE G3 True, CPLM LUT cross-entropy True
+[sampled-head] dW of the LM head sampled 1 row in 4 (positive part) at >= 32768 rows; negative part, <copy> and dX exact (PR #371/#382)
+[cplm] copy-sink pointer mixture, d=128 qk-normed, band 2048 train / 8192 val; steps 1053; CE kernels [10240, 14336, 24576, 50304]; LUT == plain CE kernels byte for byte
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 278, 279, 280, 281, 593, 594, 595, 596, 846, 847, 848, 849, 972, 973, 974, 975, 1031, 1032, 1033, 1034, 1035, 1036] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 973
+[graph:step] rank 1 self-check rel: no_grad eager 7.40e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 8.56e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 7.97e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 7.94e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 8.52e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 7.32e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 8.44e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 6.99e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 8.56e-06 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 2.39e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 5.02e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 5.91e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 5.52e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 2.60e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 2.01e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 3.26e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 1.13e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 1.20e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 5.38e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 3.65e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 1.71e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 1.27e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 1.79e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 1.42e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 9.09e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 4.86e-06 (sign -), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 1.37e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 3.55e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 1.54e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 6.28e-06 (sign -), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 1.86e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 2.16e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 3.56e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 2.58e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 4.79e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 1.15e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 7.75e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 5.09e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 4.59e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 1.53e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 3 self-check rel: no_grad eager 5.77e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 1 self-check rel: no_grad eager 6.20e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 5 self-check rel: no_grad eager 2.22e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 0 self-check rel: no_grad eager 3.89e-05 (sign +), grad eager 0.00e+00
+[graph:step] rank 4 self-check rel: no_grad eager 6.20e-05 (sign -), grad eager 0.00e+00
+[graph:step] rank 6 self-check rel: no_grad eager 3.93e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 7 self-check rel: no_grad eager 3.60e-06 (sign +), grad eager 0.00e+00
+[graph:step] rank 2 self-check rel: no_grad eager 1.72e-05 (sign +), grad eager 0.00e+00
+Resetting Model
+CUDA graphs sealed: 12 step, 4 optimizer, 5 fp8 refresh; addresses unchanged across the reset
+[barrier] rank 0 waited 45.7 ms before the clock start
+step:25/1053 train_time:467ms step_avg:18.69ms
+step:50/1053 train_time:864ms step_avg:17.28ms
+step:75/1053 train_time:1248ms step_avg:16.64ms
+step:100/1053 train_time:1644ms step_avg:16.44ms
+step:125/1053 train_time:2028ms step_avg:16.23ms
+step:150/1053 train_time:2425ms step_avg:16.17ms
+step:175/1053 train_time:2809ms step_avg:16.05ms
+step:200/1053 train_time:3206ms step_avg:16.03ms
+step:225/1053 train_time:3590ms step_avg:15.96ms
+step:250/1053 train_time:3987ms step_avg:15.95ms
+step:275/1053 train_time:4371ms step_avg:15.89ms
+step:300/1053 train_time:4929ms step_avg:16.43ms
+step:325/1053 train_time:5582ms step_avg:17.18ms
+step:350/1053 train_time:6241ms step_avg:17.83ms
+step:375/1053 train_time:6896ms step_avg:18.39ms
+step:400/1053 train_time:7561ms step_avg:18.90ms
+step:425/1053 train_time:8206ms step_avg:19.31ms
+step:450/1053 train_time:8866ms step_avg:19.70ms
+step:475/1053 train_time:9521ms step_avg:20.04ms
+step:500/1053 train_time:10187ms step_avg:20.37ms
+step:525/1053 train_time:10833ms step_avg:20.63ms
+step:550/1053 train_time:11492ms step_avg:20.90ms
+step:575/1053 train_time:12147ms step_avg:21.13ms
+step:600/1053 train_time:12816ms step_avg:21.36ms
+step:625/1053 train_time:13763ms step_avg:22.02ms
+step:650/1053 train_time:14728ms step_avg:22.66ms
+step:675/1053 train_time:15689ms step_avg:23.24ms
+step:700/1053 train_time:16663ms step_avg:23.80ms
+step:725/1053 train_time:17612ms step_avg:24.29ms
+step:750/1053 train_time:18579ms step_avg:24.77ms
+step:775/1053 train_time:19540ms step_avg:25.21ms
+step:800/1053 train_time:20516ms step_avg:25.65ms
+step:825/1053 train_time:21467ms step_avg:26.02ms
+step:850/1053 train_time:22435ms step_avg:26.39ms
+step:875/1053 train_time:23439ms step_avg:26.79ms
+step:900/1053 train_time:24462ms step_avg:27.18ms
+step:925/1053 train_time:25459ms step_avg:27.52ms
+step:950/1053 train_time:26473ms step_avg:27.87ms
+step:975/1053 train_time:27445ms step_avg:28.15ms
+step:1000/1053 train_time:28435ms step_avg:28.43ms
+step:1025/1053 train_time:29454ms step_avg:28.74ms
+step:1050/1053 train_time:30268ms step_avg:28.83ms
+step:1052/1053 train_time:30307ms step_avg:28.81ms
+step:1053/1053 train_time:30326ms step_avg:28.80ms
+step:1053/1053 val_loss:3.2771 train_time:30719ms step_avg:29.17ms
+[final] val_loss:3.277120 train_time_ms:30719 steps:1053 scheduled:981
+step:1053 cplm_diag nll:3.2771 lm_nll:3.3691 alpha:0.0680 a_sink:0.0032 copy_share:0.0694
+peak memory allocated: 34310 MiB reserved: 52698 MiB
+INFO scheduled=981 flags=none
+RESULT variant=t1-gpu-stack val_loss=3.277120 train_time_s=30.719 steps=1053 target=3.28 hit=1 torch=2.10.0+cu128 triton=3.6.0 log=/work/out/session/t1gpu/logs/t1-gpu-stack_20261119T180919_seedrand.txt
+== t1gpu: t1-gpu-stack (PR #397), 2/2 run(s) ok
+  run 1: val_loss=3.2767 train_time_s=30.719 steps=1053 target=3.28 hit=1 wall=528s log=t1-gpu-stack_20261119T180031_seedrand.txt
+  run 2: val_loss=3.2771 train_time_s=30.719 steps=1053 target=3.28 hit=1 wall=264s log=t1-gpu-stack_20261119T180919_seedrand.txt
+== t1gpu: PASS
+
+== profile: est. 5 node-min (~40 GPU-min) -- 2026-11-19 18:13:43
+data: 103 train shards + val present
+-- profile root (.), steps 300:20 -- 18:13:43
+fp8 quantize / scales                                   0.616    3.5%
+loss / head (CE, sampled softmax, CPLM)                 0.190    1.1%
+row gather/scatter (n-gram, value-embed, MoE dispatch)    0.752    4.3%
+memcpy / memset                                         0.273    1.6%
+elementwise / other                                     3.454   19.7%
+idle (window minus union of all kernels)                0.658    3.7%
+NCCL: 2.297 ms/step of kernels, 0.074 ms exposed (not under any compute kernel); 97% overlapped
+(categories overlap across streams, so they may sum past 100%)
+
+top 25 kernels by total time:
+ ms/step  % step  calls   avg us  category   kernel
+   2.483   14.2%   22.0    112.9  gemm       linear_relu_square_kernel
+   0.897    5.1%    3.5    256.4  nccl       ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   0.782    4.5%   12.0     65.2  gemm       nvjet_qrtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   0.707    4.0%   12.0     58.9  gemm       nvjet_rqtst_128x128_128x6_2x1_v_bz_coopA_algo2_TNT
+   0.696    4.0%   17.0     41.0  gemm       nvjet_qqtst_128x256_128x4_2x1_v_bz_coopA_TNN
+   0.686    3.9%    3.5    196.0  nccl       ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   0.635    3.6%    3.0    211.7  nccl       ncclDevKernel_SendRecv(ncclDevKernelArgsStorage<4096ul>)
+   0.565    3.2%    7.0     80.7  attn_bwd   _qkv_norm_rope_pack_fp8_backward_kernel
+   0.498    2.8%   11.0     45.3  gemm       nvjet_qrtst_128x128_128x6_1x2_h_bz_coopA_algo2_TNT
+   0.369    2.1%   29.5     12.5  other      _transpose_copy_kernel
+   0.260    1.5%    7.0     37.2  gemm       nvjet_qqtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   0.259    1.5%    2.0    129.6  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.245    1.4%    3.0     81.5  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.203    1.2%    1.0    202.6  gemm       nvjet_qqhsq_256x128_128x4_1x2_h_bz_coopA_TNT
+   0.202    1.1%    5.0     40.3  gemm       nvjet_tst_96x64_64x8_2x4_v_bz_NTN
+   0.192    1.1%    8.0     24.0  gemm       nvjet_tst_192x128_64x5_1x2_h_bz_coopB_NNT
+   0.191    1.1%    1.0    190.7  gemm       triton_red_fused__fused_rms_norm__fused_rms_norm_backward__to_copy__unsafe_view_add_bmm_clamp_div_expand_glue_
+   0.191    1.1%    7.0     27.2  gemm       nvjet_tst_256x128_64x4_1x2_h_bz_coopA_TNT
+   0.190    1.1%    1.0    189.5  loss_head  ce_fwd_bwd_kernel
+   0.181    1.0%    7.0     25.9  attn_fwd   _qk_norm_rope_forward_kernel
+   0.173    1.0%    7.0     24.8  gemm       nvjet_tst_256x128_64x4_1x2_h_bz_coopA_NNT
+   0.167    1.0%    4.0     41.7  gemm       nvjet_qqtst_192x192_128x4_1x2_h_bz_coopB_TNN
+   0.156    0.9%   30.5      5.1  memcpy     Memcpy DtoD (Device -> Device)
+   0.155    0.9%    1.0    154.7  gemm       triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_div_index_lift_fresh_mean_mul_permut
+   0.153    0.9%   18.0      8.5  optim      ba_plus_cAA_kernel
+
+largest idle gaps:
+     117.1 us in step 300: after Memcpy DtoD (Device -> Device) -> before triton_poi_fused__to_copy_select_0
+      43.1 us in step 300: after void at::native::index_elementwise_kernel<128, 4, at::native -> before Memcpy DtoD (Device -> Device)
+      37.0 us in step 300: after void at::native::vectorized_elementwise_kernel<4, at::native -> before void at::native::index_elementwise_kernel<128, 4, at::native
+      13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      13.2 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      10.7 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      10.6 us in step 319: after Memcpy HtoD (Pinned -> Device) -> before Memcpy HtoD (Pinned -> Device)
+      10.3 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+       9.5 us in step 300: after _transpose_copy_kernel -> before void at::native::vectorized_elementwise_kernel<4, at::native
+
+per rank (each rank's own trace):
+rank window ms  busy ms  idle ms  nccl ms  exposed  graph k  status
+   0     17.55    16.89     0.66     2.30     0.07    16817  ok window 17.63 ms/step
+   1     17.59    16.93     0.66     2.43     0.08    16817  ok window 17.66 ms/step
+   2     17.57    16.92     0.66     2.43     0.08    16817  ok window 17.65 ms/step
+   3     17.58    16.92     0.66     2.39     0.08    16817  ok window 17.65 ms/step
+   4     17.58    16.93     0.65     2.37     0.07    16817  ok window 17.65 ms/step
+   5     17.59    16.94     0.65     2.42     0.08    16817  ok window 17.66 ms/step
+   6     17.59    16.93     0.66     2.28     0.06    16817  ok window 17.66 ms/step
+   7     17.59    16.92     0.67     2.36     0.07    16817  ok window 17.66 ms/step
+  spread of the GPU window across ranks: 17.55-17.59 ms
+== profile: PASS
+
+== t1cpu: est. 17 node-min (~136 GPU-min) -- 2026-11-19 18:23:02
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5577 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+-- t1cpu run 1/3 -- 18:23:02
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5577 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+warmed the page cache: 19.3 GiB in 5 s
+launch: cd /work/182-project/variants/t1-cpu-ngram && DATA_PATH=/work/182-project PYTHONUNBUFFERED=1 torchrun --standalone --nproc_per_node=8 train_gpt.py
+console: /work/out/session/t1cpu/logs/20261119-182308-run-c381.console.txt
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1cpu/logs/trainer/4beb6e70-a573-43d9-9cfe-096437003380.txt
+TRAIN_LOG_PATH=/work/out/session/t1cpu/logs/trainer/4beb6e70-a573-43d9-9cfe-096437003380.txt
+attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1785 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 13 is connected to  is connected to 77 peer ranks.  peer ranks. Expected number of connected peer ranks is : Expected number of connected peer ranks is : 77
+
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. [Gloo] Rank Expected number of connected peer ranks is : 7
+7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7[Gloo] Rank  peer ranks. Expected number of connected peer ranks is : 7
+7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4[Gloo] Rank  is connected to 7 peer ranks. Expected number of connected peer ranks is : 75
+ is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/685 train_time:624ms step_avg:24.98ms
+step:50/685 train_time:907ms step_avg:18.15ms
+step:75/685 train_time:1174ms step_avg:15.66ms
+validation index built in 0.71 s (2-token key)
+step:100/685 train_time:1471ms step_avg:14.71ms
+step:125/685 train_time:1761ms step_avg:14.09ms
+step:150/685 train_time:2061ms step_avg:13.74ms
+validation index built in 0.73 s (3-token key)
+step:175/685 train_time:2351ms step_avg:13.43ms
+step:200/685 train_time:2648ms step_avg:13.24ms
+step:225/685 train_time:2942ms step_avg:13.08ms
+step:250/685 train_time:3240ms step_avg:12.96ms
+step:275/685 train_time:3540ms step_avg:12.87ms
+step:300/685 train_time:3849ms step_avg:12.83ms
+step:325/685 train_time:4156ms step_avg:12.79ms
+step:350/685 train_time:4458ms step_avg:12.74ms
+step:375/685 train_time:4759ms step_avg:12.69ms
+step:400/685 train_time:5226ms step_avg:13.06ms
+step:425/685 train_time:5645ms step_avg:13.28ms
+validation index built in 3.33 s (6-token key)
+step:450/685 train_time:5930ms step_avg:13.18ms
+step:475/685 train_time:6334ms step_avg:13.33ms
+step:500/685 train_time:6773ms step_avg:13.55ms
+step:525/685 train_time:7108ms step_avg:13.54ms
+step:550/685 train_time:7427ms step_avg:13.50ms
+step:575/685 train_time:7743ms step_avg:13.47ms
+step:600/685 train_time:8076ms step_avg:13.46ms
+step:625/685 train_time:8404ms step_avg:13.45ms
+step:650/685 train_time:8752ms step_avg:13.46ms
+step:675/685 train_time:9120ms step_avg:13.51ms
+step:684/685 train_time:9256ms step_avg:13.53ms
+step:685/685 train_time:9268ms step_avg:13.53ms
+step:685/685 val_loss:3.2748 train_time:10553ms step_avg:15.41ms
+val diagnostics: network val_loss:3.3316 (before the chain; the chain adds -0.0568); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+peak memory allocated: 49531 MiB reserved: 55754 MiB
+host memory: rank 0 peak RSS 309.0 GiB, node in use 262 GiB (incl. /dev/shm 144 GiB)
+timeline: index builds finished 2-token at 1.33 s (took 0.71 s), 3-token at 2.28 s (took 0.73 s), 6-token at 5.79 s (took 3.33 s) on the clock; last training step at 9.27 s: the builds finished 3.48 s before it (not on the critical path); clock stopped at 10.553 s
+host memory: rank 0 peak RSS 309.0 GiB, node in use 262 GiB (incl. /dev/shm 144 GiB)
+reference: val_loss 3.2748 vs 3.2750 (estimate: PR #380's 8xH100 3.2759 (n=16) + PR #381's -0.0009 on 4 GPUs (#381 itself: 3.2725, n=3, 4x RTX PRO 6000 only)): -0.0002, -0.1 std; network alone 3.3316; hint rows 6-token 0.233, 3/4-token 0.652, 2-token 0.105, none 0.010
+RESULT variant=t1-cpu-ngram val_loss=3.2748 train_time_s=10.553 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-182308-run-c381.log.txt
+-- t1cpu run 2/3 -- 18:32:02
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5569 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+warmed the page cache: 19.3 GiB in 5 s
+launch: cd /work/182-project/variants/t1-cpu-ngram && DATA_PATH=/work/182-project PYTHONUNBUFFERED=1 torchrun --standalone --nproc_per_node=8 train_gpt.py
+console: /work/out/session/t1cpu/logs/20261119-183207-run-c381.console.txt
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 21 is connected to  is connected to 77 peer ranks.  peer ranks. Expected number of connected peer ranks is : Expected number of connected peer ranks is : 77
+
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1cpu/logs/trainer/5cf9639b-62a8-476d-8105-a8fb47a8114a.txt
+TRAIN_LOG_PATH=/work/out/session/t1cpu/logs/trainer/5cf9639b-62a8-476d-8105-a8fb47a8114a.txt
+attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1795 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 73
+ is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. [Gloo] Rank Expected number of connected peer ranks is : 7
+2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 76
+ is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 3 is connected to 71 peer ranks.  is connected to Expected number of connected peer ranks is : 77 peer ranks. Expected number of connected peer ranks is :
+7[Gloo] Rank
+0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 6 is connected to 7 peer ranks. 5Expected number of connected peer ranks is :  is connected to 77 peer ranks. Expected number of connected peer ranks is :
+7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/685 train_time:609ms step_avg:24.36ms
+step:50/685 train_time:868ms step_avg:17.37ms
+step:75/685 train_time:1162ms step_avg:15.49ms
+validation index built in 0.69 s (2-token key)
+step:100/685 train_time:1458ms step_avg:14.58ms
+step:125/685 train_time:1748ms step_avg:13.98ms
+step:150/685 train_time:2049ms step_avg:13.66ms
+validation index built in 0.73 s (3-token key)
+step:175/685 train_time:2338ms step_avg:13.36ms
+step:200/685 train_time:2636ms step_avg:13.18ms
+step:225/685 train_time:2930ms step_avg:13.02ms
+step:250/685 train_time:3229ms step_avg:12.92ms
+step:275/685 train_time:3529ms step_avg:12.83ms
+step:300/685 train_time:3837ms step_avg:12.79ms
+step:325/685 train_time:4141ms step_avg:12.74ms
+step:350/685 train_time:4447ms step_avg:12.71ms
+step:375/685 train_time:4748ms step_avg:12.66ms
+step:400/685 train_time:5207ms step_avg:13.02ms
+step:425/685 train_time:5663ms step_avg:13.32ms
+validation index built in 3.34 s (6-token key)
+step:450/685 train_time:5922ms step_avg:13.16ms
+step:475/685 train_time:6339ms step_avg:13.34ms
+step:500/685 train_time:6747ms step_avg:13.49ms
+step:525/685 train_time:7086ms step_avg:13.50ms
+step:550/685 train_time:7408ms step_avg:13.47ms
+step:575/685 train_time:7723ms step_avg:13.43ms
+step:600/685 train_time:8057ms step_avg:13.43ms
+step:625/685 train_time:8385ms step_avg:13.42ms
+step:650/685 train_time:8733ms step_avg:13.44ms
+step:675/685 train_time:9102ms step_avg:13.48ms
+step:684/685 train_time:9239ms step_avg:13.51ms
+step:685/685 train_time:9250ms step_avg:13.50ms
+step:685/685 val_loss:3.2763 train_time:10522ms step_avg:15.36ms
+val diagnostics: network val_loss:3.3331 (before the chain; the chain adds -0.0567); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+peak memory allocated: 49531 MiB reserved: 55774 MiB
+host memory: rank 0 peak RSS 308.5 GiB, node in use 240 GiB (incl. /dev/shm 144 GiB)
+timeline: index builds finished 2-token at 1.30 s (took 0.69 s), 3-token at 2.21 s (took 0.73 s), 6-token at 5.72 s (took 3.34 s) on the clock; last training step at 9.25 s: the builds finished 3.53 s before it (not on the critical path); clock stopped at 10.522 s
+host memory: rank 0 peak RSS 308.5 GiB, node in use 240 GiB (incl. /dev/shm 144 GiB)
+reference: val_loss 3.2763 vs 3.2750 (estimate: PR #380's 8xH100 3.2759 (n=16) + PR #381's -0.0009 on 4 GPUs (#381 itself: 3.2725, n=3, 4x RTX PRO 6000 only)): +0.0013, +0.8 std; network alone 3.3331; hint rows 6-token 0.233, 3/4-token 0.652, 2-token 0.105, none 0.010
+RESULT variant=t1-cpu-ngram val_loss=3.2763 train_time_s=10.522 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-183207-run-c381.log.txt
+-- t1cpu run 3/3 -- 18:36:24
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5569 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+warmed the page cache: 19.3 GiB in 5 s
+launch: cd /work/182-project/variants/t1-cpu-ngram && DATA_PATH=/work/182-project PYTHONUNBUFFERED=1 torchrun --standalone --nproc_per_node=8 train_gpt.py
+console: /work/out/session/t1cpu/logs/20261119-183630-run-c381.console.txt
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank
+0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 2 is connected to 57 is connected to  peer ranks. 7Expected number of connected peer ranks is : 7 peer ranks. Expected number of connected peer ranks is : 7
+
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1cpu/logs/trainer/858ee6e8-92f3-4928-963a-b77f214760f5.txt
+TRAIN_LOG_PATH=/work/out/session/t1cpu/logs/trainer/858ee6e8-92f3-4928-963a-b77f214760f5.txt
+attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1783 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6[Gloo] Rank  is connected to 7 peer ranks. Expected number of connected peer ranks is : 77 is connected to 7
+ peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank
+6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. [Gloo] Rank Expected number of connected peer ranks is : 7
+2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/685 train_time:605ms step_avg:24.20ms
+step:50/685 train_time:865ms step_avg:17.30ms
+step:75/685 train_time:1161ms step_avg:15.47ms
+validation index built in 0.72 s (2-token key)
+step:100/685 train_time:1459ms step_avg:14.59ms
+step:125/685 train_time:1750ms step_avg:14.00ms
+step:150/685 train_time:2053ms step_avg:13.68ms
+validation index built in 0.74 s (3-token key)
+step:175/685 train_time:2343ms step_avg:13.39ms
+step:200/685 train_time:2642ms step_avg:13.21ms
+step:225/685 train_time:2937ms step_avg:13.05ms
+step:250/685 train_time:3236ms step_avg:12.94ms
+step:275/685 train_time:3538ms step_avg:12.87ms
+step:300/685 train_time:3843ms step_avg:12.81ms
+step:325/685 train_time:4150ms step_avg:12.77ms
+step:350/685 train_time:4456ms step_avg:12.73ms
+step:375/685 train_time:4792ms step_avg:12.78ms
+step:400/685 train_time:5220ms step_avg:13.05ms
+step:425/685 train_time:5682ms step_avg:13.37ms
+validation index built in 3.38 s (6-token key)
+step:450/685 train_time:6036ms step_avg:13.41ms
+step:475/685 train_time:6383ms step_avg:13.44ms
+step:500/685 train_time:6766ms step_avg:13.53ms
+step:525/685 train_time:7118ms step_avg:13.56ms
+step:550/685 train_time:7458ms step_avg:13.56ms
+step:575/685 train_time:7774ms step_avg:13.52ms
+step:600/685 train_time:8108ms step_avg:13.51ms
+step:625/685 train_time:8436ms step_avg:13.50ms
+step:650/685 train_time:8784ms step_avg:13.51ms
+step:675/685 train_time:9153ms step_avg:13.56ms
+step:684/685 train_time:9290ms step_avg:13.58ms
+step:685/685 train_time:9301ms step_avg:13.58ms
+step:685/685 val_loss:3.2717 train_time:9914ms step_avg:14.47ms
+val diagnostics: network val_loss:3.3279 (before the chain; the chain adds -0.0562); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+peak memory allocated: 49531 MiB reserved: 55794 MiB
+host memory: rank 0 peak RSS 308.4 GiB, node in use 239 GiB (incl. /dev/shm 144 GiB)
+timeline: index builds finished 2-token at 1.32 s (took 0.72 s), 3-token at 2.27 s (took 0.74 s), 6-token at 5.84 s (took 3.38 s) on the clock; last training step at 9.30 s: the builds finished 3.46 s before it (not on the critical path); clock stopped at 9.914 s
+host memory: rank 0 peak RSS 308.4 GiB, node in use 239 GiB (incl. /dev/shm 144 GiB)
+reference: val_loss 3.2717 vs 3.2750 (estimate: PR #380's 8xH100 3.2759 (n=16) + PR #381's -0.0009 on 4 GPUs (#381 itself: 3.2725, n=3, 4x RTX PRO 6000 only)): -0.0033, -2.1 std; network alone 3.3279; hint rows 6-token 0.233, 3/4-token 0.652, 2-token 0.105, none 0.010
+RESULT variant=t1-cpu-ngram val_loss=3.2717 train_time_s=9.914 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-183630-run-c381.log.txt
+== t1cpu: t1-cpu-ngram (PR #381), 3/3 run(s) ok
+  run 1: val_loss=3.2748 train_time_s=10.553 steps=685 target=3.28 hit=1 wall=540s log=20261119-182308-run-c381.log.txt
+  run 2: val_loss=3.2763 train_time_s=10.522 steps=685 target=3.28 hit=1 wall=262s log=20261119-183207-run-c381.log.txt
+  run 3: val_loss=3.2717 train_time_s=9.914 steps=685 target=3.28 hit=1 wall=240s log=20261119-183630-run-c381.log.txt
+  check: WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+== t1cpu: PASS
+
+== bundle: est. 0 node-min (~0 GPU-min) -- 2026-11-19 18:40:24
+session_date 2026-11-19
+sha 2411736109b1d328cdf52935a9e8e3883d5a7f58
+host fastest-1-cc03b8-2622-sa-f9bc7ea193ee0271-head
+invocation 2026-11-19 17:59:25 phases=env sanity t1gpu profile t1cpu bundle
+STACK: git 2411736109b1 clean | torch 2.10.0+cu128 (CUDA 12.8) | triton 3.6.0 | driver 580.178.04 | python 3.12.3 | FA3 ok
+phases: env: PASS | sanity: PASS | t1gpu: PASS | profile: PASS | t1cpu: PASS
+
+METHODS (time_s and val_loss: measured in THIS session on THIS node; ± is the sd over the runs)
+  method                        | runs    | mean val_loss   | mean time_s  | best reported           | official record             | target hit
+  base: root record #92 ANVIL2  | not run | -               | -            | 39.9 s (official)       | 39.9 s, <= 3.28             | -
+  t1gpu: t1-gpu-stack (PR #397) | 2/2 ok  | 3.2769 ± 0.0003 | 30.72 ± 0.00 | 30.67 s, n=12           | 39.9 s, <= 3.28             | 2/2 runs
+  t1cpu: t1-cpu-ngram (PR #381) | 3/3 ok  | 3.2743 ± 0.0023 | 10.33 ± 0.36 | 9.653 s, n=16 (PR #380) | 39.9 s, <= 3.28             | 3/3 runs
+  t2cpu: t2-cpu-ngram           | not run | -               | -            | 221 s, 1 run            | 17.35 min (1041 s), <= 2.92 | -
+  t2gpu: t2-gpu-port (PR #261)  | not run | -               | -            | 860.5 s (14.34 min)     | 17.35 min (1041 s), <= 2.92 | -
+  best reported = the best time claimed for that tree on its author's node, not measured by us; it and the
+  official record are other machines, so only rows of this table compare like with like. 'target hit' counts
+  single runs at or under the target: a record needs the MEAN under it with p < 0.01 (stats.py gate), which
+  must be tested from the mean and spread; target hits alone do not establish significance.
+  One run is one run: no spread, no significance.
+  earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780, 1194 steps; t1-gpu-stack 30.957 s, val_loss 3.276481, 1053 steps (981 scheduled)
+
+== t1gpu: t1-gpu-stack (PR #397), 2/2 run(s) ok  [PASS]
+  run 1: val_loss=3.2767 train_time_s=30.719 steps=1053 target=3.28 hit=1 wall=528s log=t1-gpu-stack_20261119T180031_seedrand.txt
+  run 2: val_loss=3.2771 train_time_s=30.719 steps=1053 target=3.28 hit=1 wall=264s log=t1-gpu-stack_20261119T180919_seedrand.txt
+
+== t1cpu: t1-cpu-ngram (PR #381), 3/3 run(s) ok  [PASS]
+  run 1: val_loss=3.2748 train_time_s=10.553 steps=685 target=3.28 hit=1 wall=540s log=20261119-182308-run-c381.log.txt
+  run 2: val_loss=3.2763 train_time_s=10.522 steps=685 target=3.28 hit=1 wall=262s log=20261119-183207-run-c381.log.txt
+  run 3: val_loss=3.2717 train_time_s=9.914 steps=685 target=3.28 hit=1 wall=240s log=20261119-183630-run-c381.log.txt
+  check: WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+
+== profile root (torch.profiler; not a timing run; full report profile/root/analysis.txt):
+  steps profiled: 20 (device 0); GPU window 17.55 ms/step, CPU step 14.00 ms; busy 16.89 ms, idle 0.66 ms (3.7%)
+  graph coverage: 140 cudaGraphLaunch call(s), 16817 of 18182 kernels traced from graph replays
+  
+  category                                              ms/step  % step
+  NCCL communication                                      2.297   13.1%
+  attention backward                                      1.513    8.6%
+  attention forward                                       0.519    3.0%
+  optimizer (polar/Newton-Schulz, Adam)                   0.442    2.5%
+  dense GEMMs (MLP, projections, head)                    8.410   47.9%
+  fp8 quantize / scales                                   0.616    3.5%
+  loss / head (CE, sampled softmax, CPLM)                 0.190    1.1%
+  row gather/scatter (n-gram, value-embed, MoE dispatch)    0.752    4.3%
+  memcpy / memset                                         0.273    1.6%
+  elementwise / other                                     3.454   19.7%
+  idle (window minus union of all kernels)                0.658    3.7%
+  NCCL: 2.297 ms/step of kernels, 0.074 ms exposed (not under any compute kernel); 97% overlapped
+  (categories overlap across streams, so they may sum past 100%)
+  
+  top 25 kernels by total time:
+   ms/step  % step  calls   avg us  category   kernel
+     2.483   14.2%   22.0    112.9  gemm       linear_relu_square_kernel
+     0.897    5.1%    3.5    256.4  nccl       ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+     0.782    4.5%   12.0     65.2  gemm       nvjet_qrtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+     0.707    4.0%   12.0     58.9  gemm       nvjet_rqtst_128x128_128x6_2x1_v_bz_coopA_algo2_TNT
+     0.696    4.0%   17.0     41.0  gemm       nvjet_qqtst_128x256_128x4_2x1_v_bz_coopA_TNN
+     0.686    3.9%    3.5    196.0  nccl       ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+     0.635    3.6%    3.0    211.7  nccl       ncclDevKernel_SendRecv(ncclDevKernelArgsStorage<4096ul>)
+     0.565    3.2%    7.0     80.7  attn_bwd   _qkv_norm_rope_pack_fp8_backward_kernel
+     0.498    2.8%   11.0     45.3  gemm       nvjet_qrtst_128x128_128x6_1x2_h_bz_coopA_algo2_TNT
+     0.369    2.1%   29.5     12.5  other      _transpose_copy_kernel
+     0.260    1.5%    7.0     37.2  gemm       nvjet_qqtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+     0.259    1.5%    2.0    129.6  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+  
+  largest idle gaps:
+       117.1 us in step 300: after Memcpy DtoD (Device -> Device) -> before triton_poi_fused__to_copy_select_0
+        43.1 us in step 300: after void at::native::index_elementwise_kernel<128, 4, at::native -> before Memcpy DtoD (Device -> Device)
+        37.0 us in step 300: after void at::native::vectorized_elementwise_kernel<4, at::native -> before void at::native::index_elementwise_kernel<128, 4, at::native
+        13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+        13.5 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+        13.2 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+        10.7 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+        10.6 us in step 319: after Memcpy HtoD (Pinned -> Device) -> before Memcpy HtoD (Pinned -> Device)
+        10.3 us in step 300: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+         9.5 us in step 300: after _transpose_copy_kernel -> before void at::native::vectorized_elementwise_kernel<4, at::native
+  
+  per rank (each rank's own trace):
+  rank window ms  busy ms  idle ms  nccl ms  exposed  graph k  status
+     0     17.55    16.89     0.66     2.30     0.07    16817  ok window 17.63 ms/step
+     1     17.59    16.93     0.66     2.43     0.08    16817  ok window 17.66 ms/step
+     2     17.57    16.92     0.66     2.43     0.08    16817  ok window 17.65 ms/step
+     3     17.58    16.92     0.66     2.39     0.08    16817  ok window 17.65 ms/step
+     4     17.58    16.93     0.65     2.37     0.07    16817  ok window 17.65 ms/step
+     5     17.59    16.94     0.65     2.42     0.08    16817  ok window 17.66 ms/step
+     6     17.59    16.93     0.66     2.28     0.06    16817  ok window 17.66 ms/step
+     7     17.59    16.92     0.67     2.36     0.07    16817  ok window 17.66 ms/step
+    spread of the GPU window across ranks: 17.55-17.59 ms
+
+SEND THIS FILE BACK: /work/out/session-2026-11-19-2411736109b1.tar.gz (3.5M)
+== bundle: PASS
+
+  env: PASS
+  sanity: PASS
+  t1gpu: PASS
+  profile: PASS
+  t1cpu: PASS
+  bundle: PASS
+SEND THIS FILE BACK: /work/out/session-2026-11-19-2411736109b1.tar.gz

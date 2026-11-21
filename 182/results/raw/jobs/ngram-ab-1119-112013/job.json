@@ -1,0 +1,24 @@
+{
+ "name": "ngram-ab",
+ "state": "COMPUTE_RUN_STATE_SUCCEEDED",
+ "release_state": "COMPUTE_RELEASE_STATE_RELEASED",
+ "created_at": "2026-11-19T19:20:16.522Z",
+ "observed_at": "2026-11-19T20:04:23.760Z",
+ "max_runtime_seconds": 3600,
+ "preemption_count": 0,
+ "resources": {
+  "workers": 1,
+  "accelerator": {
+   "kind": "COMPUTE_ACCELERATOR_KIND_GPU",
+   "model": "H100",
+   "count_per_worker": 8
+  },
+  "tier": "COMPUTE_TIER_PREEMPTIBLE"
+ },
+ "spend": {
+  "currency": "USD",
+  "amount": "9.333066",
+  "gpu_hours": "4.666533",
+  "price_per_gpu_hour": "2.00000000"
+ }
+}

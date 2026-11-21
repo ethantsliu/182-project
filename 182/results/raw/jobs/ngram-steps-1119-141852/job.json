@@ -1,0 +1,24 @@
+{
+ "name": "ngram-steps",
+ "state": "COMPUTE_RUN_STATE_SUCCEEDED",
+ "release_state": "COMPUTE_RELEASE_STATE_RELEASED",
+ "created_at": "2026-11-19T22:18:55.820Z",
+ "observed_at": "2026-11-19T23:07:31.686Z",
+ "max_runtime_seconds": 3600,
+ "preemption_count": 0,
+ "resources": {
+  "workers": 1,
+  "accelerator": {
+   "kind": "COMPUTE_ACCELERATOR_KIND_GPU",
+   "model": "H100",
+   "count_per_worker": 8
+  },
+  "tier": "COMPUTE_TIER_PREEMPTIBLE"
+ },
+ "spend": {
+  "currency": "USD",
+  "amount": "10.576191",
+  "gpu_hours": "5.288095",
+  "price_per_gpu_hour": "2.00000000"
+ }
+}

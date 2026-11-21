@@ -1,0 +1,10 @@
+gpu 0 NVIDIA H100 80GB HBM3: bf16 GEMM 757 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 1 NVIDIA H100 80GB HBM3: bf16 GEMM 761 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+gpu 2 NVIDIA H100 80GB HBM3: bf16 GEMM 758 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 3 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+gpu 4 NVIDIA H100 80GB HBM3: bf16 GEMM 794 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 5 NVIDIA H100 80GB HBM3: bf16 GEMM 762 TFLOP/s  (sm clock MHz, temp C: 1965, 31)
+gpu 6 NVIDIA H100 80GB HBM3: bf16 GEMM 803 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 7 NVIDIA H100 80GB HBM3: bf16 GEMM 751 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 431 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5

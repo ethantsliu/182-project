@@ -1,0 +1,32 @@
+lor: running as your lor login sign-in for https://lor.mirendil.dev
+Waiting for task to start. It may take a few minutes.
+Waiting for task resources on 1 node.
+Job started.
+W: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+debconf: delaying package configuration, since apt-utils is not installed
+LOR setup rc=0 secs=164
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))
+66dc47f 182/lor: ngram_final.sh (more 675-vs-668 pairs on t1-cpu-ngram, then one Track 2 run)
+LOR 00:07:09 t1 prep start
+LOR 00:10:30 t1 prep rc=0
+LOR 00:10:30 t2 prep start (background)
+LOR 00:11:06 WARMUP RESULT variant=t1-cpu-ngram status=failed config=381 torch=2.10.0+cu128? triton=3.6.0? fa3=unknown tree=66dc47ff3626 rea
+LOR 00:11:06 t2 prep rc=0
+LOR 00:11:06 ab start
+LOR 00:11:06 ab rc=1
+LOR 00:11:06 track 2 start
+LOR 00:26:05 session rc=0
+== env: PASS
+RESULT variant=t2-cpu-ngram val_loss=2.878556 train_time_s=221.988 steps=5800 target=2.92 hit=1 torch=2.10.0+cu128 log=/work/out/session/t2cpu/logs/ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt
+== t2cpu: PASS
+== bundle: PASS
+LOR 00:26:05 all done
+LOR command rc=0 secs=1300
+LOR-RESULTS-BEGIN
+[collect_raw.py: 14690 base64 lines removed here; they are the out/ folder]
+LOR-RESULTS-END
+✓ Job finished (status: SUCCEEDED).

@@ -1,0 +1,55 @@
+HADAMARD_FP8 gpu_sanity on NVIDIA H100 80GB HBM3; env passed through: {}
+
+(i) linear_relu_square num_stages after prime_stage_cache
+  bwd-fp8                off=3   on=3
+  bwd-fp8-ROT_ROW-ROT_T-HB128 off=-   on=3
+  fwd-bf16               off=4   on=4
+  fwd-fp8-emit           off=3   on=3
+  fwd-fp8-emit-ROT_T-HB128 off=-   on=3
+    kernel resources (setting kernel [variant flags]: stages warps shared regs spills)
+  off linear_relu_square_kernel          [FORWARD,STORE_POST_BF,STORE_PRE]: 4 8 229408 158 0
+  off linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,USE_FP8]: 3 8 163896 252 0
+  off linear_relu_square_kernel          [USE_FP8]: 3 8 196648 255 4  <-- SPILLS
+  off _quantize_weights_dual_kernel      []: 2 4 8192 56 0
+  on  linear_relu_square_kernel          [FORWARD,STORE_POST_BF,STORE_PRE]: 4 8 229408 158 0
+  on  linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,USE_FP8]: 3 8 163896 252 0
+  on  linear_relu_square_kernel          [USE_FP8]: 3 8 196648 255 4  <-- SPILLS
+  on  linear_relu_square_kernel          [EMIT_F8,EMIT_T,FORWARD,ROT_T,USE_FP8]: 3 8 229400 255 2  <-- SPILLS
+  on  linear_relu_square_kernel          [ROT_ROW,ROT_T,USE_FP8]: 3 8 229400 255 34  <-- SPILLS
+  on  _quantize_weights_dual_kernel      []: 2 4 8192 56 0
+  on  _hadamard_quant_dual_kernel        [RECORD_T_AMAX,ROT_T]: 3 8 65536 128 0
+  on  _hadamard_quant_dual_kernel        [E5M2,EMIT_ROW,ROT_ROW,ROT_T]: 3 8 81920 128 0
+  on  _hadamard_quant_dual_kernel        [RECORD_T_AMAX,ROT_T]: 3 8 65536 128 0
+  on  _quantize_weights_rotated_kernel   [ALONG_H]: 1 8 65536 127 0
+  on  _quantize_weights_rotated_kernel   []: 1 8 65536 127 0
+
+(ii) compiled x_t / post_t amax check (HADAMARD_FP8=1)
+  PASS  mlp.py implements the post_t contract: 
+  PASS  x_t amax only in the target slot: slot 5: 5.033, max of other slots: 0
+  PASS  x_t amax = max|rotate(x, tokens)|: got 5.0326, want 5.0326 (rel err 0.00e+00, tolerance 0.01)
+  PASS  post_amax only in the target slot: slot 5: 19.97, max of other slots: 0
+  PASS  post_t_amax only in the target slot: slot 5: 5.801, max of other slots: 0
+  PASS  dpre_amax only in the target slot: slot 5: 0.06075, max of other slots: 0
+  PASS  post amax = max|post| (unrotated: record forward numerics): got 19.97, want 20.049 (rel err 3.98e-03, tolerance 0.15)
+  PASS  post_t amax = max|rotate(post, tokens)|: got 5.8013, want 5.875 (rel err 1.25e-02, tolerance 0.15)
+  PASS  post vs post_t references differ enough to tell a shared amax apart: post_t/post reference ratio 0.29 (a check only discriminates if this is far from 1)
+  PASS  captured refresh moves xt_scales[5] only: 0.0625 -> 0.012357 (want 0.012357); other slots at init: True
+  PASS  captured refresh moves post_t_scales[5] only: 1 -> 0.013338 (want 0.013338); other slots at init: True
+
+(iii) device ms per MLP call, on - off  (columns: off / on / delta per token count)
+                             |         T=16384         |         T=32768         |         T=40960         |         T=49152        
+  phase kernel               |     off      on   delta |     off      on   delta |     off      on   delta |     off      on   delta
+  fwd   fp8_transpose        |   0.007   0.000  -0.007 |   0.015   0.000  -0.015 |   0.018   0.000  -0.018 |   0.023   0.000  -0.023
+  fwd   hadamard_quant       |   0.000   0.027  +0.027 |   0.000   0.050  +0.050 |   0.000   0.061  +0.061 |   0.000   0.070  +0.070
+  fwd   linear_relu_square   |   0.092   0.150  +0.058 |   0.182   0.293  +0.111 |   0.220   0.349  +0.129 |   0.261   0.412  +0.151
+  fwd   memcpy               |   0.000   0.001  +0.001 |   0.000   0.001  +0.001 |   0.000   0.001  +0.001 |   0.000   0.001  +0.001
+  fwd   memset               |   0.001   0.001  +0.000 |   0.001   0.001  -0.000 |   0.001   0.001  +0.000 |   0.001   0.001  +0.000
+  fwd   other_pointwise      |   0.196   0.199  +0.003 |   0.382   0.385  +0.003 |   0.473   0.475  +0.002 |   0.557   0.561  +0.004
+  bwd   fp8_transpose        |   0.007   0.000  -0.007 |   0.014   0.000  -0.014 |   0.018   0.000  -0.018 |   0.023   0.000  -0.023
+  bwd   hadamard_quant       |   0.000   0.029  +0.029 |   0.000   0.056  +0.056 |   0.000   0.070  +0.070 |   0.000   0.084  +0.084
+  bwd   linear_relu_square   |   0.136   0.202  +0.066 |   0.250   0.379  +0.129 |   0.299   0.453  +0.154 |   0.354   0.542  +0.188
+  bwd   memset               |   0.001   0.001  -0.000 |   0.001   0.001  -0.000 |   0.001   0.001  -0.000 |   0.001   0.001  -0.000
+  bwd   other_pointwise      |   0.298   0.155  -0.143 |   0.581   0.303  -0.278 |   0.715   0.369  -0.346 |   0.855   0.438  -0.417
+  all   events fwd+bwd       |   2.195   2.179  -0.016 |   2.318   2.203  -0.115 |   2.375   2.216  -0.159 |   2.441   2.461  +0.020
+  weight refresh per step (12 slots): off 0.598 on 0.892 delta +0.294 ms
+  projected over 1194 steps x 11 MLP calls (+ refresh/step): -0.19 s (friend measured +3.17 s on 8xH100 for the round-1 kernels)

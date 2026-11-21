@@ -1,0 +1,120 @@
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1815 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2411736109b1)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1815 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5569 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)
+warmed the page cache: 19.3 GiB in 5 s
+launch: cd /work/182-project/variants/t1-cpu-ngram && DATA_PATH=/work/182-project PYTHONUNBUFFERED=1 torchrun --standalone --nproc_per_node=8 train_gpt.py
+console: /work/out/session/t1cpu/logs/20261119-183630-run-c381.console.txt
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank
+0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 2 is connected to 57 is connected to  peer ranks. 7Expected number of connected peer ranks is : 7 peer ranks. Expected number of connected peer ranks is : 7
+
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/session/t1cpu/logs/trainer/858ee6e8-92f3-4928-963a-b77f214760f5.txt
+TRAIN_LOG_PATH=/work/out/session/t1cpu/logs/trainer/858ee6e8-92f3-4928-963a-b77f214760f5.txt
+attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1783 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6[Gloo] Rank  is connected to 7 peer ranks. Expected number of connected peer ranks is : 77 is connected to 7
+ peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7[Gloo] Rank
+6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. [Gloo] Rank Expected number of connected peer ranks is : 7
+2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/685 train_time:605ms step_avg:24.20ms
+step:50/685 train_time:865ms step_avg:17.30ms
+step:75/685 train_time:1161ms step_avg:15.47ms
+validation index built in 0.72 s (2-token key)
+step:100/685 train_time:1459ms step_avg:14.59ms
+step:125/685 train_time:1750ms step_avg:14.00ms
+step:150/685 train_time:2053ms step_avg:13.68ms
+validation index built in 0.74 s (3-token key)
+step:175/685 train_time:2343ms step_avg:13.39ms
+step:200/685 train_time:2642ms step_avg:13.21ms
+step:225/685 train_time:2937ms step_avg:13.05ms
+step:250/685 train_time:3236ms step_avg:12.94ms
+step:275/685 train_time:3538ms step_avg:12.87ms
+step:300/685 train_time:3843ms step_avg:12.81ms
+step:325/685 train_time:4150ms step_avg:12.77ms
+step:350/685 train_time:4456ms step_avg:12.73ms
+step:375/685 train_time:4792ms step_avg:12.78ms
+step:400/685 train_time:5220ms step_avg:13.05ms
+step:425/685 train_time:5682ms step_avg:13.37ms
+validation index built in 3.38 s (6-token key)
+step:450/685 train_time:6036ms step_avg:13.41ms
+step:475/685 train_time:6383ms step_avg:13.44ms
+step:500/685 train_time:6766ms step_avg:13.53ms
+step:525/685 train_time:7118ms step_avg:13.56ms
+step:550/685 train_time:7458ms step_avg:13.56ms
+step:575/685 train_time:7774ms step_avg:13.52ms
+step:600/685 train_time:8108ms step_avg:13.51ms
+step:625/685 train_time:8436ms step_avg:13.50ms
+step:650/685 train_time:8784ms step_avg:13.51ms
+step:675/685 train_time:9153ms step_avg:13.56ms
+step:684/685 train_time:9290ms step_avg:13.58ms
+step:685/685 train_time:9301ms step_avg:13.58ms
+step:685/685 val_loss:3.2717 train_time:9914ms step_avg:14.47ms
+val diagnostics: network val_loss:3.3279 (before the chain; the chain adds -0.0562); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+peak memory allocated: 49531 MiB reserved: 55794 MiB
+host memory: rank 0 peak RSS 308.4 GiB, node in use 239 GiB (incl. /dev/shm 144 GiB)
+timeline: index builds finished 2-token at 1.32 s (took 0.72 s), 3-token at 2.27 s (took 0.74 s), 6-token at 5.84 s (took 3.38 s) on the clock; last training step at 9.30 s: the builds finished 3.46 s before it (not on the critical path); clock stopped at 9.914 s
+host memory: rank 0 peak RSS 308.4 GiB, node in use 239 GiB (incl. /dev/shm 144 GiB)
+reference: val_loss 3.2717 vs 3.2750 (estimate: PR #380's 8xH100 3.2759 (n=16) + PR #381's -0.0009 on 4 GPUs (#381 itself: 3.2725, n=3, 4x RTX PRO 6000 only)): -0.0033, -2.1 std; network alone 3.3279; hint rows 6-token 0.233, 3/4-token 0.652, 2-token 0.105, none 0.010
+RESULT variant=t1-cpu-ngram val_loss=3.2717 train_time_s=9.914 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=2411736109b1 log=/work/out/session/t1cpu/logs/20261119-183630-run-c381.log.txt

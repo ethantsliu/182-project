@@ -1,0 +1,19 @@
+PASS platform: Linux x86_64
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python
+PASS torch: 2.10.0+cu128
+PASS triton: 3.6.0
+PASS kernels: 0.16.1
+PASS huggingface-hub: 1.29.0
+PASS numpy, tiktoken: installed
+PASS gpus: 8 x NVIDIA H100 80GB HBM3, 81559 MiB, driver 580.178.04
+PASS gpu memory: estimated peak 59.8 GiB of 79.6 GiB per GPU (python -m track_1_short.memory_budget)
+PASS libcudart.so.13: on the loader path
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h
+PASS FA3 kernel: /root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so
+PASS GPT-2 tokenizer file: cached in /tmp/data-gym-cache
+PASS exact_match extension: /work/182-project/.venv-run/lib/python3.12/site-packages/exact_match/__init__.py
+PASS data: 103 train shards + validation under /work/182-project/data/fineweb10B (DATA_PATH=../..)
+PASS host memory: needs ~388 GiB RAM incl. 144 GiB in /dev/shm (64 build threads); has 1808 GiB available, /dev/shm 1798 GiB free
+PASS cpus: 208 CPUs allowed, 26 per GPU over 8 (104 cores)
+PASS writable: /work/182-project/variants/t2-cpu-ngram/182/t2-cpu-ngram/results/node, /work/182-project/variants/t2-cpu-ngram/182/t2-cpu-ngram/results/node/trainer, /work/182-project/variants/t2-cpu-ngram/182/t2-cpu-ngram/results
+check: 18 pass, 0 warn, 0 fail -> ready: bash variants/t2-cpu-ngram/182/run_node.sh run

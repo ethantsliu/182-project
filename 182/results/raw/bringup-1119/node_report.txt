@@ -1,0 +1,207 @@
+# node report nanogpt-182-8d3cac-sa-f9bc7ea193ee0271-head 2026-11-19T07:38:44+00:00
+repo 0b6e64e (main)
+
+## OS
+$ uname -a
+Linux nanogpt-182-8d3cac-sa-f9bc7ea193ee0271-head 6.12.110+ #1 SMP Sat Sep 26 15:10:18 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+$ grep -E ^(PRETTY_NAME|VERSION_ID)= /etc/os-release
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+VERSION_ID="24.04"
+
+## GPUs
+$ nvidia-smi -L
+GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-b5d3218f-fbf7-3284-ef4a-5457f61943e3)
+GPU 1: NVIDIA H100 80GB HBM3 (UUID: GPU-8e004af5-4508-9e67-a3e9-248114fd7f30)
+GPU 2: NVIDIA H100 80GB HBM3 (UUID: GPU-08525bba-7110-a7f5-4eb8-13d620844f5c)
+GPU 3: NVIDIA H100 80GB HBM3 (UUID: GPU-18d2c36a-c439-3770-928b-5e2303936821)
+GPU 4: NVIDIA H100 80GB HBM3 (UUID: GPU-23539b6d-e34a-0568-2b2a-3f759cd3cf19)
+GPU 5: NVIDIA H100 80GB HBM3 (UUID: GPU-0fa0e1ee-4949-a861-4287-a4236e94b82e)
+GPU 6: NVIDIA H100 80GB HBM3 (UUID: GPU-892d8fa7-d78d-2683-e39f-4d6eb9a17587)
+GPU 7: NVIDIA H100 80GB HBM3 (UUID: GPU-d78570fe-e326-4a5b-067d-9e5aec19748e)
+$ nvidia-smi --query-gpu=index,name,memory.total,pcie.link.gen.current,pcie.link.width.current,clocks.max.sm,clocks.max.mem,power.limit,persistence_mode,ecc.mode.current,temperature.gpu --format=csv
+index, name, memory.total [MiB], pcie.link.gen.current, pcie.link.width.current, clocks.max.sm [MHz], clocks.max.memory [MHz], power.limit [W], persistence_mode, ecc.mode.current, temperature.gpu
+0, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 31
+1, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 30
+2, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 31
+3, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 30
+4, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 32
+5, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 30
+6, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 32
+7, NVIDIA H100 80GB HBM3, 81559 MiB, 4, 16, 1980 MHz, 2619 MHz, 700.00 W, Disabled, Enabled, 29
+$ nvidia-smi topo -m
+	[4mGPU0	GPU1	GPU2	GPU3	GPU4	GPU5	GPU6	GPU7	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU1	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU2	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU3	NV18	NV18	NV18	 X 	NV18	NV18	NV18	NV18	0-51,104-155	0		N/A
+GPU4	NV18	NV18	NV18	NV18	 X 	NV18	NV18	NV18	52-103,156-207	1		N/A
+GPU5	NV18	NV18	NV18	NV18	NV18	 X 	NV18	NV18	52-103,156-207	1		N/A
+GPU6	NV18	NV18	NV18	NV18	NV18	NV18	 X 	NV18	52-103,156-207	1		N/A
+GPU7	NV18	NV18	NV18	NV18	NV18	NV18	NV18	 X 	52-103,156-207	1		N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+$ nvidia-smi nvlink -s -i 0
+GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-b5d3218f-fbf7-3284-ef4a-5457f61943e3)
+	 Link 0: 26.562 GB/s
+	 Link 1: 26.562 GB/s
+	 Link 2: 26.562 GB/s
+	 Link 3: 26.562 GB/s
+	 Link 4: 26.562 GB/s
+	 Link 5: 26.562 GB/s
+	 Link 6: 26.562 GB/s
+	 Link 7: 26.562 GB/s
+	 Link 8: 26.562 GB/s
+	 Link 9: 26.562 GB/s
+	 Link 10: 26.562 GB/s
+	 Link 11: 26.562 GB/s
+	 Link 12: 26.562 GB/s
+	 Link 13: 26.562 GB/s
+	 Link 14: 26.562 GB/s
+	 Link 15: 26.562 GB/s
+	 Link 16: 26.562 GB/s
+	 Link 17: 26.562 GB/s
+driver 580.178.04, 8 GPU(s), CUDA (driver API) 13.0
+WARN: persistence mode off on some GPU (sudo nvidia-smi -pm 1)
+
+## CPU
+$ lscpu
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           52 bits physical, 57 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  208
+On-line CPU(s) list:                     0-207
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz
+CPU family:                              6
+Model:                                   143
+Thread(s) per core:                      2
+Core(s) per socket:                      52
+Socket(s):                               2
+Stepping:                                8
+BogoMIPS:                                5399.99
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx_vnni avx512_bf16 arat avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid cldemote movdiri movdir64b fsrm md_clear serialize tsxldtrk amx_bf16 avx512_fp16 amx_tile amx_int8 arch_capabilities
+Hypervisor vendor:                       KVM
+Virtualization type:                     full
+L1d cache:                               4.9 MiB (104 instances)
+L1i cache:                               3.3 MiB (104 instances)
+L2 cache:                                208 MiB (104 instances)
+L3 cache:                                210 MiB (2 instances)
+NUMA node(s):                            2
+NUMA node0 CPU(s):                       0-51,104-155
+NUMA node1 CPU(s):                       52-103,156-207
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Not affected
+nproc 208
+
+## NUMA
+$ numactl -H
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155
+node 0 size: 943392 MB
+node 0 free: 916487 MB
+node 1 cpus: 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207
+node 1 size: 943412 MB
+node 1 free: 919025 MB
+node distances:
+node   0   1 
+  0:  10  20 
+  1:  20  10 
+
+## Memory
+$ free -g
+               total        used        free      shared  buff/cache   available
+Mem:            1842          25        1792           0          33        1817
+Swap:              0           0           0
+$ sh -c grep -E 'HugePages_Total|Hugepagesize|MemTotal' /proc/meminfo
+MemTotal:       1932087824 kB
+HugePages_Total:       0
+Hugepagesize:       2048 kB
+
+## Disk
+$ df -h /work/182-project /tmp /root/.cache/huggingface
+df: /root/.cache/huggingface: No such file or directory
+Filesystem      Size  Used Avail Use% Mounted on
+overlay         5.9T   21G  5.5T   1% /
+overlay         5.9T   21G  5.5T   1% /
+
+## CUDA runtimes
+$ sh -c ldconfig -p | grep -E 'libcudart.so|libnccl.so' || true
+	libcudart.so.13 (libc6,x86-64) => /usr/local/cuda/targets/x86_64-linux/lib/libcudart.so.13
+	libcudart.so (libc6,x86-64) => /usr/local/cuda/targets/x86_64-linux/lib/libcudart.so
+$ sh -c ls -d /usr/local/cuda* 2>/dev/null || true
+/usr/local/cuda
+/usr/local/cuda-13
+/usr/local/cuda-13.1
+CUDA_HOME=<unset>
+
+## Software
+$ sh -c python3 --version; command -v docker && docker --version; command -v nsys && nsys --version; true
+Python 3.12.3
+/usr/local/bin/nsys
+NVIDIA Nsight Systems version 2025.4.1.0
+
+## CUDA 13 runtime (the patched FA3 links libcudart.so.13)
+libcudart.so.13 found 
+CUDA headers: /usr/local/cuda/include/cuda_bf16.h
+
+## Stack check (offline against the seeded cache unless HF_HUB_OFFLINE is set)
+torch 2.10.0+cu128 cuda 12.8 devices 8
+triton 3.6.0
+kernels 0.16.1 huggingface_hub 1.29.0
+FA3 loads: /root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so sha256 ok
+
+## Data
+total 1953176
+drwxr-xr-x 3 root root      4096 Nov 19 07:41 .
+drwxr-xr-x 3 root root      4096 Nov 19 07:41 ..
+drwxr-xr-x 3 root root      4096 Nov 19 07:41 .cache
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000001.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000002.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000003.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000004.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000005.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000006.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000007.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000008.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_train_000009.bin
+-rw-r--r-- 1 root root 200001024 Nov 19 07:41 fineweb_val_000000.bin
+
+## GPU / NCCL sanity
+W1119 07:41:21.957000 587239 torch/distributed/run.py:852] 
+W1119 07:41:21.957000 587239 torch/distributed/run.py:852] *****************************************
+W1119 07:41:21.957000 587239 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1119 07:41:21.957000 587239 torch/distributed/run.py:852] *****************************************
+gpu 0 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 1 NVIDIA H100 80GB HBM3: bf16 GEMM 760 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 2 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 35)
+gpu 3 NVIDIA H100 80GB HBM3: bf16 GEMM 767 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 4 NVIDIA H100 80GB HBM3: bf16 GEMM 750 TFLOP/s  (sm clock MHz, temp C: 1965, 35)
+gpu 5 NVIDIA H100 80GB HBM3: bf16 GEMM 786 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 6 NVIDIA H100 80GB HBM3: bf16 GEMM 758 TFLOP/s  (sm clock MHz, temp C: 1965, 35)
+gpu 7 NVIDIA H100 80GB HBM3: bf16 GEMM 801 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 429 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5

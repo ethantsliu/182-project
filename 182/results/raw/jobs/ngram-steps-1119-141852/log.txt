@@ -1,0 +1,28 @@
+lor: running as your lor login sign-in for https://lor.mirendil.dev
+Waiting for task to start. It may take a few minutes.
+Waiting for task resources on 1 node.
+Job started.
+W: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+debconf: delaying package configuration, since apt-utils is not installed
+LOR setup rc=0 secs=169
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))
+0f35786 182/lor: ngram_steps.sh job (fewer scheduled steps on t1-cpu-ngram, seeds paired with the A/B base arm)
+LOR 22:30:28 prep start
+LOR 22:33:44 prep rc=0
+LOR 22:42:56 STEPRUN tag=base-cold seed=3 RESULT variant=t1-cpu-ngram val_loss=3.2765 train_time_s=10.551 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=p
+LOR 22:47:18 STEPRUN tag=sched668 seed=0 RESULT variant=t1-cpu-ngram val_loss=3.2768 train_time_s=10.170 steps=678 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=p
+LOR 22:51:13 STEPRUN tag=sched668 seed=1 RESULT variant=t1-cpu-ngram val_loss=3.2749 train_time_s=10.115 steps=678 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=p
+LOR 22:55:10 STEPRUN tag=sched668 seed=2 RESULT variant=t1-cpu-ngram val_loss=3.2758 train_time_s=10.145 steps=678 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=p
+LOR 22:59:07 STEPRUN tag=sched662 seed=0 RESULT variant=t1-cpu-ngram val_loss=3.2795 train_time_s=9.751 steps=672 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pi
+LOR 23:02:57 STEPRUN tag=sched662 seed=1 RESULT variant=t1-cpu-ngram val_loss=3.2771 train_time_s=9.709 steps=672 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pi
+LOR 23:06:50 STEPRUN tag=sched662 seed=2 RESULT variant=t1-cpu-ngram val_loss=3.2784 train_time_s=9.752 steps=672 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pi
+LOR 23:06:50 all done
+LOR command rc=0 secs=2351
+LOR-RESULTS-BEGIN
+[collect_raw.py: 50654 base64 lines removed here; they are the out/ folder]
+LOR-RESULTS-END
+✓ Job finished (status: SUCCEEDED).

@@ -1,0 +1,203 @@
+installing rustup (stable, minimal profile) into ~/.cargo
+info: downloading installer
+info: profile set to minimal
+info: default host tuple is x86_64-unknown-linux-gnu
+info: syncing channel updates for stable-x86_64-unknown-linux-gnu
+info: latest update on 2026-11-12 for version 1.100.0 (0ef1bc386 2026-11-09)
+info: downloading 3 components
+info: default toolchain set to stable-x86_64-unknown-linux-gnu
+
+  stable-x86_64-unknown-linux-gnu installed - rustc 1.100.0 (0ef1bc386 2026-11-09)
+
+
+Rust is installed now. Great!
+
+To get started you may need to restart your current shell.
+This would reload your PATH environment variable to include
+Cargo's bin directory ($HOME/.cargo/bin).
+
+To configure your current shell, you need to source the
+corresponding env file under $HOME/.cargo.
+
+Consider running the right command for your shell (note the leading DOT):
+. "$HOME/.cargo/env" # For sh/ash/dash/pdksh/bash
+cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-gnu
+CC_x86_64-unknown-linux-gnu = None
+cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_gnu
+CC_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=HOST_CC
+HOST_CC = None
+cargo:rerun-if-env-changed=CC
+CC = None
+cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+cargo:rerun-if-env-changed=CPATH
+cargo:rerun-if-env-changed=C_INCLUDE_PATH
+cargo:rerun-if-env-changed=CPLUS_INCLUDE_PATH
+cargo:rerun-if-env-changed=OBJC_INCLUDE_PATH
+cargo:rerun-if-env-changed=OBJCPLUS_INCLUDE_PATH
+cargo:rerun-if-env-changed=COMPILER_PATH
+cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH
+cargo:rerun-if-env-changed=GCC_EXEC_PREFIX
+cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+CRATE_CC_NO_DEFAULTS = None
+cargo:rerun-if-env-changed=CFLAGS
+CFLAGS = None
+cargo:rerun-if-env-changed=HOST_CFLAGS
+HOST_CFLAGS = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_gnu
+CFLAGS_x86_64_unknown_linux_gnu = None
+cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-gnu
+CFLAGS_x86_64-unknown-linux-gnu = None
+building exact_match with rustc 1.100.0 (a few minutes)
+Processing ./exact_match
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: exact-match
+  Building wheel for exact-match (pyproject.toml): started
+  Building wheel for exact-match (pyproject.toml): finished with status 'done'
+  Created wheel for exact-match: filename=exact_match-0.1.0-cp312-cp312-linux_x86_64.whl size=452577 sha256=61c6518b985917d4470fd1eb9f8c559b2403343f19a25492805167e400e28108
+  Stored in directory: /tmp/pip-ephem-wheel-cache-fa4c50gc/wheels/41/b1/5d/1e3f9a9e24f2d7b7c5b52698d18967fc6ac71d02808665a459
+Successfully built exact-match
+Installing collected packages: exact-match
+Successfully installed exact-match-0.1.0
+exact_match: built and installed (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+downloading 94 shard(s) of kjj0/fineweb10B-gpt2 into /work/182-project/data/fineweb10B
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+downloaded fineweb_train_000010.bin (1/94)
+downloaded fineweb_train_000011.bin (2/94)
+downloaded fineweb_train_000012.bin (3/94)
+downloaded fineweb_train_000013.bin (4/94)
+downloaded fineweb_train_000014.bin (5/94)
+downloaded fineweb_train_000015.bin (6/94)
+downloaded fineweb_train_000016.bin (7/94)
+downloaded fineweb_train_000017.bin (8/94)
+downloaded fineweb_train_000018.bin (9/94)
+downloaded fineweb_train_000019.bin (10/94)
+downloaded fineweb_train_000020.bin (11/94)
+downloaded fineweb_train_000021.bin (12/94)
+downloaded fineweb_train_000022.bin (13/94)
+downloaded fineweb_train_000023.bin (14/94)
+downloaded fineweb_train_000024.bin (15/94)
+downloaded fineweb_train_000025.bin (16/94)
+downloaded fineweb_train_000026.bin (17/94)
+downloaded fineweb_train_000027.bin (18/94)
+downloaded fineweb_train_000028.bin (19/94)
+downloaded fineweb_train_000029.bin (20/94)
+downloaded fineweb_train_000030.bin (21/94)
+downloaded fineweb_train_000031.bin (22/94)
+downloaded fineweb_train_000032.bin (23/94)
+downloaded fineweb_train_000033.bin (24/94)
+downloaded fineweb_train_000034.bin (25/94)
+downloaded fineweb_train_000035.bin (26/94)
+downloaded fineweb_train_000036.bin (27/94)
+downloaded fineweb_train_000037.bin (28/94)
+downloaded fineweb_train_000038.bin (29/94)
+downloaded fineweb_train_000039.bin (30/94)
+downloaded fineweb_train_000040.bin (31/94)
+downloaded fineweb_train_000041.bin (32/94)
+downloaded fineweb_train_000042.bin (33/94)
+downloaded fineweb_train_000043.bin (34/94)
+downloaded fineweb_train_000044.bin (35/94)
+downloaded fineweb_train_000045.bin (36/94)
+downloaded fineweb_train_000046.bin (37/94)
+downloaded fineweb_train_000047.bin (38/94)
+downloaded fineweb_train_000048.bin (39/94)
+downloaded fineweb_train_000049.bin (40/94)
+downloaded fineweb_train_000050.bin (41/94)
+downloaded fineweb_train_000051.bin (42/94)
+downloaded fineweb_train_000052.bin (43/94)
+downloaded fineweb_train_000053.bin (44/94)
+downloaded fineweb_train_000054.bin (45/94)
+downloaded fineweb_train_000055.bin (46/94)
+downloaded fineweb_train_000056.bin (47/94)
+downloaded fineweb_train_000057.bin (48/94)
+downloaded fineweb_train_000058.bin (49/94)
+downloaded fineweb_train_000059.bin (50/94)
+downloaded fineweb_train_000060.bin (51/94)
+downloaded fineweb_train_000061.bin (52/94)
+downloaded fineweb_train_000062.bin (53/94)
+downloaded fineweb_train_000063.bin (54/94)
+downloaded fineweb_train_000064.bin (55/94)
+downloaded fineweb_train_000065.bin (56/94)
+downloaded fineweb_train_000066.bin (57/94)
+downloaded fineweb_train_000067.bin (58/94)
+downloaded fineweb_train_000068.bin (59/94)
+downloaded fineweb_train_000069.bin (60/94)
+downloaded fineweb_train_000070.bin (61/94)
+downloaded fineweb_train_000071.bin (62/94)
+downloaded fineweb_train_000072.bin (63/94)
+downloaded fineweb_train_000073.bin (64/94)
+downloaded fineweb_train_000074.bin (65/94)
+downloaded fineweb_train_000075.bin (66/94)
+downloaded fineweb_train_000076.bin (67/94)
+downloaded fineweb_train_000077.bin (68/94)
+downloaded fineweb_train_000078.bin (69/94)
+downloaded fineweb_train_000079.bin (70/94)
+downloaded fineweb_train_000080.bin (71/94)
+downloaded fineweb_train_000081.bin (72/94)
+downloaded fineweb_train_000082.bin (73/94)
+downloaded fineweb_train_000083.bin (74/94)
+downloaded fineweb_train_000084.bin (75/94)
+downloaded fineweb_train_000085.bin (76/94)
+downloaded fineweb_train_000086.bin (77/94)
+downloaded fineweb_train_000087.bin (78/94)
+downloaded fineweb_train_000088.bin (79/94)
+downloaded fineweb_train_000089.bin (80/94)
+downloaded fineweb_train_000090.bin (81/94)
+downloaded fineweb_train_000091.bin (82/94)
+downloaded fineweb_train_000092.bin (83/94)
+downloaded fineweb_train_000093.bin (84/94)
+downloaded fineweb_train_000094.bin (85/94)
+downloaded fineweb_train_000095.bin (86/94)
+downloaded fineweb_train_000096.bin (87/94)
+downloaded fineweb_train_000097.bin (88/94)
+downloaded fineweb_train_000098.bin (89/94)
+downloaded fineweb_train_000099.bin (90/94)
+downloaded fineweb_train_000100.bin (91/94)
+downloaded fineweb_train_000101.bin (92/94)
+downloaded fineweb_train_000102.bin (93/94)
+downloaded fineweb_train_000103.bin (94/94)
+data: 104 shards whole under /work/182-project/data/fineweb10B
+tokenizer cached
+Fetching 15 files:   0%|          | 0/15 [00:00<?, ?it/s]Fetching 15 files: 100%|██████████| 15/15 [00:00<00:00, 2000.72it/s]
+attention kernel cached /root/.cache/huggingface/hub/models--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9
+warmed the page cache: 19.3 GiB in 5 s
+host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 208 CPUs allowed (104 cores, 2 NUMA nodes, 26 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1816 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+plan: config 381, 8 ranks, 64 build threads: arenas 155 GiB + tables 144 GiB (/dev/shm) + ranks 96 GiB = 395 GiB of host RAM (333 GiB with SLOT_SHARED_ARENA=1)
+PASS linux: Linux x86_64 (the index uses Linux mmap/madvise/affinity, the trainer /proc and /sys)
+PASS python: 3.12.3 at /work/182-project/.venv-run/bin/python3 (>= 3.10; the records ran 3.12)
+PASS torch: 2.10.0+cu128 (the records' stack: 2.10.0+cu128; ALLOW_STACK=1 runs with another version)
+PASS triton: 3.6.0 (the records' stack: 3.6.0; ALLOW_STACK=1 runs with another version)
+PASS kernels: 0.16.1 (the records' stack: 0.16.1; ALLOW_STACK=1 runs with another version)
+PASS huggingface-hub: 1.29.0 (the records' stack: 1.29.0; ALLOW_STACK=1 runs with another version)
+PASS numpy: 2.5.5
+PASS tiktoken: 0.14.0
+PASS trainer source: as committed (2d77c1e8d632)
+PASS torchrun: /work/182-project/.venv-run/bin/torchrun
+PASS gpus: 8 visible, NPROC=8 (NVIDIA H100 80GB HBM3)
+PASS 8 ranks: NPROC=8 (the schedule and every published time are for 8)
+PASS H100: ['NVIDIA H100 80GB HBM3'] (times are comparable only on 8xH100)
+PASS driver: 580.178.04 (the records ran 580; ANVIL2's README measured a slowdown below it)
+PASS libcudart.so.13: found (ldconfig)
+PASS CUDA headers: /usr/local/cuda/include/cuda_bf16.h (the loss kernel compiles through nvrtc)
+PASS attention kernel: cached (/root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864)
+PASS exact_match: built from this source (/work/182-project/.venv-run/lib/python3.12/site-packages/exact_match)
+PASS data: 104/104 shards whole under /work/182-project/data/fineweb10B (all 103 training shards and the validation shard)
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+PASS RAM: 1816 GiB available of 1843 GiB, the plan needs 395 GiB
+PASS /dev/shm: 1798 GiB free of 1798 GiB, the index tables need 144 GiB
+PASS RAM headroom: 1843 GiB in total (the records' boxes had 1.5-2 TB; under 700 GiB is untested)
+PASS vCPUs per GPU: 26 (208 allowed, 104 cores): 64 build threads (LARGE_HOST mode, 64 threads: never measured in the published logs)
+PASS cores per GPU: 13 physical cores per rank (a rank needs a main core, worker cores and build cores: at least 4)
+PASS AVX-512: F/BW/DQ/VL
+PASS x86-64: x86_64
+PASS kernel: 6.12.110+ (>= 5.14 for MADV_POPULATE_READ/WRITE; older: page faults on the clock)
+PASS transparent huge pages: always [madvise] never (the arenas ask for huge pages
+PASS no trainer running: none
+PASS stale index tables: 0 /dev/shm/exact-match-* file(s)
+PASS disk for data: 5599 GiB free under /work/182-project (the download needs about 21 GiB)
+READY: 0 FAIL, 1 WARN (t1-cpu-ngram, config 381)

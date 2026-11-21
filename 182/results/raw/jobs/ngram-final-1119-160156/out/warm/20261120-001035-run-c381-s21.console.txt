@@ -1,0 +1,141 @@
+[1795133450.806] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133450.806] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795133453.285] /work/out/warm/trainer/73024860-674a-4882-a11d-d721c2a2ca7f.txt
+[1795133453.285] TRAIN_LOG_PATH=/work/out/warm/trainer/73024860-674a-4882-a11d-d721c2a2ca7f.txt
+[1795133453.286] attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+[1795133463.511] [rank3]: Traceback (most recent call last):
+[1795133463.511] [rank3]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 604, in <module>
+[1795133463.511] [rank3]:     main()
+[1795133463.511] [rank3]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 234, in main
+[1795133463.511] [rank3]:     online_cache = OnlineCache(args.train_files, retrieval_schedule, env.rank, env.world_size, env.device,
+[1795133463.511] [rank3]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.511] [rank3]:   File "/work/182-project/variants/t1-cpu-ngram/track_1_short/retrieval.py", line 103, in __init__
+[1795133463.511] [rank3]:     self.index = StreamIndex(sorted(glob.glob(files)), schedule, rank, world, threads=STREAM_THREADS)
+[1795133463.511] [rank3]:                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.511] [rank3]: TypeError: StreamIndex.__new__() got an unexpected keyword argument 'threads'
+[1795133463.515] [rank4]: Traceback (most recent call last):
+[1795133463.515] [rank4]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 604, in <module>
+[1795133463.515] [rank4]:     main()
+[1795133463.515] [rank4]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 234, in main
+[1795133463.515] [rank4]:     online_cache = OnlineCache(args.train_files, retrieval_schedule, env.rank, env.world_size, env.device,
+[1795133463.515] [rank4]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank4]:   File "/work/182-project/variants/t1-cpu-ngram/track_1_short/retrieval.py", line 103, in __init__
+[1795133463.515] [rank4]:     self.index = StreamIndex(sorted(glob.glob(files)), schedule, rank, world, threads=STREAM_THREADS)
+[1795133463.515] [rank4]:                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank4]: TypeError: StreamIndex.__new__() got an unexpected keyword argument 'threads'
+[1795133463.515] [rank5]: Traceback (most recent call last):
+[1795133463.515] [rank5]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 604, in <module>
+[1795133463.515] [rank5]:     main()
+[1795133463.515] [rank5]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 234, in main
+[1795133463.515] [rank5]:     online_cache = OnlineCache(args.train_files, retrieval_schedule, env.rank, env.world_size, env.device,
+[1795133463.515] [rank5]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank5]:   File "/work/182-project/variants/t1-cpu-ngram/track_1_short/retrieval.py", line 103, in __init__
+[1795133463.515] [rank5]:     self.index = StreamIndex(sorted(glob.glob(files)), schedule, rank, world, threads=STREAM_THREADS)
+[1795133463.515] [rank5]:                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank5]: TypeError: StreamIndex.__new__() got an unexpected keyword argument 'threads'
+[1795133463.515] [rank7]: Traceback (most recent call last):
+[1795133463.515] [rank7]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 604, in <module>
+[1795133463.515] [rank7]:     main()
+[1795133463.515] [rank7]:   File "/work/182-project/variants/t1-cpu-ngram/train_gpt.py", line 234, in main
+[1795133463.515] [rank7]:     online_cache = OnlineCache(args.train_files, retrieval_schedule, env.rank, env.world_size, env.device,
+[1795133463.515] [rank7]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank7]:   File "/work/182-project/variants/t1-cpu-ngram/track_1_short/retrieval.py", line 103, in __init__
+[1795133463.515] [rank7]:     self.index = StreamIndex(sorted(glob.glob(files)), schedule, rank, world, threads=STREAM_THREADS)
+[1795133463.515] [rank7]:                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133463.515] [rank7]: TypeError: StreamIndex.__new__() got an unexpected keyword argument 'threads'
+[1795133463.633] host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1791 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+[1795133463.633] retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[1795133464.823] W1120 00:11:04.822000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153259 closing signal SIGTERM
+[1795133464.824] W1120 00:11:04.823000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153260 closing signal SIGTERM
+[1795133464.824] W1120 00:11:04.823000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153261 closing signal SIGTERM
+[1795133464.825] W1120 00:11:04.824000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153262 closing signal SIGTERM
+[1795133464.825] W1120 00:11:04.824000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153264 closing signal SIGTERM
+[1795133464.825] W1120 00:11:04.824000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153265 closing signal SIGTERM
+[1795133464.826] W1120 00:11:04.825000 153111 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 153266 closing signal SIGTERM
+[1795133465.893] E1120 00:11:05.892000 153111 torch/distributed/elastic/multiprocessing/api.py:984] failed (exitcode: 1) local_rank: 4 (pid: 153263) of binary: /work/182-project/.venv-run/bin/python
+[1795133465.897] Traceback (most recent call last):
+[1795133465.897]   File "/work/182-project/.venv-run/bin/torchrun", line 6, in <module>
+[1795133465.897]     sys.exit(main())
+[1795133465.897]              ^^^^^^
+[1795133465.897]   File "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+[1795133465.898]     return f(*args, **kwargs)
+[1795133465.898]            ^^^^^^^^^^^^^^^^^^
+[1795133465.898]   File "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/distributed/run.py", line 991, in main
+[1795133465.898]     run(args)
+[1795133465.898]   File "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/distributed/run.py", line 982, in run
+[1795133465.898]     elastic_launch(
+[1795133465.898]   File "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+[1795133465.898]     return launch_agent(self._config, self._entrypoint, list(args))
+[1795133465.898]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1795133465.898]   File "/work/182-project/.venv-run/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+[1795133465.898]     raise ChildFailedError(
+[1795133465.898] torch.distributed.elastic.multiprocessing.errors.ChildFailedError:
+[1795133465.898] ============================================================
+[1795133465.898] train_gpt.py FAILED
+[1795133465.898] ------------------------------------------------------------
+[1795133465.898] Failures:
+[1795133465.898] [1]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 0 (local_rank: 0)
+[1795133465.898]   exitcode  : -15 (pid: 153259)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : Signal 15 (SIGTERM) received by PID 153259
+[1795133465.898] [2]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 1 (local_rank: 1)
+[1795133465.898]   exitcode  : -15 (pid: 153260)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : Signal 15 (SIGTERM) received by PID 153260
+[1795133465.898] [3]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 2 (local_rank: 2)
+[1795133465.898]   exitcode  : -15 (pid: 153261)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : Signal 15 (SIGTERM) received by PID 153261
+[1795133465.898] [4]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 3 (local_rank: 3)
+[1795133465.898]   exitcode  : 1 (pid: 153262)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[1795133465.898] [5]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 5 (local_rank: 5)
+[1795133465.898]   exitcode  : 1 (pid: 153264)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[1795133465.898] [6]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 6 (local_rank: 6)
+[1795133465.898]   exitcode  : -15 (pid: 153265)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : Signal 15 (SIGTERM) received by PID 153265
+[1795133465.898] [7]:
+[1795133465.898]   time      : 2026-11-20_00:11:05
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 7 (local_rank: 7)
+[1795133465.898]   exitcode  : 1 (pid: 153266)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[1795133465.898] ------------------------------------------------------------
+[1795133465.898] Root Cause (first observed failure):
+[1795133465.898] [0]:
+[1795133465.898]   time      : 2026-11-20_00:11:04
+[1795133465.898]   host      : ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+[1795133465.898]   rank      : 4 (local_rank: 4)
+[1795133465.898]   exitcode  : 1 (pid: 153263)
+[1795133465.898]   error_file: <N/A>
+[1795133465.898]   traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[1795133465.898] ============================================================

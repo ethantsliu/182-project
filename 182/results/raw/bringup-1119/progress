@@ -1,0 +1,38 @@
+07:38:44 setup-start
+07:41:35 setup rc=0
+07:41:35 bench-start
+07:42:05 bench rc=0
+07:42:05 test-start
+07:42:05 test rc=1
+07:42:05 base start
+07:42:16 base rc=1
+07:42:16 skipmatrix start
+07:42:28 skipmatrix rc=1
+07:42:28 ALLDONE
+07:47:38 resume
+07:47:39 test-start
+07:47:50 test rc=1
+07:47:50 base start
+07:57:57 base rc=0
+07:57:57 skipmatrix start
+08:04:20 skipmatrix rc=0
+08:04:20 ALLDONE
+08:04:24 gram222s-s1 start
+08:08:35 gram222s-s1 rc=0
+08:08:35 base-s2 start
+08:12:18 base-s2 rc=0
+08:12:18 gram222s-s2 start
+08:16:02 gram222s-s2 rc=0
+08:16:02 skipmatrix-s2 start
+08:19:42 skipmatrix-s2 rc=0
+08:19:42 base-s3 start
+08:23:25 base-s3 rc=0
+08:23:25 gram222s-s3 start
+08:27:04 gram222s-s3 rc=0
+08:27:04 skipmatrix-s3 start
+08:30:45 skipmatrix-s3 rc=0
+08:30:45 base-s4 start
+08:34:25 base-s4 rc=0
+08:34:25 skip gram222s-s4 (deadline)
+08:34:25 skip skipmatrix-s4 (deadline)
+08:34:25 STAGE3DONE

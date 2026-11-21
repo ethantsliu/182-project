@@ -9,7 +9,8 @@ without torch); called through 182/run_node.sh, which sets the working directory
     ab      AB_RUNS paired runs of AB_A (default: the run's config) against AB_B (default TABLE_VOTE=1), interleaved
 
 Environment (all optional):
-    CONFIG=381|380   381 (default): this tree's defaults, PR #381 (685 steps). 380: PR #380's configuration on this
+    CONFIG=381|380   381 (default): this tree's defaults: PR #381 with our 668-step trim (678 steps;
+                     NUM_SCHEDULED_ITERATIONS=675 is PR #381 itself, 685 steps). 380: PR #380's configuration on this
                      code (725 steps, SCAN_HINTS=0, VAL_TOPK=2), the one with a published 8xH100 time (9.653 s, n=16).
     NPROC=8  SEED=<int> (TRAIN_SEED; unset: a random init)  EXTRA_ENV="K=V K2=V2" (or export the knobs)
     DATA_PATH=<dir holding data/fineweb10B> (default: the repo root)  LOG_DIR (default: logs/node under the variant)

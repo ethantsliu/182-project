@@ -1,0 +1,23 @@
+session_date 2026-11-20
+sha 66dc47ff362634e31c65d626a27de06e6c548f1f
+host ngram-final-875e31-25-sa-f9bc7ea193ee0271-head
+invocation 2026-11-20 00:11:06 phases=env t2cpu bundle
+STACK: git 66dc47ff3626 clean | torch 2.10.0+cu128 (CUDA 12.8) | triton 3.6.0 | driver 580.178.04 | python 3.12.3 | FA3 ok
+phases: env: PASS | t2cpu: PASS
+
+METHODS (time_s and val_loss: measured in THIS session on THIS node; ± is the sd over the runs)
+  method                        | runs             | mean val_loss | mean time_s | best reported           | official record             | target hit
+  base: root record #92 ANVIL2  | not run          | -             | -           | 39.9 s (official)       | 39.9 s, <= 3.28             | -
+  t1gpu: t1-gpu-stack (PR #397) | not run          | -             | -           | 30.67 s, n=12           | 39.9 s, <= 3.28             | -
+  t1cpu: t1-cpu-ngram (PR #381) | not run          | -             | -           | 9.653 s, n=16 (PR #380) | 39.9 s, <= 3.28             | -
+  t2cpu: t2-cpu-ngram           | 1/1 ok (ONE run) | 2.8786        | 221.99      | 221 s, 1 run            | 17.35 min (1041 s), <= 2.92 | 1/1 runs
+  t2gpu: t2-gpu-port (PR #261)  | not run          | -             | -           | 860.5 s (14.34 min)     | 17.35 min (1041 s), <= 2.92 | -
+  best reported = the best time claimed for that tree on its author's node, not measured by us; it and the
+  official record are other machines, so only rows of this table compare like with like. 'target hit' counts
+  single runs at or under the target: a record needs the MEAN under it with p < 0.01 (stats.py gate), which
+  must be tested from the mean and spread; target hits alone do not establish significance.
+  One run is one run: no spread, no significance.
+  earlier single runs on our node (n=1 each, logs not in the repo): root record 40.931 s, val_loss 3.2780, 1194 steps; t1-gpu-stack 30.957 s, val_loss 3.276481, 1053 steps (981 scheduled)
+
+== t2cpu: t2-cpu-ngram, 1/1 run(s) ok  [PASS]
+  run 1: val_loss=2.8786 train_time_s=221.988 steps=5800 target=2.92 hit=1 wall=872s log=ff9302ee-9222-41a1-b0e6-6a713bd0f796.txt

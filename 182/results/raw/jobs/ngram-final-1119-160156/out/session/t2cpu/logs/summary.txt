@@ -1,0 +1,8 @@
+run summary (t2-cpu-ngram, n=1, seed None):
+  val loss 2.8786 at step 5800: 41.4 millinats under the 2.92 target
+  train time 222.0 s (38.27 ms/step); the official Track 2 record is 1041 s
+  model alone 2.9007, the exact-count chain takes off 0.0221
+  GPU peak 49.3 GiB allocated, 58.8 GiB reserved of 79.6 GiB (20.9 GiB headroom)
+  host: rank 0 peak RSS 313.6 GiB, node in use at the end 336 GiB
+  validation index builds (2-, 3-, 6-token): 0.8 s, 0.8 s, 3.4 s
+  next: a shorter run gives the slope of loss against steps (bash variants/t2-cpu-ngram/182/run_node.sh ab)

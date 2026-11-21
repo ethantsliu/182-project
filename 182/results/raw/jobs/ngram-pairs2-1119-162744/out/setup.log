@@ -1,0 +1,30 @@
+WARN: persistence mode off on some GPU (sudo nvidia-smi -pm 1)
+node report: /work/182-project/node_report.txt
+Using CPython 3.12.3 interpreter at: /usr/bin/python3.12
+Creating virtual environment with seed packages at: .venv-run
+ + pip==26.3
+Activate with: source .venv-run/bin/activate
+Fetching 15 files:   0%|          | 0/15 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 15 files:   7%|▋         | 1/15 [00:00<00:01,  9.36it/s]Fetching 15 files:  60%|██████    | 9/15 [00:00<00:00, 43.75it/s]Fetching 15 files: 100%|██████████| 15/15 [00:03<00:00,  4.12it/s]Fetching 15 files: 100%|██████████| 15/15 [00:03<00:00,  4.95it/s]
+FA3 snapshot /root/.cache/huggingface/hub/models--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9
+seeded /root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864
+FA3 binary /root/.cache/huggingface/hub/models--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so 9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b
+torch 2.10.0+cu128 cuda 12.8 devices 8
+triton 3.6.0
+kernels 0.16.1 huggingface_hub 1.29.0
+FA3 loads: /root/.cache/huggingface/hub/kernels--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so sha256 ok
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+gpu 0 NVIDIA H100 80GB HBM3: bf16 GEMM 735 TFLOP/s  (sm clock MHz, temp C: 1965, 35)
+gpu 1 NVIDIA H100 80GB HBM3: bf16 GEMM 774 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 2 NVIDIA H100 80GB HBM3: bf16 GEMM 770 TFLOP/s  (sm clock MHz, temp C: 1965, 36)
+gpu 3 NVIDIA H100 80GB HBM3: bf16 GEMM 787 TFLOP/s  (sm clock MHz, temp C: 1965, 32)
+gpu 4 NVIDIA H100 80GB HBM3: bf16 GEMM 780 TFLOP/s  (sm clock MHz, temp C: 1965, 36)
+gpu 5 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 31)
+gpu 6 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 35)
+gpu 7 NVIDIA H100 80GB HBM3: bf16 GEMM 773 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 430 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))

@@ -1,0 +1,24 @@
+{
+ "name": "ngram-pairs2",
+ "state": "COMPUTE_RUN_STATE_SUCCEEDED",
+ "release_state": "COMPUTE_RELEASE_STATE_RELEASED",
+ "created_at": "2026-11-20T00:27:48.027Z",
+ "observed_at": "2026-11-20T01:16:58.663Z",
+ "max_runtime_seconds": 3720,
+ "preemption_count": 0,
+ "resources": {
+  "workers": 1,
+  "accelerator": {
+   "kind": "COMPUTE_ACCELERATOR_KIND_GPU",
+   "model": "H100",
+   "count_per_worker": 8
+  },
+  "tier": "COMPUTE_TIER_PREEMPTIBLE"
+ },
+ "spend": {
+  "currency": "USD",
+  "amount": "12.492524",
+  "gpu_hours": "6.246262",
+  "price_per_gpu_hour": "2.00000000"
+ }
+}

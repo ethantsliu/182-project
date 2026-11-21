@@ -21,3 +21,5 @@ results into the log and exits; the node is released (and billing stops) when th
   into the same venv. Whichever `prep` ran last wins, and the other tree's check then FAILs ("an older build"). Run
   one tree's prep and its runs before the other tree's prep (`jobs/ngram_final.sh` got this wrong on 2026-11-20:
   its Track 1 pairs did not run).
+  The pairs were rerun as job `ngram-pairs2` with `AB_SEED0=7 bash 182/lor/jobs/ngram_confirm.sh`.
+- Collected results, tables and figures for the report are in `182/results/`.

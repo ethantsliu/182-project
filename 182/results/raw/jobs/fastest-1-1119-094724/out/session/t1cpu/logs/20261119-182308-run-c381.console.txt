@@ -1,0 +1,126 @@
+[1795112603.116] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112603.116] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112605.632] /work/out/session/t1cpu/logs/trainer/4beb6e70-a573-43d9-9cfe-096437003380.txt
+[1795112605.632] TRAIN_LOG_PATH=/work/out/session/t1cpu/logs/trainer/4beb6e70-a573-43d9-9cfe-096437003380.txt
+[1795112605.633] attention kernel: pinned=1 module=_flash_attn3_cuda_8a730d9.flash_attn_interface binary=_flash_attn3_cuda_8a730d9.abi3.so sha256=9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b repo=devenpzak/flash-attn3-12864@64c1e6d1f278 kernels=0.16.1
+[1795112614.800] host: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz | 10 CPUs allowed (5 cores, 2 NUMA nodes, 1 per GPU over 8) | AVX-512 yes | RAM 1843 GiB (1785 available) | /dev/shm 1798 GiB (1798 free) | THP always [madvise] never | kernel 6.12.110+
+[1795112614.800] retrieval host plan: 64 build threads, 4 online-index threads per rank; 6-token index 101 shards (10.06B tokens); estimated arenas 155 GiB + tables 144 GiB (/dev/shm) + 8 ranks x 12 GiB = 395 GiB
+[1795112614.803] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112614.803] [Gloo] Rank [Gloo] Rank 13 is connected to  is connected to 77 peer ranks.  peer ranks. Expected number of connected peer ranks is : Expected number of connected peer ranks is : 77
+[1795112614.803] 
+[1795112614.803] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112614.803] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112614.803] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112614.803] [Gloo] Rank 6 is connected to 7 peer ranks. [Gloo] Rank Expected number of connected peer ranks is : 7
+[1795112614.803] 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] [Gloo] Rank 6 is connected to 7[Gloo] Rank  peer ranks. Expected number of connected peer ranks is : 7
+[1795112659.926] 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112671.322] [Gloo] Rank 4[Gloo] Rank  is connected to 7 peer ranks. Expected number of connected peer ranks is : 75
+[1795112671.322]  is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[1795112682.201] retrieval host memory: arenas 154.8 GiB (shared: [False, False, False]) tables 144.0 GiB
+[1795112689.422] Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+[1795112689.430] Sampling steps [0, 1, 191, 192, 193, 194, 407, 408, 409, 410, 557, 558, 559, 560, 632, 633, 634, 635, 673, 674, 675, 676, 677, 678] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 4]); optimizer graphs captured at step 1, fp8 refresh graphs at step 633
+[1795112751.665] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112751.665]   check(
+[1795112751.701] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112751.701]   check(
+[1795112751.916] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112751.916]   check(
+[1795112752.074] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112752.074]   check(
+[1795112752.157] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112752.157]   check(
+[1795112752.656] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112752.656]   check(
+[1795112752.772] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112752.772]   check(
+[1795112753.473] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112753.473]   check(
+[1795112755.762] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112755.762]   check(
+[1795112755.933] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112755.933]   check(
+[1795112756.121] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112756.121]   check(
+[1795112756.226] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112756.226]   check(
+[1795112756.483] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112756.483]   check(
+[1795112756.615] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112756.615]   check(
+[1795112756.682] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112756.682]   check(
+[1795112757.350] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112757.350]   check(
+[1795112759.274] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112759.274]   check(
+[1795112759.463] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112759.463]   check(
+[1795112759.658] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112759.658]   check(
+[1795112759.789] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112759.789]   check(
+[1795112759.945] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112759.945]   check(
+[1795112760.182] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112760.182]   check(
+[1795112760.219] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112760.219]   check(
+[1795112760.867] /work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+[1795112760.868]   check(
+[1795113049.018] Resetting Model
+[1795113049.024] CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+[1795113054.446] step:25/685 train_time:624ms step_avg:24.98ms
+[1795113054.729] step:50/685 train_time:907ms step_avg:18.15ms
+[1795113054.996] step:75/685 train_time:1174ms step_avg:15.66ms
+[1795113055.155] validation index built in 0.71 s (2-token key)
+[1795113055.293] step:100/685 train_time:1471ms step_avg:14.71ms
+[1795113055.583] step:125/685 train_time:1761ms step_avg:14.09ms
+[1795113055.883] step:150/685 train_time:2061ms step_avg:13.74ms
+[1795113056.102] validation index built in 0.73 s (3-token key)
+[1795113056.172] step:175/685 train_time:2351ms step_avg:13.43ms
+[1795113056.470] step:200/685 train_time:2648ms step_avg:13.24ms
+[1795113056.764] step:225/685 train_time:2942ms step_avg:13.08ms
+[1795113057.062] step:250/685 train_time:3240ms step_avg:12.96ms
+[1795113057.362] step:275/685 train_time:3540ms step_avg:12.87ms
+[1795113057.671] step:300/685 train_time:3849ms step_avg:12.83ms
+[1795113057.978] step:325/685 train_time:4156ms step_avg:12.79ms
+[1795113058.279] step:350/685 train_time:4458ms step_avg:12.74ms
+[1795113058.581] step:375/685 train_time:4759ms step_avg:12.69ms
+[1795113059.048] step:400/685 train_time:5226ms step_avg:13.06ms
+[1795113059.466] step:425/685 train_time:5645ms step_avg:13.28ms
+[1795113059.609] validation index built in 3.33 s (6-token key)
+[1795113059.751] step:450/685 train_time:5930ms step_avg:13.18ms
+[1795113060.155] step:475/685 train_time:6334ms step_avg:13.33ms
+[1795113060.594] step:500/685 train_time:6773ms step_avg:13.55ms
+[1795113060.930] step:525/685 train_time:7108ms step_avg:13.54ms
+[1795113061.248] step:550/685 train_time:7427ms step_avg:13.50ms
+[1795113061.564] step:575/685 train_time:7743ms step_avg:13.47ms
+[1795113061.898] step:600/685 train_time:8076ms step_avg:13.46ms
+[1795113062.226] step:625/685 train_time:8404ms step_avg:13.45ms
+[1795113062.573] step:650/685 train_time:8752ms step_avg:13.46ms
+[1795113062.941] step:675/685 train_time:9120ms step_avg:13.51ms
+[1795113063.078] step:684/685 train_time:9256ms step_avg:13.53ms
+[1795113063.090] step:685/685 train_time:9268ms step_avg:13.53ms
+[1795113106.614] step:685/685 val_loss:3.2748 train_time:10553ms step_avg:15.41ms
+[1795113106.614] val diagnostics: network val_loss:3.3316 (before the chain; the chain adds -0.0568); hint rows: 6-token 0.2327, 3/4-token 0.6522, 2-token 0.1053, none 0.0098 of 10485760
+[1795113106.765] peak memory allocated: 49531 MiB reserved: 55754 MiB
+[1795113106.772] host memory: rank 0 peak RSS 309.0 GiB, node in use 262 GiB (incl. /dev/shm 144 GiB)

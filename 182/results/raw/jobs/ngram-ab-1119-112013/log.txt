@@ -1,0 +1,33 @@
+lor: running as your lor login sign-in for https://lor.mirendil.dev
+Waiting for task to start. It may take a few minutes.
+Waiting for task resources on 1 node.
+Job started.
+W: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+debconf: delaying package configuration, since apt-utils is not installed
+LOR setup rc=0 secs=159
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))
+791b9ca 182/lor: ngram_ab.sh job (t1-cpu-ngram base vs TABLE_VOTE=1)
+LOR 19:31:44 prep start
+LOR 19:35:16 prep rc=0
+WARN data in /dev/shm: the data is on a disk: run reads it once before the clock to warm the page cache; the records kept it in /dev/shm (fix: DATA_PATH=/dev/shm bash variants/t1-cpu-ngram/182/run_node.sh prep, +20 GiB of RAM)
+LOR 19:35:16 ab start
+LOR 20:03:34 ab rc=0
+AB_RUN arm=A seed=0 RESULT variant=t1-cpu-ngram val_loss=3.2755 train_time_s=10.711 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-193516-abA-c381-s0.log.txt
+AB_RUN arm=B seed=0 RESULT variant=t1-cpu-ngram val_loss=3.2746 train_time_s=10.395 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-194409-abB-c381-s0.log.txt
+AB_RUN arm=B seed=1 RESULT variant=t1-cpu-ngram val_loss=3.2727 train_time_s=10.070 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-194823-abB-c381-s1.log.txt
+AB_RUN arm=A seed=1 RESULT variant=t1-cpu-ngram val_loss=3.2726 train_time_s=9.981 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-195209-abA-c381-s1.log.txt
+AB_RUN arm=A seed=2 RESULT variant=t1-cpu-ngram val_loss=3.2737 train_time_s=9.913 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-195600-abA-c381-s2.log.txt
+AB_RUN arm=B seed=2 RESULT variant=t1-cpu-ngram val_loss=3.2744 train_time_s=9.948 steps=685 target=3.28 hit=1 config=381 torch=2.10.0+cu128 triton=3.6.0 fa3=pinned tree=791b9ca06de9 log=/work/out/ab/20261119-195949-abB-c381-s2.log.txt
+AB n=3 pairs, B - A: train_time -0.064 s (95% CI +-0.546), val_loss -0.0000  (95% CI +-0.0020)
+AB A [base]: mean train_time 10.202 s, mean val_loss 3.2739; B [TABLE_VOTE=1]: 10.138 s, 3.2739
+AB table vote within B's runs (same weights, n=3): links - none +0.00005  (95% CI +-0.00027); PR #399's fixed vote - none +0.00150  (95% CI +-0.00004)
+LOR 20:03:34 all done
+LOR command rc=0 secs=2069
+LOR-RESULTS-BEGIN
+[collect_raw.py: 43477 base64 lines removed here; they are the out/ folder]
+LOR-RESULTS-END
+✓ Job finished (status: SUCCEEDED).
