@@ -344,6 +344,8 @@ NCCL: 2.297 ms/step of kernels, 0.074 ms exposed (not under any compute kernel);
 
 ## 4. What is ours and what is upstream's
 
+**Prior art for the kernel (checked 2026-11-21).** The Gram-space evaluation is described in an appendix of the Polar Express paper (arXiv 2505.16932, "Fast Polynomial Iteration for Rectangular Matrices"): compute Y = X^T X once, iterate on Y and an accumulated Q, return X Q, and restart from X every few iterations because of bfloat16 round-off (it discusses a restart interval of 3). So the idea is not ours. Ours: the implementation inside the ANVIL2 trainer with restarts every 2 maps, the symmetric small-product kernel, the numerical check on the record's shapes, and the end-to-end and ceiling measurements. We read that appendix in an earlier arXiv version (via ar5iv); read the current version before quoting it.
+
 Be exact about this in the report.
 
 **Upstream's work (we ran it; we did not invent it):**
