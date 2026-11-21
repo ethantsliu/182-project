@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One batch job on the root record: two loss-curve runs (base, gram222s; VAL_CURVE), then timing runs of base,
-# gram222s and gram33s (the Polar Express appendix's restart-every-3) with the arm order rotated per seed.
+# One batch job on the root record: two loss-curve runs (base, gram222s; VAL_CURVE), then timing runs of base and
+# gram222s with the order swapped per seed, then the skip_matrix ceiling.
 # Run by 182/lor/entry.sh from the repo root inside the venv. Time-aware: a run is skipped if it would pass DEADLINE_S.
 set -uo pipefail
 : "${OUT:=/work/out}"; mkdir -p "$OUT/root"
@@ -18,8 +18,8 @@ run curve-base-s5 5 VAL_CURVE=$C                              # also the node's 
 run curve-gram222s-s5 5 VAL_CURVE=$C ANVIL_KERNEL=gram222s
 run gram222s-s6 6 ANVIL_KERNEL=gram222s
 run base-s6 6
-run gram33s-s6 6 ANVIL_KERNEL=gram33s
 run base-s7 7
 run gram222s-s7 7 ANVIL_KERNEL=gram222s
-run gram33s-s7 7 ANVIL_KERNEL=gram33s
+run skipmatrix-s6 6 ANVIL_ABLATE=skip_matrix
+run skipmatrix-s7 7 ANVIL_ABLATE=skip_matrix
 t "all done"
