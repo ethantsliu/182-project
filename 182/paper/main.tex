@@ -1,0 +1,103 @@
+\documentclass[12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,graphicx,booktabs,hyperref,caption}
+\captionsetup{font=small}
+\setlength{\parskip}{4pt}
+\title{Do Faster Optimizer Kernels Reduce End-to-End Training Time?\\[2pt]\large EECS 182 Final Report (V1)}
+\author{Ethan Liu \and Dev Patel \and Ahilan Karuppusami \and Justin Kim}
+\date{November 23, 2026}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+ANVIL2 is the record submission to the modded-nanoGPT speedrun: it trains a GPT-style model to a validation loss of 3.28 on FineWeb in about 40 seconds on eight H100 GPUs. Its optimizer whitens each matrix update with a six-round polynomial iteration, which costs repeated matrix products every step. We ask whether computing that iteration faster shortens the run. We derive an evaluation order that does two rounds at a time on the small Gram matrix, which removes half of the passes over the large matrix without changing the update rule. On the largest weight group it is $1.30\times$ faster on the matrix sequence and $1.08\times$ on the full update, at the record's numerical accuracy. End to end it saves $0.08$\,s of a $40.6$\,s run ($0.2\%$), and removing the optimizer's matrix work entirely would save only $0.26$\,s ($0.7\%$). The optimizer is too small and too launch-bound a part of this trainer for kernel speedups to matter.
+\end{abstract}
+
+\section{Introduction and background}
+Matrix-aware optimizers change the geometry of an update, not only its size. Shampoo~\cite{shampoo} preconditions each weight tensor with per-dimension statistics, and Anil et al.~\cite{anil} make this practical at scale. SOAP~\cite{soap} runs Adam in Shampoo's eigenbasis. Muon, studied at scale by Liu et al.~\cite{muon}, replaces the momentum matrix $X=U\Sigma V^\top$ with an approximation of $UV^\top$, computed by a Newton--Schulz polynomial iteration; Polar Express~\cite{polar} tunes a separate polynomial for each round. Wen et al.~\cite{fantastic} show that claimed optimizer gains shrink under fair, well-tuned comparisons, which is why we compare at fixed validation quality and report variance.
+
+These optimizers buy fewer steps with more computation per step. Whether that computation matters for wall-clock time depends on the surrounding system. ANVIL2~\cite{anvil2} is a demanding setting: its forward and backward passes already use FP8 arithmetic~\cite{fp8}, custom Triton kernels~\cite{triton}, FlashAttention-3~\cite{fa3} and CUDA graphs, so the optimizer could plausibly be a visible share of what is left.
+
+\paragraph{Questions.} (Q1) How much does ANVIL's matrix computation contribute to step latency? (Q2) Which of its operations can be accelerated without changing the update rule? (Q3) How much of that carries through to the time needed to reach the validation target?
+
+\paragraph{Hypothesis.} We expected the matrix work to be a few percent of the step and a faster kernel to give a measurable end-to-end gain. The first half held only loosely and the second did not: the share is about $1$--$2\%$ and the gain is $0.2\%$.
+
+\section{The optimizer's matrix work}
+For each weight matrix, ANVIL forms a momentum matrix $X$ (bfloat16), scales it so all singular values are below one, and applies six maps
+\begin{equation}
+A = X^\top X,\qquad X \leftarrow X\,(aI + bA + cA^2),
+\end{equation}
+each with its own $(a,b,c)$. In the SVD basis a map sends every singular value $\sigma$ to $a\sigma+b\sigma^3+c\sigma^5$; the six maps together send all of them to about $1$. Per GPU there are three groups of matrices: six of size $256\times768$, two of $768\times768$, and three of $2816\times768$ (the MLP weights). For the MLP group one map is a Gram of the large matrix, a $768\times768$ polynomial, and a product with the large matrix, so six maps make twelve passes over the large matrix. The record already computes symmetric products as half-products, batches each group, and replays the sequence as one CUDA graph.
+
+\section{Method}
+\paragraph{Gram-space evaluation (Q2).} Write a map as $X\leftarrow XP$ with $P=aI+bA+cA^2$. $P$ is a polynomial in the symmetric matrix $A$, so the next map's Gram matrix is
+\begin{equation}
+(XP)^\top(XP) = P\,A\,P,
+\end{equation}
+which does not involve $X$. Two consecutive maps can therefore be evaluated on $768\times768$ matrices only: compute $A$, form $P_1$, compute $A'=P_1AP_1$, form $P_2$, and apply $Q=P_1P_2$ to $X$ once. Per pair this replaces two Grams and two large products with one of each, plus three small products. The update rule is unchanged; in float64 the two orders agree to $10^{-15}$. Since the small operands are symmetric and commute, we also wrote a Triton kernel that computes half of each small product and mirrors it. We call the result \texttt{gram222s}.
+
+\paragraph{Why pairs.} The Gram matrix is stored in bfloat16 (about eight significant bits), and its eigenvalues are $\sigma^2$, so small singular values are below its rounding error. Re-reading $X$ every map refreshes them; chaining maps on the Gram matrix does not. Chaining four or more maps diverges (relative error above $10^4$ on a $\sigma_i\propto 1/i$ spectrum), so we chain two.
+
+\paragraph{Protocol.} All runs use one rented node type ($8\times$ H100, PyTorch 2.10.0, CUDA 12.8). (i) A microbenchmark times each group's update on one GPU over 300 repetitions and compares outputs with an exact float64 evaluation. (ii) Full training runs compare three arms at the same seeds: the record, \texttt{gram222s} on the MLP group, and an ablation that skips the matrix maps entirely. The ablation is not a valid training method (final loss $3.455$); its time is an upper bound on what any optimizer-kernel change could save. (iii) A profiler trace of 20 steps gives the breakdown of GPU time. We log every step's latency, so a run's clock splits into the 1193 timed steps and a remainder.
+
+\section{Results}
+\paragraph{Q1: the matrix work is small.} In the microbenchmark the three groups' updates cost $0.878$\,ms per step, of which $0.593$\,ms is matrix work; a step averages $33.5$\,ms. In the profiled window the optimizer is $2.5\%$ of GPU kernel time, against $47.9\%$ for dense matrix products in the model and $13.1\%$ for communication, $97\%$ of which overlaps compute. (The window covers steps 300--319, an early stage with $17.6$\,ms steps, so shares in later stages may differ.)
+
+\paragraph{Q2: the kernel is faster and as accurate.} Table~\ref{tab:bench} shows the MLP group. The $1.30\times$ is against an eager replay of the record's matrix sequence; against the record's compiled update the gain is $1.08\times$. For the square and small groups the Gram matrix is not smaller than $X$, and the same change is slower ($0.79\times$ and $0.84\times$ on the full update), so we switch only the MLP group. Peak GPU memory is unchanged at $48{,}413$\,MiB.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{lrrrrr}\toprule
+ & record (ms) & ours (ms) & speedup & record err. & our err.\\\midrule
+matrix sequence & 0.396 & 0.304 & $1.30\times$ & 0.77\% & 0.69\%\\
+full update & 0.510 & 0.473 & $1.08\times$ & -- & --\\\bottomrule
+\end{tabular}
+\caption{MLP group ($3\times2816\times768$), one H100, 300 repetitions. Error is relative Frobenius distance from the exact update.}\label{tab:bench}
+\end{table}
+
+\paragraph{Q3: little carries through.} Table~\ref{tab:e2e} and Figure~\ref{fig:loop} give the end-to-end comparison. Over whole-run training time the kernel's gain is $0.080$\,s and not significant with four seeds ($p=0.11$, paired). The step loop is far more repeatable than the whole clock: there the kernel is faster in all three same-session seeds, by $0.067\pm0.008$\,ms per step (mean $\pm$ s.e.; $t=8.0$, $p\approx0.015$), which is $0.080$\,s per run or $0.2\%$. The ablation saves $0.220$\,ms per step, $0.26$\,s per run. Final validation loss is unchanged ($3.27553$ against $3.27609$), and every record and \texttt{gram222s} run reaches the $3.28$ target.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{lrrr}\toprule
+ & train time (s), $n=4$ & step loop (s), $n=3$ & final val loss, $n=4$\\\midrule
+record & $40.591\pm0.065$ & $40.014\pm0.016$ & $3.27609\pm0.00066$\\
+\texttt{gram222s} (ours) & $40.511\pm0.018$ & $39.933\pm0.004$ & $3.27553\pm0.00074$\\
+no matrix work (ceiling) & $40.320\pm0.041$ & $39.751\pm0.015$ & $3.45510\pm0.00610$\\\bottomrule
+\end{tabular}
+\caption{Full runs, 1194 steps, mean $\pm$ standard deviation across seeds.}\label{tab:e2e}
+\end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.9\linewidth]{fig_steploop.png}
+\caption{Each run's clock split into the 1193 timed steps (left) and the remainder (right); points are seeds 1--3, bars are mean $\pm$ s.d. The arms separate in the step loop. The remainder varies by $0.12$\,s regardless of arm, which hides the effect in whole-run times.}\label{fig:loop}
+\end{figure}
+
+\section{Why the gain is small}
+\paragraph{The cost is too small.} The MLP group's matrix work is about $0.3$\,ms of a $33.5$\,ms step. Even the ablation recovers only $0.7\%$ of the run.
+
+\paragraph{The cost is partly hidden.} The microbenchmark measures $0.593$\,ms of matrix work per step, but removing it shortens a step by only $0.220$\,ms. About $60\%$ of that work overlaps other activity on the GPU and is not on the critical path.
+
+\paragraph{The kernels are launch-bound.} The Gram-space order cuts the MLP group's arithmetic from $104$ to $71$\,GFLOP per step, but time falls by less. A product with the $2816\times768$ matrices takes $0.022$--$0.030$\,ms and a $768\times768$ product $0.014$--$0.016$\,ms: a small product has $27\%$ of the arithmetic and about $60\%$ of the time. At these sizes cost follows the number of kernel launches more than the amount of arithmetic, and our change trades four launches for five.
+
+\section{Limitations}
+End-to-end runs are few (three same-session seeds per arm; a fourth seed ran on a second node), and the record arm always ran first, although its own drift over the session is $0.03$\,s. Step latencies are host-side readings. The profile covers one early window. \textbf{Loss curves over training are not yet included}: every run validated only at the end, so we report final validation loss with error bars; curves against steps and wall-clock for both arms will be added in V2. Conclusions are specific to this model, trainer and hardware.
+
+\section{Reproducibility}
+Code, job scripts, raw logs and the scripts that regenerate every table and figure are in \url{https://github.com/ethantsliu/182-project} (\texttt{182/results/}, \texttt{182/optim-kernel/}, \texttt{182/paper/}). The kernel is enabled with \texttt{ANVIL\_KERNEL=gram222s} and the ablation with \texttt{ANVIL\_ABLATE=skip\_matrix}; with no flag set the trainer is the record. Checkpoints will be added with V2.
+
+\begin{thebibliography}{10}\small
+\bibitem{shampoo} Gupta, Koren, Singer. Shampoo: Preconditioned Stochastic Tensor Optimization. 2018.
+\bibitem{anil} Anil et al. Scalable Second Order Optimization for Deep Learning. 2020.
+\bibitem{soap} Vyas et al. SOAP: Improving and Stabilizing Shampoo Using Adam. 2025.
+\bibitem{muon} Liu et al. Muon is Scalable for LLM Training. 2025.
+\bibitem{polar} Amsel et al. The Polar Express: Optimal Matrix Sign Methods and Their Application to the Muon Algorithm. arXiv:2505.16932, 2025.
+\bibitem{fantastic} Wen et al. Fantastic Pretraining Optimizers and Where to Find Them. 2025.
+\bibitem{fp8} Micikevicius et al. FP8 Formats for Deep Learning. 2022.
+\bibitem{triton} Tillet, Kung, Cox. Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. 2019.
+\bibitem{fa3} Shah et al. FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision. 2024.
+\bibitem{anvil2} Pietrzak. ANVIL2: modded-nanoGPT speedrun submission. 2026.
+\end{thebibliography}
+
+\appendix
+\section{Use of generative AI}
+We used ChatGPT to brainstorm and refine the research question and to help draft the proposal, and Grok and Claude to help with the initial baseline reproduction. Claude Code was used to implement the alternative kernel, its tests and the benchmark, to write the job scripts and run the experiments on rented GPUs, to parse logs into the tables and figures, and to draft this report. The authors reviewed the code, the results and the text. \emph{[Team: revise so this matches what each of us actually did.]}
+\end{document}
