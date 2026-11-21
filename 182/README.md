@@ -4,7 +4,9 @@ This is the map of the project. The repository is a fork of
 [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT), one branch, `main`.
 The root `README.md` is upstream's, with a short pointer to this file at the top.
 
-**Results and report-ready tables: [`182/results/README.md`](results/README.md).** That file is written separately.
+**Results and report-ready tables: [`182/results/README.md`](results/README.md).** The report draft is in [`182/paper/`](paper/) (`main.tex`, `main.pdf`, figures, `overleaf.zip`).
+
+**Prior art.** The Gram-space kernel is not a new method. It is the Polar Express appendix's fast iteration for rectangular matrices (arXiv 2505.16932) and Gram Newton-Schulz (Zhang, Amsel, Chen, Dao, 2026), which we found after writing it. Ours are the port into the ANVIL2 trainer and the measurements (the 0.7% ceiling and why the gain is small). See "What is ours" in the results file.
 If a number here or in a subdirectory README disagrees with it, trust the results file. Many subdirectory READMEs
 were written before any GPU run and still say "nothing here has run on a GPU"; read that as "at the time of writing".
 

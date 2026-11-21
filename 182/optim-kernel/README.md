@@ -2,6 +2,11 @@
 
 Everything is off by default; with the flags unset the root trainer is the record.
 
+Prior art (found 2026-11-21, after this was built): the Gram-space cascade below is the Polar Express appendix's
+"Fast Polynomial Iteration for Rectangular Matrices" (arXiv 2505.16932) and Gram Newton-Schulz (Zhang, Amsel, Chen,
+Dao, 2026, https://tridao.me/blog/2026/gram-newton-schulz/), including the restart every two maps and the symmetric
+small-product kernel. Read "the alternative" below as our implementation of that method, not a new one.
+
 Update, 2026-11-20: this file was written before any GPU run. The kernels and the ablation have since run on an 8xH100
 node. The measured results are in `182/results/README.md`; where that file and the expectations or the "Unverified"
 list below disagree, trust the results file.
