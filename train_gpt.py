@@ -73,7 +73,7 @@ from track_1_short.perf.kernels.mlp import prime_stage_cache
 from track_1_short.perf.pinned_batches import PinnedBatchStaging
 from track_1_short.perf.row_prefetch import PrefetchStaging, RowPrefetch
 from track_1_short.perf.value_embed_pull import ValueEmbedPull
-from track_1_short.run_metrics import peak_mem_lines, run_config_line, step_latency_lines, val_line
+from track_1_short.run_metrics import clock_split_line, peak_mem_lines, run_config_line, step_latency_lines, val_line
 from track_1_short.sampled_softmax import SampledSoftmax
 from track_1_short.schedule import TrainingSchedule
 from track_1_short.tail_average import TailAverages
@@ -488,6 +488,7 @@ def main():
         # After the timed loop (the final validation has synchronized): step latency, then every rank's peaks.
         for line in step_latency_lines(step_clock, validated_steps, training_schedule.boundaries):
             print0(line, console=True)
+        print0(clock_split_line(step_clock, training_time_ms), console=True)
         timed_peak = (torch.cuda.max_memory_allocated(), torch.cuda.max_memory_reserved())
         peaks = torch.zeros(env.world_size, 4, dtype=torch.int64, device=env.device)
         peaks[env.rank] = torch.tensor(timed_peak + warmup_peak, dtype=torch.int64, device=env.device)
