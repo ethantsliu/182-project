@@ -5,7 +5,8 @@ PR #367 (hermabr). The exact-count chain, the smaller transformer and the extra 
 Track 2 sizes are ldmberman's adaptation, posted in the #380 thread on 2026-10-04: **val loss 2.8769 in 221 s**
 (`step_avg` 38.1 ms, 5800 steps) on 8xH100. That is their run, not ours, and it is **one run** (seed 1337; they
 report 2.8991 for the model before the exact-count chain). For scale, the official Track 2 record is 17.35 min and
-the best open GPU PR (#261) is 14.34 min. **We have not run this tree on a GPU.**
+the best open GPU PR (#261) is 14.34 min. **When this was written we had not run this tree on a GPU.** It has since had one run on an
+8xH100 Lor node; see `182/results/README.md` at the repo root.
 
 ## Run on the node
 From the repository root, after `bash 182/tools/node_setup.sh` has made the root's `.venv-run` (this tree needs the

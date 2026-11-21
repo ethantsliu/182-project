@@ -2,16 +2,19 @@
 
 A full runnable tree of upstream PR #381 (Daniel Monroe, "Improve input hints at test time", 725 -> 685 steps), which
 is stacked on #380 (devenpzak, the exact-count chain) and #367 (hermabr, exact-match retrieval), plus our changes
-behind environment variables. With every variable at its default the run does what #381 does, plus a host report
-and a host-memory check before the clock. None of these PRs is merged upstream.
+behind environment variables. With every variable at its default the run does what #381 does with 668 scheduled
+steps instead of 675 (678 steps in all instead of 685; `NUM_SCHEDULED_ITERATIONS=675` gives #381 exactly), plus a
+host report and a host-memory check before the clock. None of these PRs is merged upstream.
 
-**Nothing in this folder has run on a GPU.** The numbers below are other people's, from their PRs.
+Update, 2026-11-20: this tree has since run on an 8xH100 node (Lor). Our numbers are in "Our result" below and in
+`182/results/README.md` at the repo root. Sections that say nothing has run on a GPU were written before that. The numbers in
+this table are other people's, from their PRs.
 
 | | time | val loss | where |
 | --- | --- | --- | --- |
 | official record (#92 / #360) | 39.9 s | <= 3.28 | 8xH100 |
 | #380, 725 steps | 9.653 s (n=16, std 0.041) | 3.2759 (std 0.0016) | 8xH100, 2x Xeon 8462Y+ (128 vCPU), 2 TB RAM |
-| #381, 685 steps (this tree's default) | 31.76 s vs #380's 33.62 s (n=3 each) | 3.2725 vs 3.2734 | **4x RTX PRO 6000 only** |
+| #381, 685 steps (this tree with `NUM_SCHEDULED_ITERATIONS=675`) | 31.76 s vs #380's 33.62 s (n=3 each) | 3.2725 vs 3.2734 | **4x RTX PRO 6000 only** |
 
 #381 has no 8xH100 time. Scaling its -5.5% to #380's node gives about 9.1 s, which is an estimate and not a
 measurement. #367's own head is at 6.702 s (n=16), but it trains and validates on FineWeb-100B paths, a different
@@ -25,7 +28,7 @@ from this tree can be judged against whatever cap arrives.
 
 ## The first node result: 3.3008, on another stack
 
-The first node session ran `run` with the default `CONFIG=381`: 685 of 685 steps, val_loss **3.3008** (the target is
+The first node session ran `run` with the then-default `CONFIG=381` at 675 scheduled steps: 685 of 685 steps, val_loss **3.3008** (the target is
 3.28), peak GPU memory 54 GiB, time not reported. That was not this tree's run on the records' stack. The node had
 torch 2.11, not the pinned 2.10.0+cu128 with triton 3.6.0, and the agent running it had patched the FA3 loader in
 `track_1_short/model/attention.py`. Neither change was committed, and the logs did not come back.
@@ -114,7 +117,7 @@ downgrades that), fewer GPUs than `NPROC`, no `libcudart.so.13` or CUDA headers,
 extension not built from this source, fewer than 104 whole shards, RAM or `/dev/shm` below the plan, fewer than 4
 cores per GPU. `run` runs `check` first and stops on a FAIL (`FORCE=1` runs anyway).
 
-What `run` uses by default, and why: **`CONFIG=381`, this tree's own defaults (685 steps).** It is the base PR's
+What `run` uses by default, and why: **`CONFIG=381`, this tree's own defaults (668 scheduled steps, 678 in all; #381 itself is 675 and 685).** It is the base PR's
 behaviour, it is the faster configuration on the one machine where both were measured, and its loss margin is not
 smaller than #380's there. `CONFIG=380` runs #380's configuration on this code (725 steps, `SCAN_HINTS=0`,
 `VAL_TOPK=2`): the only one with a published 8xH100 time, so it is the run to compare against 9.653 s if the default

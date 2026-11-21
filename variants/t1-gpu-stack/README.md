@@ -2,8 +2,9 @@
 
 Base: upstream PR #397 (atveit; open, head `11699e31`, unchanged since 2026-10-31): #393 (MoE + Gluon kernels on
 #391's CPLM and n-gram normalization) plus #396's four exact levers. The author reports 30.6746 s, n=12, mean val
-loss 3.27743 on a RunPod 8xH100 node. **Nothing in this folder has run on a GPU here.** The only number from our
-node so far is the root record at 40.93 s (n=1) against its official 39.9 s, so expect #397 to land a little above
+loss 3.27743 on a RunPod 8xH100 node. **When this was written, nothing in this folder had run on a GPU here** (the base tree has since run on an 8xH100
+Lor node; see `182/results/README.md` at the repo root). The only number from our
+node at that time was the root record at 40.93 s (n=1) against its official 39.9 s, so expect #397 to land a little above
 30.67 s there too.
 
 With no flag exported the code path is #397's. Every change of ours sits behind `HOST_PREP`, `DOC_COPY`,

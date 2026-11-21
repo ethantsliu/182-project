@@ -1,6 +1,10 @@
 # optim-kernel: does a faster ANVIL kernel shorten the run?
 
-Nothing here has run on a GPU. Everything is off by default; with the flags unset the root trainer is the record.
+Everything is off by default; with the flags unset the root trainer is the record.
+
+Update, 2026-11-20: this file was written before any GPU run. The kernels and the ablation have since run on an 8xH100
+node. The measured results are in `182/results/README.md`; where that file and the expectations or the "Unverified"
+list below disagree, trust the results file.
 
 ## What ANVIL's matrix work is (root tree, per rank, per step)
 

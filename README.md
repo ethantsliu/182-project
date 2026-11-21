@@ -1,3 +1,10 @@
+> ## EECS 182 project fork — start here
+>
+> This repository is a fork of modded-nanogpt used for an EECS 182 course project:
+> "Do Faster Optimizer Kernels Reduce End-to-End Training Time?"
+> The project map is in [`182/README.md`](182/README.md). It says where the code, the tests, the GPU job scripts and the results are.
+> Everything below this box is the upstream README, unchanged.
+
 # Modded-NanoGPT
 
 This repository hosts the *NanoGPT speedrun*, in which we (collaboratively|competitively) search for the fastest algorithm to use 8 NVIDIA H100 GPUs to train a language model that attains 3.28 cross-entropy loss on the [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) validation set.

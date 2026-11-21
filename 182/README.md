@@ -1,22 +1,152 @@
-# 182-project
+# EECS 182 project: Do Faster Optimizer Kernels Reduce End-to-End Training Time?
 
-Private working fork of [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT) for
-8xH100 speedrun attempts. One branch, `main`. We have no GPUs of our own: everything here is checked on CPU, and
-a friend runs it on an 8xH100 node.
+This is the map of the project. The repository is a fork of
+[KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT), one branch, `main`.
+The root `README.md` is upstream's, with a short pointer to this file at the top.
 
-## What has been measured, and what has not
+**Results and report-ready tables: [`182/results/README.md`](results/README.md).** That file is written separately.
+If a number here or in a subdirectory README disagrees with it, trust the results file. Many subdirectory READMEs
+were written before any GPU run and still say "nothing here has run on a GPU"; read that as "at the time of writing".
 
-Two single runs on the friend's node, and nothing else. Neither log is in this repo.
+## What the project asks
 
-- The root record: **40.931 s, val loss 3.2780**, 1194 steps (one run). The official record it reproduces is 39.9 s.
-- `variants/t1-gpu-stack`: **30.957 s, val loss 3.276481**, 1053 steps, 981 of them scheduled (one run). Its
-  author reported 30.67 s over 12 runs.
-- Not measured by us: the other three variants, every flag of ours except one `HADAMARD_FP8` run (3.17 s slower than
-  the record, no log here), and the run-to-run spread of anything on that node. One run cannot show that a tree meets its target: the rule is the mean under the target with p < 0.01.
+The upstream speedrun trains a GPT-2-small-sized model to 3.28 validation loss on FineWeb on 8 H100 GPUs. Its current
+optimizer (ANVIL) spends part of every step on matrix work: Gram matrices, polynomials and GEMMs that whiten the
+update of each weight bank. The question is whether a cheaper kernel for that matrix work makes the whole run
+shorter, or whether the saving is hidden by the rest of the step.
 
-The "best reported" times in the table below are the ones each tree's author reported upstream, on their nodes.
+We test it in three ways, all on the root tree, all behind flags that are off by default:
 
-## Methods
+1. An alternative kernel with the same update rule (`ANVIL_KERNEL`), compared with the record in paired runs.
+2. An upper bound (`ANVIL_ABLATE=skip_matrix`): skip the matrix work entirely and see how much time that frees.
+   This is a measurement, not a valid training run.
+3. A one-GPU microbenchmark of the kernels alone (`182/optim-kernel/bench.py`).
+
+With every project flag unset, the root tree (`train_gpt.py`, `track_1_short/`) runs the upstream record.
+
+## Where the alternative optimizer kernel lives
+
+| Path | What |
+|---|---|
+| `track_1_short/perf/anvil_kernel.py` | The Gram-space cascade (`ANVIL_KERNEL`) and the ablation (`ANVIL_ABLATE`) |
+| `track_1_short/perf/kernels/anvil_chain.py` | The new symmetric Triton kernel used by the `s` variants (`gram222s`, `gram33s`) |
+| `track_1_short/config.py` | Where the flags are read and checked (bottom of the file; `RUN_METRICS` / `VAL_CURVE` are mid-file) |
+| `track_1_short/optim/anvil.py` | The one hook in the bank update that switches to the alternative for the chosen banks |
+| `train_gpt.py` | Log lines for the flags, the `RUN_METRICS` clock readings, the `VAL_CURVE` validations |
+| `track_1_short/run_metrics.py` | Formats the `METRIC` lines |
+
+| Flag | Values | Meaning |
+|---|---|---|
+| `ANVIL_KERNEL` | `gram222`, `gram222s`, `gram33`, `gram33s` | Alternative kernel, same update rule. Not bit-identical to the record |
+| `ANVIL_BANKS` | comma list of `qk_bank`, `vo_bank`, `mlp_bank` | Which banks the kernel or ablation applies to. Default: `mlp_bank` for the kernel, all banks for the ablation |
+| `ANVIL_ABLATE` | `skip_matrix` | Measurement only: no matrix work. Validation lines are tagged `INVALID_FOR_RECORD(anvil_ablate)` |
+| `RUN_METRICS` | `1` | Prints `METRIC` lines: step latency, peak memory, validation loss to 6 digits |
+| `VAL_CURVE` | step interval `N` | Also validates every N steps. A curve run, not a timing run |
+
+`ANVIL_KERNEL` and `ANVIL_ABLATE` cannot be set together. The design, the error table and the expected gain are in
+[`optim-kernel/README.md`](optim-kernel/README.md).
+
+## Run the kernel benchmark and tests
+
+From the repo root. On a laptop (CPU; the GPU tests skip):
+
+```bash
+python3 182/optim-kernel/bench.py --device cpu --smoke
+python3 -m pytest 182/optim-kernel/test_optim_kernel.py -q
+```
+
+On a GPU node:
+
+```bash
+python 182/optim-kernel/bench.py --json kbench.json           # 1 GPU, about 1 min
+python -m pytest 182/optim-kernel/test_optim_kernel.py -q     # CPU tests plus the GPU tests
+ANVIL_KERNEL=gram222 bash run.sh                              # one 8-GPU run by hand
+XAB_ONLY=anvilkernel bash 182/gpu_session.sh xab              # base vs gram222 vs skip_matrix, 4 seeds
+```
+
+How to read the benchmark output is in [`optim-kernel/README.md`](optim-kernel/README.md). The paired timing and
+curve runs with `ab_run.py` and `compare_runs.py` are under [Run metrics](#run-metrics) below.
+
+## Launch GPU jobs
+
+We rent an 8xH100 node per job on Lor. One job claims a node, sets it up, runs one command and releases the node.
+Push first: the job clones the pushed commit.
+
+```bash
+182/lor/submit.sh NAME EST_MIN MAX_MIN '<command, run from the repo root on the node>'
+182/lor/status.sh          # what is holding GPUs, and the spend so far
+182/lor/status.sh stop     # stop everything that is still live
+```
+
+Logs and small output files land in `~/.lor-182/jobs/NAME-<time>/` on the machine that submitted. The job scripts
+that were used are in `182/lor/jobs/`. Setup, cost and known pitfalls: [`lor/README.md`](lor/README.md).
+
+## Directory map
+
+Status words: **used** = GPU measurements exist for it; **exploratory** = written and tested on CPU, no GPU result
+that we rely on; **dead end** = measured or modelled and dropped. The results file is the authority on what the
+report uses.
+
+### `182/`
+
+| Path | What it is | Status |
+|---|---|---|
+| `182/optim-kernel/` | The project's kernel work: microbenchmark (`bench.py`), tests, design notes | Used. The core of the project |
+| `182/lor/` | Scripts to rent a Lor node, run one command, collect the log (`submit.sh`, `status.sh`, `collect.sh`, `entry.sh`) and the job scripts (`jobs/`) | Used for the GPU runs |
+| `182/gpu_session.sh` | Node entry point: runs phases (base record, variants, profile, A/Bs) and bundles the output. Reference below | Used |
+| `182/tools/` | Shared harness: node setup, A/B runners (`ab_run.py`, `xab_run.py`), statistics, log parser, `compare_runs.py`, session summary, nsys profiling, CPU harness for Triton kernels | Used |
+| `182/experiments.d/` | One file per paired A/B for the session's `xab` phase. `anvilkernel.sh` is the project's A/B. `sparse24.sh`, `optim.sh`, `kernel.sh`, `hostcpu.sh` belong to the exploratory work | `anvilkernel.sh` used; the rest exploratory |
+| `182/profile/` | torch.profiler hook and trace analyzer: where the step time goes, per category | Used (a root-tree profile ran on Lor) |
+| `182/results/` | Results and report-ready tables. Also the default output directory of the session on a node | Written separately |
+| `182/hadamard-fp8/` | Earlier idea: measure what FP8 costs in loss (`FP8_OFF`), and a block-Hadamard rotation to win it back (`HADAMARD_FP8`) | Dead end. One node run was 3.17 s slower than the record |
+| `182/fp8-attn-o/` | Earlier idea: the attention output projection in FP8 (`FP8_ATTN_O`) | Exploratory. Its own cost model expects about +0.2 s, so no gain |
+| `182/sparse24/` | Earlier idea: 2:4 sparse MLP weights (`SPARSE24_MLP`) | Exploratory. Its own cost model says it cannot pay |
+| `182/structured/` | Earlier idea: Monarch MLP (`MONARCH_MLP`) and fixed-basis Adam/SOAP for Track 3 | Exploratory. Written as falsification tests, expected negative |
+
+### `variants/`
+
+Each variant is a full, self-contained copy of an open upstream pull request plus our flags, off by default. They
+rewrite the same files in different ways, so they are folders and not merged into the root. They are not part of the
+kernel question; they are the faster trees we compared against and tuned. Each has its own README and
+`182/run_node.sh check|prep|run`.
+
+| Path | What it is | Status |
+|---|---|---|
+| `variants/t1-cpu-ngram/` | Track 1 with CPU n-gram retrieval: upstream PR #381 (on #380 and #367). Defaults to 668 scheduled steps, our trim; `NUM_SCHEDULED_ITERATIONS=675` reproduces #381 | Used. Ran on Lor; the 675 vs 668 comparison is in its README |
+| `variants/t1-gpu-stack/` | Track 1, GPU only: upstream PR #397 (MoE + Gluon kernels) plus our flags. Holds three sub-studies under `182/`: `optim-cost/` (cascade cost model and `OPTIM_*` flags), `kernel-cost/` (per-op cost model, `MOE_ROUTER_FUSED`), `hostcpu/` (`HOST_ASYNC`) | Base tree ran on Lor. The three sub-studies are exploratory |
+| `variants/t2-cpu-ngram/` | Track 2 (GPT-2 Medium, target 2.92): the CPU retrieval chain of PR #380 at Track 2 sizes | One run on Lor |
+| `variants/t2-gpu-port/` | Track 2, GPU only: upstream PR #261 (MUDD) plus our flags | Exploratory. We found no GPU run of it |
+
+### Root (upstream, plus hooks)
+
+| Path | What |
+|---|---|
+| `train_gpt.py`, `track_1_short/` | Upstream record #92 (ANVIL2) plus the project flags and the earlier flags, all off by default |
+| `train_gpt_medium.py`, `records/`, `data/`, `evals/`, `img/`, `Dockerfile`, `run.sh` | Upstream, unchanged |
+
+## Tests that run on a laptop
+
+```bash
+python3 -m pytest 182/optim-kernel/test_optim_kernel.py -q   # the kernel
+python3 -m pytest 182/tools/tests -q                         # the harness (stdlib only)
+```
+
+The other directories list their own test commands in their READMEs.
+
+## Earlier single runs (before the Lor jobs)
+
+Kept for the record. Two single runs on a borrowed 8xH100 node; neither log is in this repo.
+
+- The root record: 40.931 s, val loss 3.2780, 1194 steps. The official record it reproduces is 39.9 s.
+- `variants/t1-gpu-stack`: 30.957 s, val loss 3.276481, 1053 steps. Its author reported 30.67 s over 12 runs.
+- One `HADAMARD_FP8` run: 3.17 s slower than the record.
+
+One run cannot show that a tree meets its target. The rule is the mean under the target with p < 0.01.
+
+## GPU session reference: phases
+
+The "best reported" times in this table are the ones each tree's author reported upstream, on their nodes. Our own
+measurements are in `182/results/README.md`.
 
 | Phase | Tree | What it is | Best reported time (not ours) | Target | Official record | One command |
 |---|---|---|---|---|---|---|
@@ -38,7 +168,7 @@ each has its own README and its own node script, `variants/<name>/182/run_node.s
 session drives. The root flags (`FP8_OFF`, `HADAMARD_FP8` / `_SEED` / `_BLOCK` / `_GEMMS`,
 `HADAMARD_SAT_STATS`, `FP8_DUMP_*`, `MONARCH_*`) are listed, with where each is read, in `track_1_short/config.py`.
 
-## On the node
+## GPU session reference: on the node
 
 ```bash
 tmux new -s gpu                # first: an ssh drop kills a plain shell and the session with it (reattach: tmux a -t gpu)
@@ -91,8 +221,9 @@ The order is `env tests sanity base t1gpu profile nccl xab t1cpu t2cpu t2gpu gat
   extension builds; Rust needs rustc >= 1.80, and `INSTALL_RUST=1` lets prep install it) runs off the clock, for all selected variants in one low-priority background job that starts
   with the session; a variant waits for that job before it times anything.
   The runs use each tree's default configuration, with two things to know: `t2gpu` runs with `CANON_MASK=1`, the
-  first run its README recommends (`T2GPU_RUN_ENV=` gives plain PR #261), and `t1cpu` runs configuration 381, which
-  has no published 8xH100 time; for the one that has (9.653 s), use a session directory of its own:
+  first run its README recommends (`T2GPU_RUN_ENV=` gives plain PR #261), and `t1cpu` runs configuration 381 with this
+  tree's 668 scheduled steps (`T1CPU_RUN_ENV=NUM_SCHEDULED_ITERATIONS=675` gives upstream #381), which has no published
+  8xH100 time; for the one that has (9.653 s), use a session directory of its own:
   `SESSION_DIR=182/results/t1cpu-380 T1CPU_RUN_ENV=CONFIG=380 bash 182/gpu_session.sh t1cpu bundle`.
 - Then the root fp8 experiments, which need 4 seed pairs each to say anything: `gate`, `attno`, and `hadamard` last
   (one measurement on the node had it 3.17 s slower, and it needs a 3-4 millinat fp8 gap to pay).
@@ -114,6 +245,8 @@ torchrun --standalone --nproc_per_node=8 train_gpt.py   # the root record, from 
 ```
 
 ### Run metrics for the kernel comparison (root trainer)
+
+<a id="run-metrics"></a>
 
 Two flags, off by default (`track_1_short/config.py`; flags off is the upstream run), print greppable `METRIC` lines
 (`track_1_short/run_metrics.py`) to the console and the run log:
@@ -138,16 +271,5 @@ python 182/tools/compare_runs.py --names base,kernel --csv 182/results/kernel-cu
 
 `compare_runs.py` (sources: logs, directories, globs or `ABDIR@ARM`) prints, per arm, n, mean ± sd and the 95% interval of
 train time, step latency, final val loss and peak memory, the paired B - A differences by seed, and the time to 3.28
-interpolated from the curve runs, and writes the curves as CSV. The intermediate validations and the `METRIC` path have
-not run on a GPU.
-
-## Layout
-
-| Path | What |
-|---|---|
-| repo root (`train_gpt.py`, `track_1_short/`) | Upstream record #92 plus env-flag experiments that are off by default |
-| `182/gpu_session.sh` | The node entry point described above |
-| `182/tools/` | Node setup, A/B runner, statistics, log parser, session summary, nsys profiling (see its README) |
-| `182/hadamard-fp8/`, `182/structured/` | Tests and analysis scripts for the root flags; Track 3 fixed-basis Adam/SOAP |
-| `variants/*/` | The four trees of the table; data is shared from the repo root (`DATA_PATH=../..`) |
-| `182/results/` | Session output on the node (gitignored) |
+interpolated from the curve runs, and writes the curves as CSV. This section was written before the GPU runs; what
+ran, and the numbers, are in `182/results/README.md`.
