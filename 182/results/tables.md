@@ -9,7 +9,7 @@ sd is the sample standard deviation (n-1), se = sd/sqrt(n), CIs and p-values use
 | tree / config | runs | mean time (s) | sd | min | max | mean val loss | sd | worst val loss | runs at or under target | peak GPU mem allocated (MiB) | loop ms/step | METRIC mean step (ms) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | root record #92, baseline | 4 | 40.591 | 0.065 | 40.531 | 40.683 | 3.27609 | 0.00066 | 3.276999 | 4 | 48413 | 33.667 | 33.544 |
-| root, ANVIL_KERNEL=gram222s (ours) | 7 | 40.487 | 0.050 | 40.380 | 40.535 | 3.27564 | 0.00092 | 3.276890 | 7 | 48413-48439 | 33.590 | 33.307 |
+| root, ANVIL_KERNEL=gram222s (ours) | 4 | 40.511 | 0.018 | 40.496 | 40.535 | 3.27553 | 0.00074 | 3.276415 | 4 | 48413 | 33.595 | 33.445 |
 | t1-gpu-stack (upstream PR #397 tree) | 2 | 30.719 | 0.000 | 30.719 | 30.719 | 3.27692 | 0.00028 | 3.277120 | 2 | 34310 | 28.802 | - |
 | t1-cpu-ngram, 675 scheduled steps (upstream PR #381), all runs | 17 | 10.170 | 0.321 | 9.798 | 10.711 | 3.27526 | 0.00173 | 3.2778 | 17 | 49531 | 13.544 | - |
 | t1-cpu-ngram, 675, without each job's first run | 12 | 10.000 | 0.200 | 9.798 | 10.522 | 3.27483 | 0.00180 | 3.2778 | 12 | 49531 | 13.538 | - |

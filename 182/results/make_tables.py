@@ -314,7 +314,7 @@ def build_tables(rows):
                 f(mean(lp)) if lp else "-", f(mean(ms)) if ms else "-"]
     groups = [
         ("root record #92, baseline", [r for r in ok if r["experiment"] == "kernel_ab" and not r["flags"]]),
-        ("root, ANVIL_KERNEL=gram222s (ours)", [r for r in ok if r["flags"] == "ANVIL_KERNEL=gram222s"]),
+        ("root, ANVIL_KERNEL=gram222s (ours)", [r for r in ok if r["experiment"] == "kernel_ab" and r["flags"] == "ANVIL_KERNEL=gram222s"]),
         ("t1-gpu-stack (upstream PR #397 tree)", [r for r in ok if r["tree"].endswith("t1-gpu-stack")]),
         ("t1-cpu-ngram, 675 scheduled steps (upstream PR #381), all runs", [r for r in ok if r.get("sched_steps") == 675 and "TABLE_VOTE" not in r["flags"]]),
         ("t1-cpu-ngram, 675, without each job's first run", [r for r in ok if r.get("sched_steps") == 675 and "TABLE_VOTE" not in r["flags"] and r["order_in_tree"] > 1]),
