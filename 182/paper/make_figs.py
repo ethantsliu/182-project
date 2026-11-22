@@ -153,20 +153,21 @@ def final(path):
             return float(m.group(1)), float(m.group(2))
 
 def fig_paired():
-    dg = {s: step_ms(g) - step_ms(b) for s, (b, g, k) in PAIRS.items()}
-    dk = {s: step_ms(k) - step_ms(b) for s, (b, g, k) in PAIRS.items() if k is not None}
+    # savings: the record's mean step time minus the arm's, so a faster arm is positive (the report's convention)
+    dg = {s: step_ms(b) - step_ms(g) for s, (b, g, k) in PAIRS.items()}
+    dk = {s: step_ms(b) - step_ms(k) for s, (b, g, k) in PAIRS.items() if k is not None}
     fig, ax = plt.subplots(figsize=(6.2, 4.4))
     for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space"), (dk, C_CEIL, "no matrix work (ablation)"))):
         v = list(d.values()); mu = st.mean(v); sd = st.stdev(v)
         ax.bar(i, mu, 0.6, yerr=sd, color=col, edgecolor="black", linewidth=1.5, capsize=8, error_kw=ERR, label=lab)
         ax.scatter(np.linspace(i - 0.2, i + 0.2, len(v)), v, color="black", s=24, zorder=4)
-        ax.text(i, min(v) - 0.022, f"{mu:.3f}", ha="center", va="top", fontsize=13)
+        ax.text(i, max(v) + 0.012, f"{mu:.3f}", ha="center", va="bottom", fontsize=13)
         se = sd / len(v) ** 0.5
         print(f" paired {lab}: n={len(v)} per-seed {[round(x, 3) for x in v]} mean {mu:.4f} sd {sd:.4f} se {se:.4f} t {mu / se:.2f} -> {mu * 1.193:.3f} s/run")
     ax.axhline(0, color="black", lw=2)
-    ax.set_xticks([]); ax.set_xlim(-0.6, 1.6); ax.set_ylim(-0.31, 0.03)
-    ax.set_ylabel("step time vs. record (ms)")
-    ax.legend(loc="lower left", fontsize=12)
+    ax.set_xticks([]); ax.set_xlim(-0.6, 1.6); ax.set_ylim(0, 0.31)
+    ax.set_ylabel("step time saved vs. record (ms)")
+    ax.legend(loc="upper left", fontsize=12)
     save(fig, "fig_paired.png")
     for name, idx in (("record", 0), ("gram222s", 1)):
         loss = [final(v[idx])[1] for v in PAIRS.values()] + [final(RAW / ("base-s4.log" if idx == 0 else "../jobs/fastest-1-1119-094724/out/root-gram222s-s4.log"))[1]]
