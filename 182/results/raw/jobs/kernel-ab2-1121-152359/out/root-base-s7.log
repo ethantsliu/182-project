@@ -1,0 +1,84 @@
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/root/base-s7/3886e23a-ea07-4b39-9238-2ddc57d3db91.txt
+TRAIN_LOG_PATH=/work/out/root/base-s7/3886e23a-ea07-4b39-9238-2ddc57d3db91.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+METRIC run_config timing=timing_run RUN_METRICS=1 VAL_CURVE=0 seed=7 world_size=8 total_steps=1194
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/1194 train_time:480ms step_avg:19.19ms
+step:50/1194 train_time:914ms step_avg:18.29ms
+step:75/1194 train_time:1337ms step_avg:17.83ms
+step:100/1194 train_time:1773ms step_avg:17.73ms
+step:125/1194 train_time:2194ms step_avg:17.55ms
+step:150/1194 train_time:2628ms step_avg:17.52ms
+step:175/1194 train_time:3051ms step_avg:17.43ms
+step:200/1194 train_time:3485ms step_avg:17.43ms
+step:225/1194 train_time:3908ms step_avg:17.37ms
+step:250/1194 train_time:4342ms step_avg:17.37ms
+step:275/1194 train_time:4765ms step_avg:17.33ms
+step:300/1194 train_time:5200ms step_avg:17.33ms
+step:325/1194 train_time:5623ms step_avg:17.30ms
+step:350/1194 train_time:6393ms step_avg:18.27ms
+step:375/1194 train_time:7158ms step_avg:19.09ms
+step:400/1194 train_time:7934ms step_avg:19.83ms
+step:425/1194 train_time:8691ms step_avg:20.45ms
+step:450/1194 train_time:9464ms step_avg:21.03ms
+step:475/1194 train_time:10230ms step_avg:21.54ms
+step:500/1194 train_time:11006ms step_avg:22.01ms
+step:525/1194 train_time:11764ms step_avg:22.41ms
+step:550/1194 train_time:12536ms step_avg:22.79ms
+step:575/1194 train_time:13301ms step_avg:23.13ms
+step:600/1194 train_time:14077ms step_avg:23.46ms
+step:625/1194 train_time:14833ms step_avg:23.73ms
+step:650/1194 train_time:15606ms step_avg:24.01ms
+step:675/1194 train_time:16373ms step_avg:24.26ms
+step:700/1194 train_time:17357ms step_avg:24.80ms
+step:725/1194 train_time:18486ms step_avg:25.50ms
+step:750/1194 train_time:19637ms step_avg:26.18ms
+step:775/1194 train_time:20774ms step_avg:26.81ms
+step:800/1194 train_time:21927ms step_avg:27.41ms
+step:825/1194 train_time:23056ms step_avg:27.95ms
+step:850/1194 train_time:24208ms step_avg:28.48ms
+step:875/1194 train_time:25346ms step_avg:28.97ms
+step:900/1194 train_time:26501ms step_avg:29.45ms
+step:925/1194 train_time:27630ms step_avg:29.87ms
+step:950/1194 train_time:28779ms step_avg:30.29ms
+step:975/1194 train_time:29933ms step_avg:30.70ms
+step:1000/1194 train_time:31158ms step_avg:31.16ms
+step:1025/1194 train_time:32357ms step_avg:31.57ms
+step:1050/1194 train_time:33579ms step_avg:31.98ms
+step:1075/1194 train_time:34790ms step_avg:32.36ms
+step:1100/1194 train_time:36023ms step_avg:32.75ms
+step:1125/1194 train_time:37150ms step_avg:33.02ms
+step:1150/1194 train_time:38328ms step_avg:33.33ms
+step:1175/1194 train_time:39514ms step_avg:33.63ms
+step:1193/1194 train_time:40021ms step_avg:33.55ms
+step:1194/1194 train_time:40043ms step_avg:33.54ms
+step:1194/1194 val_loss:3.2769 train_time:40435ms step_avg:33.87ms
+METRIC val step=1194 total=1194 train_time_s=40.4353 val_loss=3.276937 final=1
+METRIC step_latency scope=all steps=1-1193 n=1193 mean_ms=33.442 median_ms=32.936 p95_ms=57.565 max_ms=66.694 clock=host_nosync
+METRIC step_latency scope=stage0 steps=1-319 n=319 mean_ms=16.924 median_ms=11.567 p95_ms=23.690 max_ms=25.583 clock=host_nosync
+METRIC step_latency scope=stage1 steps=320-680 n=361 mean_ms=30.495 median_ms=28.693 p95_ms=39.788 max_ms=44.373 clock=host_nosync
+METRIC step_latency scope=stage2 steps=681-1106 n=426 mean_ms=46.460 median_ms=45.065 p95_ms=60.015 max_ms=66.694 clock=host_nosync
+METRIC step_latency scope=stage3 steps=1107-1173 n=67 mean_ms=46.533 median_ms=45.564 p95_ms=64.480 max_ms=64.877 clock=host_nosync
+METRIC step_latency scope=stage4 steps=1174-1193 n=20 mean_ms=28.990 median_ms=22.461 p95_ms=51.618 max_ms=52.456 clock=host_nosync
+METRIC clock_split step0_ms=145.731 loop_end_ms=40042.623 tail_ms=392.670 total_ms=40435.293 clock=host_nosync
+METRIC peak_mem rank=0 allocated_mib=48411 reserved_mib=62118 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=1 allocated_mib=48410 reserved_mib=62118 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=2 allocated_mib=48411 reserved_mib=62118 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=3 allocated_mib=48410 reserved_mib=62118 warmup_allocated_mib=34017 warmup_reserved_mib=45210
+METRIC peak_mem rank=4 allocated_mib=48413 reserved_mib=62116 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=5 allocated_mib=48413 reserved_mib=62116 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=6 allocated_mib=48413 reserved_mib=62116 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=7 allocated_mib=48412 reserved_mib=62116 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=max allocated_mib=48413 reserved_mib=62118 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+peak memory allocated: 48411 MiB reserved: 62118 MiB

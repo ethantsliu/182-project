@@ -1,0 +1,146 @@
+[Gloo] Rank [Gloo] Rank [Gloo] Rank 451 is connected to  is connected to  is connected to 777 peer ranks.  peer ranks.  peer ranks. [Gloo] Rank Expected number of connected peer ranks is : Expected number of connected peer ranks is : Expected number of connected peer ranks is : 7707
+
+ is connected to 
+7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 6 is connected to 73 peer ranks.  is connected to Expected number of connected peer ranks is : 77 peer ranks. 
+Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/work/out/root/curve-base-s5/13096b74-4ec1-4fca-944f-fab3f283dbf9.txt
+TRAIN_LOG_PATH=/work/out/root/curve-base-s5/13096b74-4ec1-4fca-944f-fab3f283dbf9.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+METRIC run_config timing=curve_run RUN_METRICS=1 VAL_CURVE=150 seed=5 world_size=8 total_steps=1194
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+/work/182-project/.venv-run/lib/python3.12/site-packages/torch/_inductor/lowering.py:1904: FutureWarning: `torch._prims_common.check` is deprecated and will be removed in the future. Please use `torch._check*` functions instead.
+  check(
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/1194 train_time:1438ms step_avg:57.52ms
+step:50/1194 train_time:1874ms step_avg:37.47ms
+step:75/1194 train_time:2295ms step_avg:30.60ms
+step:100/1194 train_time:2729ms step_avg:27.29ms
+step:125/1194 train_time:3151ms step_avg:25.21ms
+step:150/1194 train_time:3585ms step_avg:23.90ms
+step:150/1194 val_loss:4.8683 train_time:3782ms step_avg:25.21ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=150 total=1194 train_time_s=3.7822 val_loss=4.868323 final=0
+step:175/1194 train_time:4132ms step_avg:23.61ms
+step:200/1194 train_time:4566ms step_avg:22.83ms
+step:225/1194 train_time:4988ms step_avg:22.17ms
+step:250/1194 train_time:5422ms step_avg:21.69ms
+step:275/1194 train_time:5844ms step_avg:21.25ms
+step:300/1194 train_time:6280ms step_avg:20.93ms
+step:300/1194 val_loss:4.5099 train_time:6381ms step_avg:21.27ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=300 total=1194 train_time_s=6.3805 val_loss=4.509883 final=0
+step:325/1194 train_time:6726ms step_avg:20.69ms
+step:350/1194 train_time:7497ms step_avg:21.42ms
+step:375/1194 train_time:8261ms step_avg:22.03ms
+step:400/1194 train_time:9041ms step_avg:22.60ms
+step:425/1194 train_time:9796ms step_avg:23.05ms
+step:450/1194 train_time:10568ms step_avg:23.49ms
+step:450/1194 val_loss:4.1660 train_time:10741ms step_avg:23.87ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=450 total=1194 train_time_s=10.7408 val_loss=4.166049 final=0
+step:475/1194 train_time:11348ms step_avg:23.89ms
+step:500/1194 train_time:12126ms step_avg:24.25ms
+step:525/1194 train_time:12880ms step_avg:24.53ms
+step:550/1194 train_time:13651ms step_avg:24.82ms
+step:575/1194 train_time:14416ms step_avg:25.07ms
+step:600/1194 train_time:15193ms step_avg:25.32ms
+step:600/1194 val_loss:3.8262 train_time:15359ms step_avg:25.60ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=600 total=1194 train_time_s=15.3594 val_loss=3.826226 final=0
+step:625/1194 train_time:15971ms step_avg:25.55ms
+step:650/1194 train_time:16749ms step_avg:25.77ms
+step:675/1194 train_time:17515ms step_avg:25.95ms
+step:700/1194 train_time:18501ms step_avg:26.43ms
+step:725/1194 train_time:19630ms step_avg:27.08ms
+step:750/1194 train_time:20777ms step_avg:27.70ms
+step:750/1194 val_loss:3.5691 train_time:21022ms step_avg:28.03ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=750 total=1194 train_time_s=21.0224 val_loss=3.569143 final=0
+step:775/1194 train_time:21926ms step_avg:28.29ms
+step:800/1194 train_time:23078ms step_avg:28.85ms
+step:825/1194 train_time:24205ms step_avg:29.34ms
+step:850/1194 train_time:25353ms step_avg:29.83ms
+step:875/1194 train_time:26486ms step_avg:30.27ms
+step:900/1194 train_time:27639ms step_avg:30.71ms
+step:900/1194 val_loss:3.4771 train_time:27880ms step_avg:30.98ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=900 total=1194 train_time_s=27.8796 val_loss=3.477052 final=0
+step:925/1194 train_time:28780ms step_avg:31.11ms
+step:950/1194 train_time:29934ms step_avg:31.51ms
+step:975/1194 train_time:31087ms step_avg:31.88ms
+step:1000/1194 train_time:32309ms step_avg:32.31ms
+step:1025/1194 train_time:33509ms step_avg:32.69ms
+step:1050/1194 train_time:34727ms step_avg:33.07ms
+step:1050/1194 val_loss:3.3556 train_time:34986ms step_avg:33.32ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=1050 total=1194 train_time_s=34.9861 val_loss=3.355637 final=0
+step:1075/1194 train_time:35986ms step_avg:33.48ms
+step:1100/1194 train_time:37214ms step_avg:33.83ms
+step:1125/1194 train_time:38349ms step_avg:34.09ms
+step:1150/1194 train_time:39521ms step_avg:34.37ms
+step:1175/1194 train_time:40706ms step_avg:34.64ms
+step:1193/1194 train_time:41211ms step_avg:34.54ms
+step:1194/1194 train_time:41233ms step_avg:34.53ms
+step:1194/1194 val_loss:3.2733 train_time:41499ms step_avg:34.76ms INVALID_FOR_RECORD(val_curve)
+METRIC val step=1194 total=1194 train_time_s=41.4994 val_loss=3.273281 final=1
+METRIC step_latency scope=all steps=1-1193 n=1186 mean_ms=32.655 median_ms=32.070 p95_ms=57.020 max_ms=64.592 clock=host_nosync
+METRIC step_latency scope=stage0 steps=1-319 n=317 mean_ms=16.533 median_ms=11.500 p95_ms=24.345 max_ms=41.094 clock=host_nosync
+METRIC step_latency scope=stage1 steps=320-680 n=359 mean_ms=29.818 median_ms=28.468 p95_ms=40.077 max_ms=42.867 clock=host_nosync
+METRIC step_latency scope=stage2 steps=681-1106 n=423 mean_ms=45.134 median_ms=44.652 p95_ms=59.108 max_ms=64.592 clock=host_nosync
+METRIC step_latency scope=stage3 steps=1107-1173 n=67 mean_ms=46.461 median_ms=45.927 p95_ms=64.006 max_ms=64.422 clock=host_nosync
+METRIC step_latency scope=stage4 steps=1174-1193 n=20 mean_ms=28.932 median_ms=22.587 p95_ms=51.878 max_ms=51.879 clock=host_nosync
+METRIC clock_split step0_ms=1103.644 loop_end_ms=41233.121 tail_ms=266.234 total_ms=41499.355 clock=host_nosync
+METRIC peak_mem rank=0 allocated_mib=48436 reserved_mib=62120 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=1 allocated_mib=48428 reserved_mib=62304 warmup_allocated_mib=34018 warmup_reserved_mib=45214
+METRIC peak_mem rank=2 allocated_mib=48430 reserved_mib=62306 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=3 allocated_mib=48429 reserved_mib=62304 warmup_allocated_mib=34017 warmup_reserved_mib=45210
+METRIC peak_mem rank=4 allocated_mib=48433 reserved_mib=62300 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=5 allocated_mib=48432 reserved_mib=62118 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=6 allocated_mib=48432 reserved_mib=62298 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=7 allocated_mib=48430 reserved_mib=62300 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=max allocated_mib=48436 reserved_mib=62306 warmup_allocated_mib=34018 warmup_reserved_mib=45214
+peak memory allocated: 48436 MiB reserved: 62120 MiB

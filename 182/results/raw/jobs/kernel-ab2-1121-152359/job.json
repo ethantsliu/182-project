@@ -1,0 +1,12 @@
+{
+ "state": "COMPUTE_RUN_STATE_SUCCEEDED",
+ "release_state": "COMPUTE_RELEASE_STATE_RELEASED",
+ "created_at": "2026-11-21T23:24:02.391Z",
+ "max_runtime_seconds": 2700,
+ "spend": {
+  "currency": "USD",
+  "amount": "10.628822",
+  "gpu_hours": "5.314411",
+  "price_per_gpu_hour": "2.00000000"
+ }
+}

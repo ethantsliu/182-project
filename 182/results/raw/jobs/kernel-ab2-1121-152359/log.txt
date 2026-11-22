@@ -1,0 +1,30 @@
+lor: running as your lor login sign-in for https://lor.mirendil.dev
+Waiting for task to start. It may take a few minutes.
+Waiting for task resources on 1 node.
+Job started.
+W: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/InRelease: Key is stored in legacy trusted.gpg keyring (/etc/apt/trusted.gpg), see the DEPRECATION section in apt-key(8) for details.
+debconf: delaying package configuration, since apt-utils is not installed
+LOR setup rc=0 secs=153
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source .venv-run/bin/activate   (torchrun must be this venv's: .venv-run/bin/torchrun)
+
+node report: /work/182-project/node_report.txt (0 failure(s))
+26672e9 182/lor: kernel_ab2.sh runs loss curves, then base/gram222s pairs with swapped order, then the ceiling
+LOR 23:35:03 curve-base-s5 start
+LOR 23:46:02 curve-base-s5 rc=0 train_time_s=41.4994 val_loss=3.273281 final=1 split step0_ms=1103.644 loop_end_ms=41233.121 tail_ms=266.234 total_ms=41499.
+LOR 23:46:02 curve-gram222s-s5 start
+LOR 23:52:48 curve-gram222s-s5 rc=0 train_time_s=40.5003 val_loss=3.274384 final=1 split step0_ms=166.081 loop_end_ms=40227.952 tail_ms=272.326 total_ms=40500.2
+LOR 23:52:48 gram222s-s6 start
+LOR 23:56:33 gram222s-s6 rc=0 train_time_s=40.4851 val_loss=3.276890 final=1 split step0_ms=258.602 loop_end_ms=40089.852 tail_ms=395.271 total_ms=40485.1
+LOR 23:56:33 base-s6 start
+LOR 00:00:21 base-s6 rc=0 train_time_s=40.4479 val_loss=3.277197 final=1 split step0_ms=158.199 loop_end_ms=40058.719 tail_ms=389.189 total_ms=40447.9
+LOR 00:00:21 base-s7 start
+LOR 00:04:04 base-s7 rc=0 train_time_s=40.4353 val_loss=3.276937 final=1 split step0_ms=145.731 loop_end_ms=40042.623 tail_ms=392.670 total_ms=40435.2
+LOR 00:04:04 gram222s-s7 start
+LOR 00:07:45 gram222s-s7 rc=0 train_time_s=40.3800 val_loss=3.276107 final=1 split step0_ms=156.434 loop_end_ms=39977.877 tail_ms=402.081 total_ms=40379.9
+LOR 00:07:45 skipmatrix-s6 start
+LOR 00:11:54 skipmatrix-s6 rc=0 train_time_s=40.1823 val_loss=3.453502 final=1 split step0_ms=151.361 loop_end_ms=39800.758 tail_ms=381.542 total_ms=40182.3
+LOR 00:11:54 skip skipmatrix-s7 (deadline: 2211 s elapsed)
+LOR 00:11:54 all done
+LOR command rc=0 secs=2364

@@ -18,6 +18,7 @@ RAW = RES / "raw/bringup-1119"
 PALETTE = {"blue_main": "#0F4D92", "blue_secondary": "#3775BA", "green_3": "#8BCF8B", "red_2": "#E9A6A1",
            "red_strong": "#B64342", "neutral": "#CFCECE", "teal": "#42949E", "violet": "#9A4D8E"}
 C_RECORD, C_OURS, C_CEIL = PALETTE["red_2"], PALETTE["blue_main"], PALETTE["neutral"]
+C_RECORD_DARK = PALETTE["red_strong"]
 plt.rcParams.update({"font.family": ["Helvetica", "Arial", "DejaVu Sans", "sans-serif"], "font.size": 16,
                      "axes.spines.right": False, "axes.spines.top": False, "axes.linewidth": 2,
                      "legend.frameon": False, "xtick.major.width": 2, "ytick.major.width": 2})
@@ -130,5 +131,65 @@ def fig_profile():
     print(" profile", rows)
 
 
+# ---------------------------------------------------------------- 5. paired step-loop differences, both sessions
+RAW2 = RES / "raw/jobs/kernel-ab2-1121-152359/out"
+PAIRS = {  # seed: (base, gram222s, skip_matrix or None); seeds 1-3 bring-up node, 6-7 second node (order swapped)
+    1: (RAW / "base.log", RAW / "gram222s-s1.log", RAW / "skipmatrix.log"),
+    2: (RAW / "base-s2.log", RAW / "gram222s-s2.log", RAW / "skipmatrix-s2.log"),
+    3: (RAW / "base-s3.log", RAW / "gram222s-s3.log", RAW / "skipmatrix-s3.log"),
+    6: (RAW2 / "root-base-s6.log", RAW2 / "root-gram222s-s6.log", RAW2 / "root-skipmatrix-s6.log"),
+    7: (RAW2 / "root-base-s7.log", RAW2 / "root-gram222s-s7.log", None),
+}
+
+def step_ms(path):
+    for l in open(path, errors="ignore"):
+        if "METRIC step_latency scope=all" in l:
+            return float(re.search(r"mean_ms=([\d.]+)", l).group(1))
+
+def final(path):
+    for l in open(path, errors="ignore"):
+        m = re.search(r"METRIC val step=\d+ total=\d+ train_time_s=([\d.]+) val_loss=([\d.]+) final=1", l)
+        if m:
+            return float(m.group(1)), float(m.group(2))
+
+def fig_paired():
+    dg = {s: step_ms(g) - step_ms(b) for s, (b, g, k) in PAIRS.items()}
+    dk = {s: step_ms(k) - step_ms(b) for s, (b, g, k) in PAIRS.items() if k is not None}
+    fig, ax = plt.subplots(figsize=(6.2, 4.4))
+    for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space (ours)"), (dk, C_CEIL, "no matrix work (ceiling)"))):
+        v = list(d.values()); mu = st.mean(v); sd = st.stdev(v)
+        ax.bar(i, mu, 0.6, yerr=sd, color=col, edgecolor="black", linewidth=1.5, capsize=8, error_kw=ERR, label=lab)
+        ax.scatter(np.linspace(i - 0.2, i + 0.2, len(v)), v, color="black", s=24, zorder=4)
+        ax.text(i, min(v) - 0.022, f"{mu:.3f}", ha="center", va="top", fontsize=13)
+        se = sd / len(v) ** 0.5
+        print(f" paired {lab}: n={len(v)} per-seed {[round(x, 3) for x in v]} mean {mu:.4f} sd {sd:.4f} se {se:.4f} t {mu / se:.2f} -> {mu * 1.193:.3f} s/run")
+    ax.axhline(0, color="black", lw=2)
+    ax.set_xticks([]); ax.set_xlim(-0.6, 1.6); ax.set_ylim(-0.31, 0.03)
+    ax.set_ylabel("step time vs. record (ms)")
+    ax.legend(loc="lower left", fontsize=12)
+    save(fig, "fig_paired.png")
+    for name, idx in (("record", 0), ("gram222s", 1)):
+        loss = [final(v[idx])[1] for v in PAIRS.values()] + [final(RAW / ("base-s4.log" if idx == 0 else "../jobs/fastest-1-1119-094724/out/root-gram222s-s4.log"))[1]]
+        print(f" loss {name}: n={len(loss)} mean {st.mean(loss):.6f} sd {st.stdev(loss):.6f}")
+
+
+# ---------------------------------------------------------------- 6. validation loss during training
+def fig_curve():
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    for f, col, lab, ls in ((RAW2 / "root-curve-base-s5.log", C_RECORD_DARK, "record", "-"), (RAW2 / "root-curve-gram222s-s5.log", C_OURS, "Gram-space (ours)", "--")):
+        pts = [(int(a), float(b), float(c)) for a, b, c in re.findall(r"METRIC val step=(\d+) total=\d+ train_time_s=([\d.]+) val_loss=([\d.]+)", open(f, errors="ignore").read())]
+        # the clock of a curve run carries the validations' own overhead and, for the first run on the node, a cold
+        # first step: plot time relative to the first validation
+        t0 = pts[0][1]
+        axes[0].plot([p[0] for p in pts], [p[2] for p in pts], color=col, lw=2.5, ls=ls, marker="o", ms=6, label=lab)
+        axes[1].plot([p[1] - t0 for p in pts], [p[2] for p in pts], color=col, lw=2.5, ls=ls, marker="o", ms=6, label=lab)
+        print(" curve", lab, pts)
+    for ax, xl in ((axes[0], "training step"), (axes[1], "training time since step 150 (s)")):
+        ax.axhline(3.28, color="black", lw=1.5, ls=":", alpha=0.7)
+        ax.set_xlabel(xl); ax.set_ylabel("validation loss")
+    axes[0].legend(loc="upper right", fontsize=13)
+    save(fig, "fig_curve.png")
+
+
 if __name__ == "__main__":
-    fig_maps(); fig_bench(); fig_steploop(); fig_profile()
+    fig_maps(); fig_bench(); fig_steploop(); fig_profile(); fig_paired(); fig_curve()

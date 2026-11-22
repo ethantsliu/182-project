@@ -69,7 +69,7 @@ full update & 0.510 & 0.473 & $1.08\times$ & -- & --\\\bottomrule
 \caption{Microbenchmark of each weight group's update on one H100 (300 repetitions; bars are means, whiskers the 10th--90th percentiles). The Gram-space order helps only the tall MLP group.}\label{fig:bench}
 \end{figure}
 
-\paragraph{Q3: little carries through.} Table~\ref{tab:e2e} and Figure~\ref{fig:loop} give the end-to-end comparison. Over whole-run training time the kernel's gain is $0.080$\,s and not significant with four seeds ($p=0.11$, paired). The step loop is far more repeatable than the whole clock: there the kernel is faster in all three same-session seeds, by $0.067\pm0.008$\,ms per step (mean $\pm$ s.e.; $t=8.0$, $p\approx0.015$), which is $0.080$\,s per run or $0.2\%$. The ablation saves $0.220$\,ms per step, $0.26$\,s per run. Final validation loss is unchanged ($3.27553$ against $3.27609$), and every record and \texttt{gram222s} run reaches the $3.28$ target.
+\paragraph{Q3: little carries through.} Table~\ref{tab:e2e} and Figure~\ref{fig:loop} give the end-to-end comparison. Over whole-run training time on the first node the kernel's gain is $0.080$\,s and not significant with four seeds ($p=0.11$, paired). The step loop is far more repeatable than the whole clock. There the kernel is faster in all five paired seeds (Figure~\ref{fig:paired}), which span two nodes and both run orders, by $0.065\pm0.005$\,ms per step (mean $\pm$ s.e.; $t=13.3$, $p<0.001$): $0.077$\,s per run, or $0.2\%$. The ablation saves $0.218\pm0.010$\,ms per step over four seeds, $0.26$\,s per run. Final validation loss is unchanged ($3.27585\pm0.00080$ against $3.27641\pm0.00073$, six seeds each), every record and \texttt{gram222s} run reaches the $3.28$ target, and the validation curves of the two coincide throughout training (Figure~\ref{fig:curve}).
 
 \begin{table}[ht]\centering\small
 \begin{tabular}{lrrr}\toprule
@@ -78,7 +78,7 @@ record & $40.591\pm0.065$ & $40.014\pm0.016$ & $3.27609\pm0.00066$\\
 \texttt{gram222s} (ours) & $40.511\pm0.018$ & $39.933\pm0.004$ & $3.27553\pm0.00074$\\
 no matrix work (ceiling) & $40.320\pm0.041$ & $39.751\pm0.015$ & $3.45510\pm0.00610$\\\bottomrule
 \end{tabular}
-\caption{Full runs, 1194 steps, mean $\pm$ standard deviation across seeds.}\label{tab:e2e}
+\caption{Full runs on the first node, 1194 steps, mean $\pm$ standard deviation across seeds.}\label{tab:e2e}
 \end{table}
 
 \begin{figure}[ht]\centering
@@ -86,17 +86,27 @@ no matrix work (ceiling) & $40.320\pm0.041$ & $39.751\pm0.015$ & $3.45510\pm0.00
 \caption{Each run's clock split into the 1193 timed steps (left) and the remainder (right); points are seeds 1--3, bars and whiskers are mean $\pm$ s.d. The arms separate in the step loop. The remainder varies by $0.12$\,s regardless of arm, which hides the effect in whole-run times.}\label{fig:loop}
 \end{figure}
 
+\begin{figure}[ht]\centering
+\includegraphics[width=0.5\linewidth]{fig_paired.png}
+\caption{Paired difference in mean step time against the record at the same seed (points; bars and whiskers are mean $\pm$ s.d.). Seeds 1--3 ran on the first node with the record first; seeds 6--7 on a second node with the order swapped between seeds.}\label{fig:paired}
+\end{figure}
+
+\begin{figure}[ht]\centering
+\includegraphics[width=0.95\linewidth]{fig_curve.png}
+\caption{Validation loss during training (seed 5, validated every 150 steps; dotted line: the 3.28 target). Right: against training time measured from the first validation, because a curve run's clock also carries the cost of the extra validations.}\label{fig:curve}
+\end{figure}
+
 \section{Why the gain is small}
 \paragraph{The cost is too small.} The MLP group's matrix work is about $0.3$\,ms of a $33.5$\,ms step. Even the ablation recovers only $0.7\%$ of the run.
 
-\paragraph{The cost is partly hidden.} The microbenchmark measures $0.593$\,ms of matrix work per step, but removing it shortens a step by only $0.220$\,ms. About $60\%$ of that work overlaps other activity on the GPU and is not on the critical path.
+\paragraph{The cost is partly hidden.} The microbenchmark measures $0.593$\,ms of matrix work per step, but removing it shortens a step by only $0.218$\,ms. About $60\%$ of that work overlaps other activity on the GPU and is not on the critical path.
 
 \paragraph{The kernels are launch-bound.} The Gram-space order cuts the MLP group's arithmetic from $104$ to $71$\,GFLOP per step, but time falls by less. A product with the $2816\times768$ matrices takes $0.022$--$0.030$\,ms and a $768\times768$ product $0.014$--$0.016$\,ms: a small product has $27\%$ of the arithmetic and about $60\%$ of the time. At these sizes cost follows the number of kernel launches more than the amount of arithmetic, and our change trades four launches for five.
 
 \paragraph{Independent evidence from open speedrun submissions.} Two unmerged pull requests to the speedrun repository, built on later trainers than ours, point the same way. One reduces the cascade from six maps to four and reports $-0.19$\,s at equal loss\footnote{\url{https://github.com/KellerJordan/modded-nanogpt/pull/393}}: changing how much matrix work the optimizer does is worth tenths of a second, in line with our $0.26$\,s ceiling. Another reports $-0.35$\,s from host-side fixes at the start and end of the clock (end-of-run time $370$\,ms to about $30$\,ms, start $170$\,ms to $44$\,ms)\footnote{\url{https://github.com/KellerJordan/modded-nanogpt/pull/404}}, which is the same out-of-loop remainder that hides our kernel's effect in whole-run times, and is larger than everything the optimizer's matrix work could save. These are the authors' own measurements; we did not reproduce them.
 
 \section{Limitations}
-End-to-end runs are few (three same-session seeds per arm; a fourth seed ran on a second node), and the record arm always ran first, although its own drift over the session is $0.03$\,s. Step latencies are host-side readings. The profile covers one early window. \textbf{Loss curves over training are not yet included}: every run validated only at the end, so we report final validation loss with error bars; curves against steps and wall-clock for both arms will be added in V2. Conclusions are specific to this model, trainer and hardware.
+End-to-end runs are few (five paired seeds for the kernel and four for the ablation, over two nodes). Step latencies are host-side readings. The profile covers one early window. The trainer does not log training loss per step, so Figure~\ref{fig:curve} shows validation loss only, for one seed per arm. The time outside the step loop is about $0.15$\,s before the first step's end and $0.39$\,s after the last step; we did not try to reduce it. Conclusions are specific to this model, trainer and hardware.
 
 \section{Reproducibility}
 Code, job scripts, raw logs and the scripts that regenerate every table and figure are in \url{https://github.com/ethantsliu/182-project} (\texttt{182/results/}, \texttt{182/optim-kernel/}, \texttt{182/paper/}). The kernel is enabled with \texttt{ANVIL\_KERNEL=gram222s} and the ablation with \texttt{ANVIL\_ABLATE=skip\_matrix}; with no flag set the trainer is the record. Checkpoints will be added with V2. Figure styling follows the conventions of the \texttt{figures4papers} repository by Chen Liu (\url{https://github.com/ChenLiu-1996/figures4papers}).
