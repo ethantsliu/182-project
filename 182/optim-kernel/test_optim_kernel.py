@@ -30,7 +30,10 @@ from track_1_short import config  # noqa: E402
 from track_1_short.perf import anvil_kernel as AK  # noqa: E402
 
 MAPS, MARGIN, EPS = bench.MAPS, bench.MARGIN, bench.EPS
-KERNELS = sorted(config.ANVIL_KERNELS)
+# gram42s is the stress case (four maps chained before a restart). It is expected to miss the accuracy limits on
+# heavy-tailed spectra, so the accuracy tests leave it out; its own test below states what it does.
+STRESS_KERNELS = ("gram42s",)
+KERNELS = sorted(k for k in config.ANVIL_KERNELS if k not in STRESS_KERNELS)
 # The banks' per-rank shapes / 8: qk (wide, 1:3), vo (square), mlp (tall, 11:3).
 SHAPES = {"qk_bank": (6, 32, 96), "vo_bank": (2, 96, 96), "mlp_bank": (3, 352, 96)}
 HAS_CUDA = torch.cuda.is_available()
@@ -239,7 +242,7 @@ def test_flags_are_registered_and_validated(monkeypatch):
         _reload_config(monkeypatch)
     assert config.ANVIL_KERNEL == ""
     for groups, sym in config.ANVIL_KERNELS.values():
-        assert sum(groups) == len(MAPS) and max(groups) <= 3 and isinstance(sym, bool)
+        assert sum(groups) == len(MAPS) and max(groups) <= 4 and isinstance(sym, bool)  # 4: the gram42s stress case
     doc = config.__doc__
     assert "ANVIL_KERNEL / ANVIL_ABLATE / ANVIL_BANKS" in doc
     trainer = _src("train_gpt.py")
@@ -371,3 +374,30 @@ def test_gram_space_order_equals_the_record_order_in_float64():
             Q = P if Q is None else Q @ P
         G = G @ Q
     assert torch.linalg.matrix_norm(G - R) / torch.linalg.matrix_norm(R) < 1e-12
+
+
+def test_four_chained_maps_lose_accuracy_on_a_heavy_tailed_spectrum():
+    """The stress case gram42s: on a sigma ~ 1/i spectrum, four maps chained on the Gram matrix in bf16 are several
+    times further from the exact update than groups of two; on a flat spectrum the two are close."""
+    torch.manual_seed(0)
+    n, rows, cols = 1, 704, 192
+    def spectrum(p):
+        U, _ = torch.linalg.qr(torch.randn(rows, cols, dtype=torch.float64))
+        V, _ = torch.linalg.qr(torch.randn(cols, cols, dtype=torch.float64))
+        sv = torch.arange(1, cols + 1, dtype=torch.float64) ** -p
+        return ((U * sv) @ V.mT).to(torch.bfloat16)[None]
+    def exact(X):
+        Xd = X.double()
+        Xd = Xd / (MARGIN * torch.linalg.matrix_norm(Xd)[..., None, None] + EPS)
+        eye = torch.eye(cols, dtype=torch.float64)
+        for a, b, c in MAPS:
+            A = Xd.mT @ Xd
+            Xd = Xd @ (a * eye + b * A + c * A @ A)
+        return Xd
+    def err(X, groups):
+        out = AK.gram_cascade(X, AK.RefOps(True), MAPS, groups, MARGIN, EPS).double()
+        ref = exact(X)
+        return (torch.linalg.matrix_norm(out - ref) / torch.linalg.matrix_norm(ref)).item()
+    heavy, flat = spectrum(1.0), spectrum(0.0)
+    assert err(heavy, (4, 2)) > 2 * err(heavy, (2, 2, 2))
+    assert err(flat, (4, 2)) < 2 * err(flat, (2, 2, 2)) + 0.01

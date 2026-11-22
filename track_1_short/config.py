@@ -219,6 +219,9 @@ ANVIL_KERNELS = {
     "gram222s": ((2, 2, 2), True),
     "gram33": ((3, 3), False),
     "gram33s": ((3, 3), True),
+    # Stress case, not a candidate: four maps chained before a restart lose accuracy on heavy-tailed spectra in bf16
+    # (182/optim-kernel/README.md). Kept to measure what that does to training.
+    "gram42s": ((4, 2), True),
 }
 ANVIL_BANK_LABELS = ("qk_bank", "vo_bank", "mlp_bank")
 
