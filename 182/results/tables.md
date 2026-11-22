@@ -9,7 +9,7 @@ sd is the sample standard deviation (n-1), se = sd/sqrt(n), CIs and p-values use
 | tree / config | runs | mean time (s) | sd | min | max | mean val loss | sd | worst val loss | runs at or under target | peak GPU mem allocated (MiB) | loop ms/step | METRIC mean step (ms) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | root record #92, baseline | 4 | 40.591 | 0.065 | 40.531 | 40.683 | 3.27609 | 0.00066 | 3.276999 | 4 | 48413 | 33.667 | 33.544 |
-| root, ANVIL_KERNEL=gram222s (ours) | 4 | 40.511 | 0.018 | 40.496 | 40.535 | 3.27553 | 0.00074 | 3.276415 | 4 | 48413 | 33.595 | 33.445 |
+| root, ANVIL_KERNEL=gram222s (ours) | 7 | 40.487 | 0.050 | 40.380 | 40.535 | 3.27564 | 0.00092 | 3.276890 | 7 | 48413-48439 | 33.590 | 33.307 |
 | t1-gpu-stack (upstream PR #397 tree) | 2 | 30.719 | 0.000 | 30.719 | 30.719 | 3.27692 | 0.00028 | 3.277120 | 2 | 34310 | 28.802 | - |
 | t1-cpu-ngram, 675 scheduled steps (upstream PR #381), all runs | 17 | 10.170 | 0.321 | 9.798 | 10.711 | 3.27526 | 0.00173 | 3.2778 | 17 | 49531 | 13.544 | - |
 | t1-cpu-ngram, 675, without each job's first run | 12 | 10.000 | 0.200 | 9.798 | 10.522 | 3.27483 | 0.00180 | 3.2778 | 12 | 49531 | 13.538 | - |
@@ -48,6 +48,25 @@ it leaves out step 0). Peak memory: root rows are
 | base | 4 | 40.6828 / 40.5660 / 40.5309 / 40.5843 | 40.5910 | 0.0651 | 3.275422 / 3.276999 / 3.276056 / 3.275874 | 3.276088 | 0.000663 | 33.544 |
 | gram222s | 4 | 40.5149 / 40.4974 / 40.5346 / 40.4962 | 40.5108 | 0.0180 | 3.274867 / 3.276415 / 3.274970 / 3.275853 | 3.275526 | 0.000740 | 33.445 |
 | skip_matrix | 4 | 40.2783 / 40.3254 / 40.3744 / 40.3003 | 40.3196 | 0.0413 | 3.448960 / 3.451657 / 3.462739 / 3.457042 | 3.455099 | 0.006101 | 33.294 |
+
+### B2b. Second session (job kernel-ab2, another node; order swapped between seeds)
+
+| order | arm | seed | train time (s) | val loss | mean step (ms) |
+|---|---|---|---|---|---|
+| 3 | gram222s | 6 | 40.4851 | 3.276890 | 33.387 |
+| 4 | base | 6 | 40.4479 | 3.277197 | 33.446 |
+| 5 | base | 7 | 40.4353 | 3.276937 | 33.442 |
+| 6 | gram222s | 7 | 40.3800 | 3.276107 | 33.379 |
+| 7 | skip_matrix | 6 | 40.1823 | 3.453502 | 33.235 |
+
+
+Paired difference in mean step time (ms), same seed, both sessions:
+
+| difference | pairs | by seed | mean (ms) | sd | se | t | s per run (x 1193 steps) |
+|---|---|---|---|---|---|---|---|
+| gram222s - base | 5 | -0.082 (s1) / -0.067 (s2) / -0.053 (s3) / -0.059 (s6) / -0.063 (s7) | -0.0648 | 0.0109 | 0.0049 | -13.27 | -0.077 |
+| skip_matrix - base | 4 | -0.246 (s1) / -0.217 (s2) / -0.198 (s3) / -0.211 (s6) | -0.2180 | 0.0203 | 0.0101 | -21.50 | -0.260 |
+
 
 ### B3. Paired by seed (arm - base)
 
@@ -252,10 +271,11 @@ Invalid / failed runs (kept in runs.csv with valid=0):
 | job | state | created (UTC) | last observed (UTC) | GPU-hours | cost (USD) |
 |---|---|---|---|---|---|
 | fastest-1-1119-094724 | SUCCEEDED | 2026-11-19T17:47:26.221Z | 2026-11-19T18:50:08.905Z | 7.533346 | 15.066693 |
+| kernel-ab2-1121-152359 | SUCCEEDED | 2026-11-21T23:24:02.391Z | 2026-11-22T00:12:35.826Z | 5.314411 | 10.628822 |
 | ngram-ab-1119-112013 | SUCCEEDED | 2026-11-19T19:20:16.522Z | 2026-11-19T20:04:23.760Z | 4.666533 | 9.333066 |
 | ngram-confirm-1119-150812 | SUCCEEDED | 2026-11-19T23:08:17.209Z | 2026-11-19T23:56:58.795Z | 6.220315 | 12.440631 |
 | ngram-final-1119-160156 | SUCCEEDED | 2026-11-20T00:01:58.192Z | 2026-11-20T00:26:47.962Z | 2.866577 | 5.733155 |
 | ngram-pairs2-1119-162744 | SUCCEEDED | 2026-11-20T00:27:48.027Z | 2026-11-20T01:16:58.663Z | 6.246262 | 12.492524 |
 | ngram-steps-1119-141852 | SUCCEEDED | 2026-11-19T22:18:55.820Z | 2026-11-19T23:07:31.686Z | 5.288095 | 10.576191 |
 
-Total: 32.82 GPU-hours, $65.64 (the interactive bring-up node is not in this list).
+Total: 38.14 GPU-hours, $76.27 (the interactive bring-up node is not in this list).

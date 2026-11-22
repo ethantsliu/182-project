@@ -164,6 +164,18 @@ def collect_runs():
         if not r.get("start_utc"):      # no torchrun banner in this log: take the job script's "LOR <time> <name> start" line
             r["start_utc"] = lor_time(job, base[len("root-"):-len(".log")] + " start")
         r["env"] = " ".join(x for x in ["RUN_METRICS=1", f"TRAIN_SEED={r['seed']}", r["flags"]] if x)
+    # root tree, second session (job kernel-ab2, another node): two VAL_CURVE runs, then base / gram222s with the order
+    # swapped per seed and one skip_matrix run. Kept as its own experiments so the first session's tables stay as they were.
+    for rel in rglob("jobs/kernel-ab2-*/out/root-*.log"):
+        base = os.path.basename(rel)[len("root-"):-len(".log")]
+        job = rel.split("/")[1]
+        curve = base.startswith("curve-")
+        r = add(rel, job=job, tree="root (record #92)", track="1", experiment="val_curve" if curve else "kernel_ab2",
+                role="curve" if curve else "ab",
+                note="VAL_CURVE=150: validates every 150 steps; not a timing run" if curve else "")
+        if not r.get("start_utc"):
+            r["start_utc"] = lor_time(job, base + " start")
+        r["env"] = " ".join(x for x in ["RUN_METRICS=1", "VAL_CURVE=150" if curve else "", f"TRAIN_SEED={r['seed']}", r["flags"]] if x)
     for rel in rglob("jobs/fastest-1-*/out/session/profile/root/train.out"):
         job = rel.split("/")[1]
         add(rel, job=job, tree="root (record #92)", track="1", experiment="profile", role="profile", seed="random",
@@ -334,6 +346,23 @@ def build_tables(rows):
         tab.append([arm, len(rs), " / ".join(r["train_time_s"] for r in rs), f(mean(ts), 4), f(sd(ts), 4), " / ".join(r["val_loss"] for r in rs),
                     f(mean(vs), 6), f(sd(vs), 6), f(mean(ms))])
     o += [md_table(["arm", "n", "train time by seed 1-4 (s)", "mean (s)", "sd", "val loss by seed 1-4", "mean val loss", "sd", "mean step (ms)"], tab)]
+    # second session and the step-time pairs over both sessions (seed 4 is left out: its arms ran on different nodes)
+    k2 = [r for r in ok if r["experiment"] == "kernel_ab2"]
+    if k2:
+        o += ["### B2b. Second session (job kernel-ab2, another node; order swapped between seeds)", ""]
+        o += [md_table(["order", "arm", "seed", "train time (s)", "val loss", "mean step (ms)"],
+                       [[r["order_in_job"], arm_of(r), r["seed"], r["train_time_s"], r["val_loss"], r["mean_step_ms"]]
+                        for r in sorted(k2, key=lambda r: int(r["order_in_job"]))]), ""]
+        both = {(arm_of(r), r["seed"]): r for r in k + k2 if r["seed"] != "4"}
+        tab = []
+        for arm in ["gram222s", "skip_matrix"]:
+            ds = [(sd_, float(both[(arm, sd_)]["mean_step_ms"]) - float(both[("base", sd_)]["mean_step_ms"]))
+                  for sd_ in "12367" if (arm, sd_) in both and ("base", sd_) in both]
+            xs = [d for _, d in ds]; m_ = mean(xs); s_ = sd(xs); se = s_ / math.sqrt(len(xs))
+            tab.append([f"{arm} - base", len(xs), " / ".join(f"{d:+.3f} (s{q})" for q, d in ds), f(m_, 4), f(s_, 4), f(se, 4), f(m_ / se, 2),
+                        f(m_ * 1.193, 3)])
+        o += ["Paired difference in mean step time (ms), same seed, both sessions:", "",
+              md_table(["difference", "pairs", "by seed", "mean (ms)", "sd", "se", "t", "s per run (x 1193 steps)"], tab), ""]
     o += ["### B3. Paired by seed (arm - base)", ""]
     bys = {(arm_of(r), r["seed"]): r for r in k}
     tab = []

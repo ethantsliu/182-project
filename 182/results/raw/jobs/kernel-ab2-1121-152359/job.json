@@ -1,8 +1,20 @@
 {
+ "name": "kernel-ab2",
  "state": "COMPUTE_RUN_STATE_SUCCEEDED",
  "release_state": "COMPUTE_RELEASE_STATE_RELEASED",
  "created_at": "2026-11-21T23:24:02.391Z",
+ "observed_at": "2026-11-22T00:12:35.826Z",
  "max_runtime_seconds": 2700,
+ "preemption_count": 0,
+ "resources": {
+  "workers": 1,
+  "accelerator": {
+   "kind": "COMPUTE_ACCELERATOR_KIND_GPU",
+   "model": "H100",
+   "count_per_worker": 8
+  },
+  "tier": "COMPUTE_TIER_PREEMPTIBLE"
+ },
  "spend": {
   "currency": "USD",
   "amount": "10.628822",
