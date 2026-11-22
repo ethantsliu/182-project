@@ -1,0 +1,101 @@
+slurmstepd: error: couldn't chdir to `/home/ethantsliu/nanogpt': No such file or directory: going to /tmp instead
+slurmstepd: error: couldn't chdir to `/home/ethantsliu/nanogpt': No such file or directory: going to /tmp instead
+QL 05:12:10 host SF-Compute-odin5-gpu-018 gpus 8 cpus 112
+QL 05:12:20 uv install rc=0
+QL 05:12:20 setup start
+QL 05:21:43 setup rc=0
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 432 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/activate   (torchrun must be this venv's: /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/torchrun)
+
+node report: /mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/node_report.txt (0 failure(s))
+torch 2.10.0+cu128 triton 3.6.0 gpus 8
+QL 05:21:45 sweep start
+QL 05:23:54 sweep rc=1 116 rows
+QL 05:24:24 bench rc=0
+QL 05:24:24 curve-base-s5 start
+QL 05:34:25 curve-base-s5 rc=0 train_time_s=40.8468 val_loss=3.273061 final=1 train_lines=48
+QL 05:34:25 checkpoint 898M
+QL 05:34:25 curve-gram222s-s5 start
+QL 05:39:44 curve-gram222s-s5 rc=0 train_time_s=40.5511 val_loss=3.273521 final=1 train_lines=48
+QL 05:39:44 checkpoint 898M
+QL 05:39:44 curve-gram222s-s6 start
+QL 05:44:03 curve-gram222s-s6 rc=0 train_time_s=40.5010 val_loss=3.276892 final=1 train_lines=48
+QL 05:44:03 curve-base-s6 start
+QL 05:48:35 curve-base-s6 rc=0 train_time_s=40.5175 val_loss=3.277917 final=1 train_lines=48
+QL 05:48:35 curve-base-s7 start
+QL 05:53:02 curve-base-s7 rc=0 train_time_s=40.5867 val_loss=3.276423 final=1 train_lines=48
+QL 05:53:02 curve-gram222s-s7 start
+QL 05:57:32 curve-gram222s-s7 rc=0 train_time_s=40.5383 val_loss=3.275588 final=1 train_lines=48
+QL 05:57:32 time-warmup-s99 start
+QL 06:01:50 time-warmup-s99 rc=0 train_time_s=40.3653 val_loss=3.275864 final=1
+QL 06:01:50 time-base-s8 start
+QL 06:05:42 time-base-s8 rc=0 train_time_s=40.4294 val_loss=3.276462 final=1
+QL 06:05:42 time-gram222s-s8 start
+QL 06:09:45 time-gram222s-s8 rc=0 train_time_s=40.3441 val_loss=3.274850 final=1
+QL 06:09:45 time-skipmatrix-s8 start
+QL 06:14:03 time-skipmatrix-s8 rc=0 train_time_s=40.0806 val_loss=3.464363 final=1
+QL 06:14:03 time-gram222s-s9 start
+QL 06:18:14 time-gram222s-s9 rc=0 train_time_s=40.3169 val_loss=3.278722 final=1
+QL 06:18:14 time-skipmatrix-s9 start
+QL 06:22:12 time-skipmatrix-s9 rc=0 train_time_s=40.0934 val_loss=3.475038 final=1
+QL 06:22:12 time-base-s9 start
+QL 06:26:11 time-base-s9 rc=0 train_time_s=40.3426 val_loss=3.278008 final=1
+QL 06:26:11 time-skipmatrix-s10 start
+QL 06:30:13 time-skipmatrix-s10 rc=0 train_time_s=40.1156 val_loss=3.454519 final=1
+QL 06:30:14 time-base-s10 start
+QL 06:34:12 time-base-s10 rc=0 train_time_s=40.4065 val_loss=3.277603 final=1
+QL 06:34:12 time-gram222s-s10 start
+QL 06:38:14 time-gram222s-s10 rc=0 train_time_s=40.2919 val_loss=3.277020 final=1
+QL 06:38:14 time-base-s11 start
+QL 06:42:14 time-base-s11 rc=0 train_time_s=40.3078 val_loss=3.279324 final=1
+QL 06:42:14 time-skipmatrix-s11 start
+QL 06:46:12 time-skipmatrix-s11 rc=0 train_time_s=40.0957 val_loss=3.457217 final=1
+QL 06:46:12 time-gram222s-s11 start
+QL 06:50:14 time-gram222s-s11 rc=0 train_time_s=40.3380 val_loss=3.277545 final=1
+QL 06:50:14 time-gram222s-s12 start
+QL 06:54:14 time-gram222s-s12 rc=0 train_time_s=40.3173 val_loss=3.275851 final=1
+QL 06:54:14 time-base-s12 start
+QL 06:58:12 time-base-s12 rc=0 train_time_s=40.3346 val_loss=3.275951 final=1
+QL 06:58:12 time-skipmatrix-s12 start
+QL 07:02:12 time-skipmatrix-s12 rc=0 train_time_s=40.1205 val_loss=3.453524 final=1
+QL 07:02:12 time-skipmatrix-s13 start
+QL 07:06:14 time-skipmatrix-s13 rc=0 train_time_s=40.0871 val_loss=3.450828 final=1
+QL 07:06:14 time-gram222s-s13 start
+QL 07:10:12 time-gram222s-s13 rc=0 train_time_s=40.2961 val_loss=3.276626 final=1
+QL 07:10:12 time-base-s13 start
+QL 07:14:11 time-base-s13 rc=0 train_time_s=40.3568 val_loss=3.277724 final=1
+QL 07:14:11 curve-gram33s-s5 start
+QL 07:18:29 curve-gram33s-s5 rc=0  train_lines=48
+QL 07:18:29 curve-gram33s-s6 start
+QL 07:22:31 curve-gram33s-s6 rc=0 train_time_s=40.5021 val_loss=3.276379 final=1 train_lines=48
+QL 07:22:31 curve-gram33s-s7 start
+QL 07:27:00 curve-gram33s-s7 rc=0 train_time_s=40.4492 val_loss=3.277907 final=1 train_lines=48
+QL 07:27:00 curve-gram42s-s5 start
+QL 07:28:27 curve-gram42s-s5 rc=1  train_lines=0
+QL 07:28:27 curve-gram42s-s6 start
+QL 07:30:07 curve-gram42s-s6 rc=1  train_lines=0
+QL 07:30:07 late-stage profile start
+QL 07:33:37 profile rc=0
+steps profiled: 20 (device 0); GPU window 46.05 ms/step, CPU step 35.11 ms; busy 45.39 ms, idle 0.66 ms (1.4%)
+graph coverage: 140 cudaGraphLaunch call(s), 17061 of 18255 kernels traced from graph replays
+
+category                                              ms/step  % step
+NCCL communication                                      4.095    8.9%
+attention backward                                      5.577   12.1%
+attention forward                                       1.755    3.8%
+optimizer (polar/Newton-Schulz, Adam)                   0.540    1.2%
+dense GEMMs (MLP, projections, head)                   22.896   49.7%
+fp8 quantize / scales                                   2.179    4.7%
+loss / head (CE, sampled softmax, CPLM)                 0.753    1.6%
+row gather/scatter (n-gram, value-embed, MoE dispatch)    1.537    3.3%
+memcpy / memset                                         0.391    0.8%
+elementwise / other                                     7.616   16.5%
+idle (window minus union of all kernels)                0.659    1.4%
+NCCL: 4.095 ms/step of kernels, 0.282 ms exposed (not under any compute kernel); 93% overlapped
+(categories overlap across streams, so they may sum past 100%)
+
+top 25 kernels by total time:
+ ms/step  % step  calls   avg us  category   kernel
+QL 07:33:44 all done; nanogpt/ uses 12G

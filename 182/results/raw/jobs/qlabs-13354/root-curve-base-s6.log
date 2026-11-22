@@ -1,0 +1,150 @@
+W1122 05:44:05.670000 4025988 torch/distributed/run.py:852] 
+W1122 05:44:05.670000 4025988 torch/distributed/run.py:852] *****************************************
+W1122 05:44:05.670000 4025988 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1122 05:44:05.670000 4025988 torch/distributed/run.py:852] *****************************************
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 4 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/curve-base-s6/47fb40a4-8e16-40bd-9258-92b0dc08b82f.txt
+TRAIN_LOG_PATH=/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/curve-base-s6/47fb40a4-8e16-40bd-9258-92b0dc08b82f.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+METRIC run_config timing=curve_run RUN_METRICS=1 VAL_CURVE=150 seed=6 world_size=8 total_steps=1194
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+METRIC train step=0 total=1194 loss=278885.406250 rank=0
+step:25/1194 train_time:478ms step_avg:19.13ms
+METRIC train step=25 total=1194 loss=185711.781250 rank=0
+step:50/1194 train_time:910ms step_avg:18.19ms
+METRIC train step=50 total=1194 loss=176967.250000 rank=0
+step:75/1194 train_time:1331ms step_avg:17.75ms
+METRIC train step=75 total=1194 loss=159412.515625 rank=0
+step:100/1194 train_time:1763ms step_avg:17.63ms
+METRIC train step=100 total=1194 loss=156382.343750 rank=0
+step:125/1194 train_time:2184ms step_avg:17.47ms
+METRIC train step=125 total=1194 loss=148863.218750 rank=0
+step:150/1194 train_time:2615ms step_avg:17.43ms
+step:150/1194 val_loss:4.8934 train_time:2821ms step_avg:18.81ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=150 total=1194 train_time_s=2.8211 val_loss=4.893411 final=0
+METRIC train step=150 total=1194 loss=145138.062500 rank=0
+step:175/1194 train_time:3161ms step_avg:18.06ms
+METRIC train step=175 total=1194 loss=146376.578125 rank=0
+step:200/1194 train_time:3593ms step_avg:17.96ms
+METRIC train step=200 total=1194 loss=139338.312500 rank=0
+step:225/1194 train_time:4015ms step_avg:17.84ms
+METRIC train step=225 total=1194 loss=137497.468750 rank=0
+step:250/1194 train_time:4446ms step_avg:17.79ms
+METRIC train step=250 total=1194 loss=134172.562500 rank=0
+step:275/1194 train_time:4868ms step_avg:17.70ms
+METRIC train step=275 total=1194 loss=130735.765625 rank=0
+step:300/1194 train_time:5300ms step_avg:17.67ms
+step:300/1194 val_loss:4.5470 train_time:5401ms step_avg:18.00ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=300 total=1194 train_time_s=5.4009 val_loss=4.547033 final=0
+METRIC train step=300 total=1194 loss=126465.203125 rank=0
+step:325/1194 train_time:5742ms step_avg:17.67ms
+METRIC train step=325 total=1194 loss=252787.328125 rank=0
+step:350/1194 train_time:6510ms step_avg:18.60ms
+METRIC train step=350 total=1194 loss=228962.921875 rank=0
+step:375/1194 train_time:7274ms step_avg:19.40ms
+METRIC train step=375 total=1194 loss=229665.468750 rank=0
+step:400/1194 train_time:8048ms step_avg:20.12ms
+METRIC train step=400 total=1194 loss=218492.406250 rank=0
+step:425/1194 train_time:8807ms step_avg:20.72ms
+METRIC train step=425 total=1194 loss=202856.500000 rank=0
+step:450/1194 train_time:9578ms step_avg:21.28ms
+step:450/1194 val_loss:4.1511 train_time:9767ms step_avg:21.71ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=450 total=1194 train_time_s=9.7674 val_loss=4.151091 final=0
+METRIC train step=450 total=1194 loss=200896.218750 rank=0
+step:475/1194 train_time:10375ms step_avg:21.84ms
+METRIC train step=475 total=1194 loss=186681.156250 rank=0
+step:500/1194 train_time:11151ms step_avg:22.30ms
+METRIC train step=500 total=1194 loss=190054.687500 rank=0
+step:525/1194 train_time:11907ms step_avg:22.68ms
+METRIC train step=525 total=1194 loss=167037.843750 rank=0
+step:550/1194 train_time:12678ms step_avg:23.05ms
+METRIC train step=550 total=1194 loss=164665.437500 rank=0
+step:575/1194 train_time:13443ms step_avg:23.38ms
+METRIC train step=575 total=1194 loss=157358.812500 rank=0
+step:600/1194 train_time:14219ms step_avg:23.70ms
+step:600/1194 val_loss:3.8448 train_time:14394ms step_avg:23.99ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=600 total=1194 train_time_s=14.3939 val_loss=3.844788 final=0
+METRIC train step=600 total=1194 loss=141730.812500 rank=0
+step:625/1194 train_time:14995ms step_avg:23.99ms
+METRIC train step=625 total=1194 loss=131950.281250 rank=0
+step:650/1194 train_time:15773ms step_avg:24.27ms
+METRIC train step=650 total=1194 loss=126149.742188 rank=0
+step:675/1194 train_time:16540ms step_avg:24.50ms
+METRIC train step=675 total=1194 loss=116478.328125 rank=0
+step:700/1194 train_time:17525ms step_avg:25.04ms
+METRIC train step=700 total=1194 loss=169616.843750 rank=0
+step:725/1194 train_time:18655ms step_avg:25.73ms
+METRIC train step=725 total=1194 loss=172768.156250 rank=0
+step:750/1194 train_time:19802ms step_avg:26.40ms
+step:750/1194 val_loss:3.5795 train_time:20053ms step_avg:26.74ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=750 total=1194 train_time_s=20.0527 val_loss=3.579493 final=0
+METRIC train step=750 total=1194 loss=160152.093750 rank=0
+step:775/1194 train_time:20955ms step_avg:27.04ms
+METRIC train step=775 total=1194 loss=161066.703125 rank=0
+step:800/1194 train_time:22111ms step_avg:27.64ms
+METRIC train step=800 total=1194 loss=160992.843750 rank=0
+step:825/1194 train_time:23240ms step_avg:28.17ms
+METRIC train step=825 total=1194 loss=171272.859375 rank=0
+step:850/1194 train_time:24388ms step_avg:28.69ms
+METRIC train step=850 total=1194 loss=170692.906250 rank=0
+step:875/1194 train_time:25526ms step_avg:29.17ms
+METRIC train step=875 total=1194 loss=168086.718750 rank=0
+step:900/1194 train_time:26677ms step_avg:29.64ms
+step:900/1194 val_loss:3.4773 train_time:26919ms step_avg:29.91ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=900 total=1194 train_time_s=26.9194 val_loss=3.477309 final=0
+METRIC train step=900 total=1194 loss=164881.812500 rank=0
+step:925/1194 train_time:27817ms step_avg:30.07ms
+METRIC train step=925 total=1194 loss=162804.921875 rank=0
+step:950/1194 train_time:28971ms step_avg:30.50ms
+METRIC train step=950 total=1194 loss=166269.156250 rank=0
+step:975/1194 train_time:30126ms step_avg:30.90ms
+METRIC train step=975 total=1194 loss=165293.265625 rank=0
+step:1000/1194 train_time:31345ms step_avg:31.35ms
+METRIC train step=1000 total=1194 loss=164825.343750 rank=0
+step:1025/1194 train_time:32546ms step_avg:31.75ms
+METRIC train step=1025 total=1194 loss=159815.718750 rank=0
+step:1050/1194 train_time:33766ms step_avg:32.16ms
+step:1050/1194 val_loss:3.3601 train_time:34024ms step_avg:32.40ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=1050 total=1194 train_time_s=34.0240 val_loss=3.360102 final=0
+METRIC train step=1050 total=1194 loss=166352.453125 rank=0
+step:1075/1194 train_time:34990ms step_avg:32.55ms
+METRIC train step=1075 total=1194 loss=157293.468750 rank=0
+step:1100/1194 train_time:36215ms step_avg:32.92ms
+METRIC train step=1100 total=1194 loss=159837.703125 rank=0
+step:1125/1194 train_time:37351ms step_avg:33.20ms
+METRIC train step=1125 total=1194 loss=134293.093750 rank=0
+step:1150/1194 train_time:38526ms step_avg:33.50ms
+METRIC train step=1150 total=1194 loss=141365.000000 rank=0
+step:1175/1194 train_time:39709ms step_avg:33.79ms
+METRIC train step=1175 total=1194 loss=52905.835938 rank=0
+step:1193/1194 train_time:40216ms step_avg:33.71ms
+step:1194/1194 train_time:40238ms step_avg:33.70ms
+step:1194/1194 val_loss:3.2779 train_time:40518ms step_avg:33.93ms INVALID_FOR_RECORD(val_curve) INVALID_FOR_RECORD(train_loss)
+METRIC val step=1194 total=1194 train_time_s=40.5175 val_loss=3.277917 final=1
+METRIC step_latency scope=all steps=1-1193 n=1186 mean_ms=32.411 median_ms=25.821 p95_ms=57.406 max_ms=332.169 clock=host_nosync
+METRIC step_latency scope=stage0 steps=1-319 n=317 mean_ms=16.321 median_ms=12.022 p95_ms=22.365 max_ms=104.710 clock=host_nosync
+METRIC step_latency scope=stage1 steps=320-680 n=359 mean_ms=29.691 median_ms=28.093 p95_ms=38.356 max_ms=188.406 clock=host_nosync
+METRIC step_latency scope=stage2 steps=681-1106 n=423 mean_ms=44.715 median_ms=42.342 p95_ms=57.407 max_ms=299.088 clock=host_nosync
+METRIC step_latency scope=stage3 steps=1107-1173 n=67 mean_ms=46.456 median_ms=45.246 p95_ms=63.937 max_ms=332.169 clock=host_nosync
+METRIC step_latency scope=stage4 steps=1174-1193 n=20 mean_ms=29.017 median_ms=19.326 p95_ms=63.105 max_ms=283.013 clock=host_nosync
+METRIC clock_split step0_ms=149.114 loop_end_ms=40237.702 tail_ms=279.808 total_ms=40517.510 clock=host_nosync
+METRIC peak_mem rank=0 allocated_mib=48436 reserved_mib=62740 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=1 allocated_mib=48435 reserved_mib=62406 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=2 allocated_mib=48430 reserved_mib=62746 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=3 allocated_mib=48428 reserved_mib=62744 warmup_allocated_mib=34017 warmup_reserved_mib=45210
+METRIC peak_mem rank=4 allocated_mib=48431 reserved_mib=62740 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=5 allocated_mib=48438 reserved_mib=62578 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=6 allocated_mib=48431 reserved_mib=62738 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+METRIC peak_mem rank=7 allocated_mib=48431 reserved_mib=62740 warmup_allocated_mib=34017 warmup_reserved_mib=45212
+METRIC peak_mem rank=max allocated_mib=48438 reserved_mib=62746 warmup_allocated_mib=34018 warmup_reserved_mib=45212
+peak memory allocated: 48436 MiB reserved: 62740 MiB

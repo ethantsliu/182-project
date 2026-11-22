@@ -16,8 +16,10 @@ This needs no GPU. It reads the archived training results in `182/results/raw/` 
 | `fig_bench.png`, Table 1 | `make_figs.py`; `182/results/tables.md` section C | `raw/bringup-1119/bench.log` |
 | `fig_profile.png` | `make_figs.py` | the profile table in `182/results/README.md` section 3.6 (source: `raw/jobs/fastest-1-*/out/session/profile/root/analysis.txt`) |
 | `fig_steploop.png`, Table 2 | `make_figs.py`; `tables.md` section B | `raw/bringup-1119/*.log`, `raw/jobs/fastest-1-*/out/root-*.log` |
-| `fig_paired.png`, stage table | `make_figs.py`; `tables.md` sections B2b and B4 | the logs above and `raw/jobs/kernel-ab2-*/out/root-*.log` |
-| `fig_curve.png` | `make_figs.py` | `raw/jobs/kernel-ab2-*/out/root-curve-*.log` |
+| `fig_paired.png`, stage table | `make_figs.py` (pairs from `make_tables.py`); `tables.md` sections B2b, B2c and B4 | the logs above, `raw/jobs/kernel-ab2-*/out/root-*.log` and `raw/jobs/qlabs-13354/root-time-*.log` |
+| `fig_curve.png` | `make_figs.py`; `tables.md` section B2c | `raw/jobs/qlabs-13354/root-curve-{base,gram222s}-s{5,6,7}.log` |
+| `fig_sweep.png` | `make_figs.py`; `tables.md` section C2 | `raw/jobs/qlabs-13354/sweep.log` |
+| `fig_profile_late.png` | `make_figs.py`; `tables.md` section D2 | `raw/jobs/qlabs-13354/profile-late/analysis.txt` |
 | `182/results/runs.csv`, `tables.md` | `182/results/make_tables.py` | all of `raw/` |
 
 The numbers in the tables of `main.tex` are typed from `tables.md` and the `METRIC` lines of the logs; `182/results/README.md` says where each one comes from.

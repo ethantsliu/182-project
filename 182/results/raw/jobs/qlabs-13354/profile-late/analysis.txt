@@ -1,0 +1,69 @@
+steps profiled: 20 (device 0); GPU window 46.05 ms/step, CPU step 35.11 ms; busy 45.39 ms, idle 0.66 ms (1.4%)
+graph coverage: 140 cudaGraphLaunch call(s), 17061 of 18255 kernels traced from graph replays
+
+category                                              ms/step  % step
+NCCL communication                                      4.095    8.9%
+attention backward                                      5.577   12.1%
+attention forward                                       1.755    3.8%
+optimizer (polar/Newton-Schulz, Adam)                   0.540    1.2%
+dense GEMMs (MLP, projections, head)                   22.896   49.7%
+fp8 quantize / scales                                   2.179    4.7%
+loss / head (CE, sampled softmax, CPLM)                 0.753    1.6%
+row gather/scatter (n-gram, value-embed, MoE dispatch)    1.537    3.3%
+memcpy / memset                                         0.391    0.8%
+elementwise / other                                     7.616   16.5%
+idle (window minus union of all kernels)                0.659    1.4%
+NCCL: 4.095 ms/step of kernels, 0.282 ms exposed (not under any compute kernel); 93% overlapped
+(categories overlap across streams, so they may sum past 100%)
+
+top 25 kernels by total time:
+ ms/step  % step  calls   avg us  category   kernel
+   6.977   15.2%   22.0    317.1  gemm       linear_relu_square_kernel
+   2.439    5.3%   21.0    116.2  gemm       nvjet_qqtst_192x192_128x4_1x2_h_bz_coopB_TNN
+   2.395    5.2%   12.0    199.6  gemm       nvjet_qrtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   1.605    3.5%    1.5   1070.2  nccl       ncclDevKernel_SendRecv(ncclDevKernelArgsStorage<4096ul>)
+   1.592    3.5%    7.0    227.4  attn_bwd   _qkv_norm_rope_pack_fp8_backward_kernel
+   1.587    3.4%   11.0    144.2  gemm       nvjet_rqtst_128x128_128x6_2x1_v_bz_coopA_algo2_TNT
+   1.420    3.1%   11.0    129.1  gemm       nvjet_qrtst_128x128_128x6_1x2_h_bz_coopA_algo2_TNT
+   1.302    2.8%    3.0    433.9  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   1.200    2.6%   29.5     40.7  other      _transpose_copy_kernel
+   1.174    2.5%    3.5    335.5  nccl       ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   1.061    2.3%    2.0    530.7  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.940    2.0%    3.5    268.4  nccl       ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)
+   0.837    1.8%    1.0    836.8  gemm       nvjet_qqhsq_192x192_128x4_1x2_h_bz_coopB_TNN
+   0.759    1.6%    1.0    759.5  gemm       nvjet_rqtst_144x128_128x6_1x2_h_bz_coopA_algo2_TNN
+   0.753    1.6%    1.0    753.4  loss_head  ce_fwd_bwd_kernel
+   0.722    1.6%    7.0    103.2  gemm       nvjet_qqtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT
+   0.662    1.4%    2.0    330.9  attn_bwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 
+   0.627    1.4%    9.0     69.7  gemm       nvjet_tst_192x192_64x3_2x1_v_bz_coopB_NNN
+   0.561    1.2%    1.0    561.1  fp8_quant  triton_red_fused__fused_rms_norm__fused_rms_norm_backward__to_copy__unsafe_view_add_bmm_clamp_div_expand_glue_
+   0.554    1.2%    7.0     79.1  gemm       nvjet_tst_192x192_64x4_2x1_v_bz_coopB_TNN
+   0.527    1.1%    3.0    175.5  attn_fwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cut
+   0.517    1.1%    7.0     73.9  attn_fwd   _qk_norm_rope_forward_kernel
+   0.458    1.0%    1.0    458.2  gemm       triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_div_index_lift_fresh_mean_mul_permut
+   0.414    0.9%    5.0     82.9  gemm       nvjet_tst_192x128_64x5_4x2_h_bz_coopB_splitK_NTT
+   0.413    0.9%    2.0    206.3  attn_fwd   void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cut
+
+largest idle gaps:
+     183.9 us in step 900: after Memcpy DtoD (Device -> Device) -> before triton_poi_fused__to_copy_select_0
+     106.0 us in step 900: after _scatter_copy_rows_kernel -> before void at::native::reduce_kernel<512, 1, at::native::ReduceOp<
+      37.3 us in step 900: after void at::native::index_elementwise_kernel<128, 4, at::native -> before Memcpy DtoD (Device -> Device)
+      29.4 us in step 900: after _quantize_dual_layout_packed_batched_kernel -> before _scatter_copy_rows_kernel
+      14.5 us in step 900: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      13.4 us in step 900: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      11.3 us in step 900: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+      11.1 us in step 907: after triton_poi_fused___lshift_____rshift____to_copy_bitwise_or_c -> before ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<409
+       9.7 us in step 900: after Memcpy DtoD (Device -> Device) -> before Memcpy DtoD (Device -> Device)
+       9.0 us in step 919: after Memcpy HtoD (Pinned -> Device) -> before Memcpy HtoD (Pinned -> Device)
+
+per rank (each rank's own trace):
+rank window ms  busy ms  idle ms  nccl ms  exposed  graph k  status
+   0     46.05    45.39     0.66     4.10     0.28    17061  ok window 46.21 ms/step
+   1     46.02    45.37     0.65     4.21     0.30    16981  ok window 46.22 ms/step
+   2     46.05    45.39     0.66     3.79     0.31    16981  ok window 46.21 ms/step
+   3     45.99    45.28     0.71     3.70     0.26    16981  ok window 46.14 ms/step
+   4     46.07    45.42     0.65     3.59     0.28    16981  ok window 46.22 ms/step
+   5     46.07    45.42     0.65     4.28     0.30    16981  ok window 46.22 ms/step
+   6     46.03    45.37     0.66     3.94     0.26    16981  ok window 46.21 ms/step
+   7     46.05    45.40     0.65     3.66     0.28    16981  ok window 46.22 ms/step
+  spread of the GPU window across ranks: 45.99-46.07 ms

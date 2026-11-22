@@ -16,6 +16,16 @@ FIG = os.path.join(HERE, "figures")
 YEAR = 2026                       # the root trainer's torchrun line carries month, day and time only
 TARGET = {"1": 3.28, "2": 2.92}   # speedrun val-loss targets (Track 1, Track 2)
 EXT_STEPS = 10                    # t1-cpu-ngram: total steps = NUM_SCHEDULED_ITERATIONS + 10 (685 = 675 + 10)
+# Kernel A/B arms by the flag line the trainer prints, and the three sessions that ran them.
+ARM = {"": "base", "ANVIL_KERNEL=gram222s": "gram222s", "ANVIL_ABLATE=skip_matrix": "skip_matrix",
+       "ANVIL_KERNEL=gram33s": "gram33s", "ANVIL_KERNEL=gram42s": "gram42s"}
+SESSION = {"kernel_ab": 1, "kernel_ab2": 2, "kernel_ab3": 3}
+# Seeds with a same-session record, kernel AND ablation run: the paired timing analysis uses these for both arms.
+# Seed 4 is out (its arms ran on different nodes); seed 7 is out (no ablation run), seed 5 and 99 are not timing runs.
+COMMON_SEEDS = ["1", "2", "3", "6", "8", "9", "10", "11", "12", "13"]
+# Tokens per rank per step in each schedule stage = TRAINING_STAGES[i].batch_size / 8 ranks (track_1_short/config.py).
+# `METRIC train loss=` is rank 0's per-token training objective SUMMED over these tokens (step_graphs.py: `.sum()`).
+TOKENS_PER_RANK = (16384, 32768, 49152, 40960, 16384)
 
 # ---------------------------------------------------------------- statistics (stdlib)
 
@@ -66,6 +76,11 @@ RE_CFG = re.compile(r"^METRIC run_config .*seed=(\S+) world_size=(\d+) total_ste
 RE_ANVIL = re.compile(r"\[anvil-kernel\] (ANVIL_\w+=\w+) banks=(\[[^\]]*\])")
 RE_ROOT_START = re.compile(r"^W(\d\d)(\d\d) (\d\d:\d\d:\d\d)\.\d+ \d+ torch/distributed/run.py", re.M)
 RE_VOTE = re.compile(r"table vote: val_loss:([\d.]+) with the table's links, ([\d.]+) without them, ([\d.]+) with PR #399's fixed vote")
+RE_CLOCK = re.compile(r"^METRIC clock_split step0_ms=([\d.]+) loop_end_ms=([\d.]+) tail_ms=([\d.]+) total_ms=([\d.]+)", re.M)
+RE_VAL_ANY = re.compile(r"^METRIC val step=(\d+) total=(\d+) train_time_s=([\d.]+) val_loss=(\S+) final=([01])", re.M)
+RE_TRAIN = re.compile(r"^METRIC train step=(\d+) total=\d+ loss=(\S+) rank=0", re.M)
+RE_STAGE = re.compile(r"^METRIC step_latency scope=stage(\d) steps=(\d+)-(\d+)", re.M)
+RE_ASSERT = re.compile(r"^\[rank\d+\]: (AssertionError: .*)$", re.M)
 RE_NET = re.compile(r"network val_loss:([\d.]+) \(before the chain; the chain adds ([-+\d.]+)\)")
 
 def read(rel):
@@ -110,6 +125,13 @@ def parse_log(rel):
     r["vote"] = vt.groups() if vt else None
     nt = RE_NET.search(txt)
     r["net_val"] = nt.groups() if nt else None
+    ck = RE_CLOCK.search(txt)                           # newer root logs: the clock split into step 0, the loop, the tail
+    r["clock"] = dict(zip(("step0", "loop_end", "tail", "total"), map(float, ck.groups()))) if ck else None
+    r["val_pts"] = [(int(a), float(d), int(e)) for a, _, _, d, e in RE_VAL_ANY.findall(txt)]   # (step, val loss, final)
+    r["train_pts"] = [(int(a), float(b)) for a, b in RE_TRAIN.findall(txt)]                    # (step, summed loss)
+    r["stage_last"] = {int(k): int(b) for k, _, b in RE_STAGE.findall(txt)}                    # stage -> its last step
+    asserts = RE_ASSERT.findall(txt)
+    r["assertion"] = asserts[0] if asserts else ""
     return r
 
 def name_time(rel):
@@ -144,6 +166,16 @@ def lor_time(job, what):
         day = str(datetime.date.fromisoformat(day) + datetime.timedelta(days=1))
     return f"{day}T{m[1]}"
 
+def ql_time(job, what):
+    """UTC time of a `QL HH:MM:SS <what>` line of a Q Labs job's slurm.out; the date comes from job.json's created_at."""
+    m = re.search(rf"^QL (\d\d:\d\d:\d\d) {re.escape(what)}", read(f"jobs/{job}/slurm.out"), re.M)
+    if not m: return ""
+    created = json.load(open(os.path.join(RAW, "jobs", job, "job.json")))["created_at"]
+    return f"{created[:10]}T{m[1]}"       # the job did not cross midnight UTC
+
+def first_nan(pts): return next((p[0] for p in pts if math.isnan(p[1])), None)
+def last_finite(pts): return max((p[0] for p in pts if not math.isnan(p[1]) and p[0] < (first_nan(pts) or 1e9)), default=None)
+
 def phase_time(job, phase):
     for rel in rglob(f"jobs/{job}/out/session/session.log"):
         m = re.search(rf"^== {phase}: est\..* -- (\d{{4}}-\d\d-\d\d) (\d\d:\d\d:\d\d)", read(rel), re.M)
@@ -176,10 +208,38 @@ def collect_runs():
         if not r.get("start_utc"):
             r["start_utc"] = lor_time(job, base + " start")
         r["env"] = " ".join(x for x in ["RUN_METRICS=1", "VAL_CURVE=150" if curve else "", f"TRAIN_SEED={r['seed']}", r["flags"]] if x)
+    # root tree, third session (Slurm job qlabs-13354, one node; logs sit flat in the job folder): a discarded warm-up,
+    # then base / gram222s / skip_matrix on seeds 8-13 with the arm order rotating through all six permutations
+    # (kernel_ab3), and VAL_CURVE=150 TRAIN_LOSS_EVERY=25 curve runs of base, gram222s, gram33s, gram42s (curve3).
+    for rel in rglob("jobs/qlabs-*/root-*.log"):
+        kind, arm, _ = os.path.basename(rel)[len("root-"):-len(".log")].split("-")
+        job = rel.split("/")[1]
+        curve, warm = kind == "curve", arm == "warmup"
+        r = add(rel, job=job, tree="root (record #92)", track="1", experiment="curve3" if curve else "kernel_ab3",
+                role="curve" if curve else "warmup" if warm else "ab",
+                note="VAL_CURVE=150 TRAIN_LOSS_EVERY=25: validates every 150 steps and reads the training loss every 25; not a timing run" if curve
+                else "discarded warm-up run before the timing runs: excluded from all statistics" if warm else "")
+        if not r.get("start_utc"):
+            r["start_utc"] = ql_time(job, os.path.basename(rel)[len("root-"):-len(".log")] + " start")
+        r["env"] = " ".join(x for x in ["RUN_METRICS=1", "VAL_CURVE=150 TRAIN_LOSS_EVERY=25" if curve else "", f"TRAIN_SEED={r['seed']}", r["flags"]] if x)
+        final = [v for v in r["val_pts"] if v[2] == 1]
+        if not final:                   # no final validation: the run died (the fallback regex must not pick up anything)
+            r.update(steps="", train_time_s="", val_loss="", loop_s="", loop_ms_per_step="")
+            r["fail"] = "FAILED before training" + (f" ({r['assertion']})" if r["assertion"] else " (no result in the log)")
+        elif math.isnan(final[0][1]):   # ran to the end with a NaN loss: the fallback regex would otherwise report the step-150 validation
+            m = re.search(r"^METRIC val step=(\d+) total=(\d+) train_time_s=([\d.]+) val_loss=nan final=1", read(rel), re.M)
+            r.update(steps=int(m[2]), train_time_s=m[3], val_loss="nan")
+            r["fail"] = (f"DIVERGED: training loss is NaN from the step-{first_nan(r['train_pts'])} read on (last finite read: step "
+                         f"{last_finite(r['train_pts'])}), validation loss is NaN from step {first_nan(r['val_pts'])} to the end")
     for rel in rglob("jobs/fastest-1-*/out/session/profile/root/train.out"):
         job = rel.split("/")[1]
         add(rel, job=job, tree="root (record #92)", track="1", experiment="profile", role="profile", seed="random",
             start_utc=phase_time(job, "profile"), env="(torch.profiler attached)",
+            note="profiled run: not a timing run")
+    for rel in rglob("jobs/qlabs-*/profile-late/train.out"):
+        job = rel.split("/")[1]
+        add(rel, job=job, tree="root (record #92)", track="1", experiment="profile", role="profile", seed="",
+            start_utc=ql_time(job, "late-stage profile start"), env="(torch.profiler attached, 20 steps from step 900; seed not logged)",
             note="profiled run: not a timing run")
     # variants/t1-gpu-stack
     for rel in rglob("jobs/*/out/session/t1gpu/logs/*.console.txt"):
@@ -224,14 +284,16 @@ def collect_runs():
     for r in rows:
         notes = [r.get("note", "")]
         r["valid"] = 1
-        if not r["val_loss"]:
+        if r.get("fail"):
+            r["valid"] = 0; notes.append(r["fail"])
+        elif not r["val_loss"]:
             r["valid"] = 0; notes.append("FAILED before training (no result in the log)")
         if "ANVIL_ABLATE" in r["flags"]:
             notes.append("measurement only: the optimizer's matrix work is skipped, the loss is not a valid result")
         if r["order_in_tree"] == 1 and r["valid"]:
             notes.append("first run of this tree on a fresh node (compiles first; runs slower)")
         r["note"] = "; ".join(n for n in notes if n)
-        r["hit_target"] = "" if not r["val_loss"] else int(float(r["val_loss"]) <= TARGET[r["track"]])
+        r["hit_target"] = "" if not r["val_loss"] else int(float(r["val_loss"]) <= TARGET[r["track"]])   # nan -> 0
     rows.sort(key=lambda r: (r.get("start_utc", ""), r["job"]))
     return rows
 
@@ -250,8 +312,8 @@ def parse_bench():
         elif line.startswith("KBENCH_TOTAL"): totals.append(kv)
     return info, rows, totals
 
-def parse_profile():
-    rels = rglob("jobs/fastest-1-*/out/session/profile/root/analysis.txt")
+def parse_profile(rel=None):
+    rels = [rel] if rel else rglob("jobs/fastest-1-*/out/session/profile/root/analysis.txt")
     if not rels: return "", [], ""
     lines = read(rels[0]).splitlines()
     cats, started = [], False
@@ -268,8 +330,9 @@ def parse_jobs():
     out = []
     for p in sorted(glob.glob(os.path.join(RAW, "jobs", "*", "job.json"))):
         d = json.load(open(p))
-        out.append((os.path.basename(os.path.dirname(p)), d.get("state", "").replace("COMPUTE_RUN_STATE_", ""),
-                    d["created_at"], d["observed_at"], d["spend"]["gpu_hours"], d["spend"]["amount"]))
+        sp = d.get("spend") or {}
+        out.append((os.path.basename(os.path.dirname(p)), d.get("provider", "Lor"), d.get("state", "").replace("COMPUTE_RUN_STATE_", ""),
+                    d["created_at"], d["observed_at"], sp.get("gpu_hours"), sp.get("amount")))   # amount None: not billed in money
     return out
 
 # ---------------------------------------------------------------- tables
@@ -293,6 +356,249 @@ def diff_row(label, d_time, d_loss=None):
 
 DIFF_HEAD = ["difference", "pairs", "mean Δtime (s)", "sd", "se", "t", "95% CI", "p (two-sided)"]
 LOSS_HEAD = ["mean Δval loss", "se", "t", "95% CI", "p (two-sided)"]
+
+# ---------------------------------------------------------------- third session; analysis over all sessions
+# (182/paper/make_figs.py imports these helpers, so the report's figures and tables.md use the same pairs.)
+
+def fp(p):
+    if isinstance(p, float) and math.isnan(p): return "-"
+    return f"{p:.4f}" if p >= 1e-4 else f"{p:.1e}" if p >= 1e-6 else "<1e-6"      # t_cdf is good to about 1e-8
+
+def loop_s(r):
+    """The 1193 timed steps after step 0 (s): mean step latency x steps."""
+    a = r["stages"]["all"]; return a["mean"] * a["n"] / 1000
+
+def out_of_loop_s(r):
+    """Clock outside the timed steps (s): step 0 plus the tail after the last step."""
+    if r["clock"]: return (r["clock"]["step0"] + r["clock"]["tail"]) / 1000
+    return T(r) - loop_s(r)             # first session: no clock_split line; the same quantity by subtraction
+
+def timing_runs(rows, with_seed4=False):
+    """(arm, seed) -> valid timing run, every session. Seed 4 has no same-session record run, so it is for losses only."""
+    return {(ARM[r["flags"]], r["seed"]): r for r in rows
+            if r["valid"] and r["experiment"] in SESSION and r["role"] == "ab" and (with_seed4 or r["seed"] != "4")}
+
+def saving(runs, arm, seed, key):
+    """Record minus arm at the same seed. key: a step_latency scope (ms), 'time' (whole-run s) or 'out' (out-of-loop s)."""
+    get = T if key == "time" else out_of_loop_s if key == "out" else (lambda r: r["stages"][key]["mean"])
+    return get(runs[("base", seed)]) - get(runs[(arm, seed)])
+
+def per_token(r, stage_last):
+    """[(step, training objective per token)]: the logged sum over rank 0's tokens / tokens per rank in that step's stage."""
+    stage = lambda s: next(k for k in sorted(stage_last) if s <= stage_last[k])
+    return [(s, v / TOKENS_PER_RANK[stage(s)]) for s, v in r["train_pts"]]
+
+def curve_runs(rows):
+    """(arm, seed) -> third-session curve run (valid or not)."""
+    return {(ARM[r["flags"]], r["seed"]): r for r in rows if r["experiment"] == "curve3"}
+
+def parse_kbench(rel):
+    """KBENCH rows / totals / errors of a bench.py log, plus torch's recompile-limit message if it is there."""
+    txt = read(rel); rows, totals, errors, info, done = [], [], [], "", ""
+    for line in txt.splitlines():
+        kv = dict(p.split("=", 1) for p in line.split()[1:] if "=" in p)
+        if line.startswith("KBENCH_INFO"): info = line
+        elif line.startswith("KBENCH name="): rows.append(kv)
+        elif line.startswith("KBENCH_TOTAL"): totals.append(kv)
+        elif line.startswith("KBENCH_ERROR"):
+            m = re.match(r"KBENCH_ERROR name=(\S+) err=(\w+)", line); errors.append((m[1], m[2]))
+        elif line.startswith("KBENCH_DONE"): done = line
+    lim = re.search(r"torch\._dynamo hit config\.recompile_limit \((\d+)\)\n.*?function: '(\w+)' \(\S*?(track_1_short/\S+?)\)\n.*?last reason: (.*)", txt)
+    return dict(info=info, rows=rows, totals=totals, errors=errors, done=done, limit=lim.groups() if lim else None)
+
+def pm(xs, nd=3): return f"{mean(xs):.{nd}f} ± {sd(xs):.{nd}f}"
+
+def stat_cells(xs, nd=4):
+    s = summary(xs)
+    return [s["n"], f"{s['mean']:+.{nd}f}", f(s["sd"], nd), f(s["se"], nd), f(s["t"], 2), fp(s["p"])]
+
+STAT_HEAD = ["n", "mean", "sd", "se", "t", "p (two-sided)"]
+SCOPES = ["all", "stage0", "stage1", "stage2", "stage3", "stage4"]
+
+def section_b2c(rows):
+    k3 = [r for r in rows if r["experiment"] == "kernel_ab3"]
+    if not k3: return []
+    ab = sorted([r for r in k3 if r["role"] == "ab" and r["valid"]], key=lambda r: r["order_in_job"])
+    runs = timing_runs(rows)
+    seeds3 = sorted({r["seed"] for r in ab}, key=int)
+    arms, alts = ["base", "gram222s", "skip_matrix"], ["gram222s", "skip_matrix"]
+    nsteps = {s: runs[("base", seeds3[0])]["stages"][s]["n"] for s in SCOPES}
+    job = k3[0]["job"]
+    o = [f"### B2c. Third session (Slurm job {job}, one node; arm order rotated over seeds 8-13) and all sessions together", "",
+         "Convention in B2c: a **saving** is the record (base) minus the arm at the same seed in the same session, so a faster arm is",
+         "positive (B2b and B3 print arm - base, the opposite sign). Loss differences are arm - base. `mean step` is",
+         "`METRIC step_latency ... mean_ms` (the 1193 steps after step 0; printed to 0.001 ms). Out-of-loop time = step 0 + the tail",
+         "after the last step (`METRIC clock_split step0_ms + tail_ms`; for the first session, which has no clock_split line,",
+         "train time - mean step x 1193). Whole-run train time = step loop + out-of-loop time.", ""]
+    # per seed
+    tab = []
+    for sd_ in seeds3:
+        rs = {a: runs[(a, sd_)] for a in arms}
+        order = " > ".join(sorted(arms, key=lambda a: rs[a]["order_in_job"]))
+        tab.append([sd_, order, " / ".join(rs[a]["train_time_s"] for a in arms), " / ".join(rs[a]["mean_step_ms"] for a in arms),
+                    " / ".join(f"{out_of_loop_s(rs[a]):.3f}" for a in arms), " / ".join(rs[a]["val_loss"] for a in arms)])
+    o += ["Per seed; each cell is base / gram222s / skip_matrix:", "",
+          md_table(["seed", "order the arms ran in", "train time (s)", "mean step (ms)", "out-of-loop time (s)", "val loss"], tab)]
+    for w in [r for r in k3 if r["role"] == "warmup"]:
+        o += [f"Warm-up run before these (seed {w['seed']}, base, order {w['order_in_job']} in the job): train time {w['train_time_s']} s, mean step "
+              f"{w['mean_step_ms']} ms, val loss {w['val_loss']}. It is in runs.csv with role=warmup and is not used in any statistic.", ""]
+    # unpaired
+    tab = []
+    for a in arms:
+        rs = [runs[(a, s)] for s in seeds3]; oo = [out_of_loop_s(r) for r in rs]
+        tab.append([a, len(rs), pm([T(r) for r in rs], 4), pm([loop_s(r) for r in rs], 4), pm([r["stages"]["all"]["mean"] for r in rs], 4),
+                    pm(oo, 4), f"{min(oo):.3f} - {max(oo):.3f}", pm([V(r) for r in rs], 6)])
+    oo_all = [out_of_loop_s(runs[(a, s)]) for a in arms for s in seeds3]
+    st0 = [runs[(a, s)]["clock"]["step0"] for a in arms for s in seeds3]; tl = [runs[(a, s)]["clock"]["tail"] for a in arms for s in seeds3]
+    o += [f"Unpaired, by arm (mean ± sd over seeds {seeds3[0]}-{seeds3[-1]}):", "",
+          md_table(["arm", "n", "train time (s)", "step loop (s)", "mean step (ms)", "out-of-loop time (s)", "out-of-loop range (s)", "val loss"], tab),
+          f"Out-of-loop time over all {len(oo_all)} runs: {min(oo_all):.3f} to {max(oo_all):.3f} s (mean {mean(oo_all):.3f}, sd {sd(oo_all):.3f}); "
+          f"step 0 {min(st0):.1f} to {max(st0):.1f} ms (mean {mean(st0):.1f}), tail {min(tl):.1f} to {max(tl):.1f} ms (mean {mean(tl):.1f}).", ""]
+    # paired, this session
+    quantities = [(f"mean step, {s} ({nsteps[s]} steps) (ms)" if s != "all" else "mean step, all 1193 steps (ms)", s) for s in SCOPES] + \
+                 [("train time, whole run (s)", "time"), ("out-of-loop time (s)", "out")]
+    tab = []
+    for a in alts:
+        for label, key in quantities:
+            xs = [saving(runs, a, s, key) for s in seeds3]
+            tab.append([a, label, " / ".join(f"{x:+.3f}" for x in xs)] + stat_cells(xs))
+    o += [f"Paired savings against the record, this session only (seeds {', '.join(seeds3)}):", "",
+          md_table(["arm", "saving (base - arm)", "by seed"] + STAT_HEAD, tab)]
+    tab = []
+    for a in alts:
+        xs = [V(runs[(a, s)]) - V(runs[("base", s)]) for s in seeds3]
+        tab.append([f"{a} - base", " / ".join(f"{x:+.6f}" for x in xs)] + stat_cells(xs, 6))
+    o += ["Paired difference in final val loss, this session (the skip_matrix arm is not a valid training run):", "",
+          md_table(["difference", "by seed"] + STAT_HEAD, tab)]
+
+    # all sessions, the same ten seeds for both arms
+    C = COMMON_SEEDS
+    rec = [T(runs[("base", s)]) for s in C]; rec_mean = mean(rec)
+    o += [f"#### All sessions, the same {len(C)} seeds for both arms ({', '.join(C)})", "",
+          "Seed 4 is left out because its arms ran on different nodes; seed 7 because it has no ablation run (its kernel pair is shown",
+          "separately below); seed 5 has curve runs only. Sessions: 1 = bring-up node (seeds 1-3, record first), 2 = job kernel-ab2 (seed 6),",
+          f"3 = job {job} (seeds 8-13, order rotated). `s per run` = saving per step x that scope's steps; `% of run` is against the",
+          f"record's mean train time over these seeds, {rec_mean:.4f} s (sd {sd(rec):.4f}).", ""]
+    tab = []
+    for a in alts:
+        for label, key in quantities:
+            xs = [saving(runs, a, s, key) for s in C]
+            per_run = mean(xs) * nsteps[key] / 1000 if key in nsteps else mean(xs)
+            tab.append([a, label] + stat_cells(xs) + [f"{per_run:+.4f}", f"{100 * per_run / rec_mean:+.3f}%"])
+    o += [md_table(["arm", "saving (base - arm)"] + STAT_HEAD + ["s per run", "% of run"], tab)]
+    tab = []
+    sessions = [("1 (seeds 1-3)", ["1", "2", "3"]), ("2 (seed 6)", ["6"]), ("3 (seeds 8-13)", seeds3), (f"all three ({len(C)} seeds)", C)]
+    for a in alts:
+        for label, ss in sessions + ([("all three + seed 7 (kernel only; not the common-seed set)", C + ["7"])] if a == "gram222s" else []):
+            xs = [saving(runs, a, s, "all") for s in ss]; ts = [saving(runs, a, s, "time") for s in ss]
+            tab.append([a, label] + stat_cells(xs) + [f"{mean(xs) * 1.193:+.4f}"] + stat_cells(ts)[1:])
+    o += ["By session (one pair has no sd):", "",
+          md_table(["arm", "session"] + [f"step: {h}" for h in STAT_HEAD] + ["step: s per run (x 1193)"] + [f"train time (s): {h}" for h in STAT_HEAD[1:]], tab)]
+    o += ["The pairs behind these rows (savings, base - arm):", "",
+          md_table(["seed", "session", "gram222s: mean step (ms)", "skip_matrix: mean step (ms)", "gram222s: train time (s)", "skip_matrix: train time (s)",
+                    "gram222s: out-of-loop (s)", "skip_matrix: out-of-loop (s)"],
+                   [[s, SESSION[runs[("base", s)]["experiment"]]] + [f"{saving(runs, a, s, k_):+.3f}" for k_ in ("all", "time", "out") for a in alts] for s in C])]
+    # validation loss, record vs kernel
+    lr = timing_runs(rows, with_seed4=True)
+    tab = []
+    all_l = sorted({s for a, s in lr if a == "gram222s" and ("base", s) in lr}, key=int)
+    for label, ss in [(f"all valid timing seeds ({', '.join(all_l)})", all_l), (f"the {len(C)} common seeds", C), (f"third session ({', '.join(seeds3)})", seeds3)]:
+        b = [V(lr[("base", s)]) for s in ss]; g = [V(lr[("gram222s", s)]) for s in ss]; d = [y - x for x, y in zip(b, g)]
+        tab.append([label, len(ss), pm(b, 6), pm(g, 6)] + stat_cells(d, 6)[1:] + [f"{sum(x < 0 for x in d)} of {len(d)}", f"{max(b):.6f} / {max(g):.6f}"])
+    o += ["#### Final validation loss, record vs kernel (timing runs; seed 4 is included here, its loss does not depend on the node's speed)", "",
+          md_table(["seeds", "n", "record (mean ± sd)", "gram222s (mean ± sd)"] + [f"gram222s - record: {h}" for h in STAT_HEAD[1:]] +
+                   ["pairs where the kernel is lower", "worst run, record / gram222s"], tab)]
+
+    # curve runs
+    cr = curve_runs(rows)
+    if cr:
+        stage_last = runs[("base", seeds3[0])]["stage_last"]
+        o += [f"#### Curve runs of the third session (experiment `curve3`; VAL_CURVE=150, TRAIN_LOSS_EVERY=25; never used for timing)", "",
+              md_table(["order", "arm", "seed", "final val loss", "outcome"],
+                       [[r["order_in_job"], a, s, r["val_loss"] or "-", "finished" + (", at or under 3.28" if r["hit_target"] else ", ABOVE 3.28") if r["valid"] else r["fail"]]
+                        for (a, s), r in sorted(cr.items(), key=lambda kv: kv[1]["order_in_job"])])]
+        cs = sorted({s for a, s in cr if a == "gram222s" and cr[(a, s)]["valid"] and cr.get(("base", s), {}).get("valid")}, key=int)
+        steps = [p[0] for p in cr[("base", cs[0])]["val_pts"]]
+        val = lambda a, s: dict((p[0], p[1]) for p in cr[(a, s)]["val_pts"])
+        g33 = sorted((s for a, s in cr if a == "gram33s"), key=int)
+        tab = []
+        for st in steps:
+            b = [val("base", s)[st] for s in cs]; g = [val("gram222s", s)[st] for s in cs]; d = [y - x for x, y in zip(b, g)]
+            tab.append([st, pm(b, 5), pm(g, 5), f"{mean(d):+.5f} ± {sd(d):.5f}"] + [f"{val('gram33s', s)[st]:.6f}" for s in g33])
+        o += [f"Validation loss by step, seeds {', '.join(cs)} (mean ± sd over the {len(cs)} seeds; the difference is paired by seed):", "",
+              md_table(["step", "record", "gram222s", "gram222s - record"] + [f"gram33s seed {s}" for s in g33], tab)]
+        fin = [V(cr[("gram222s", s)]) - V(cr[("base", s)]) for s in cs]
+        o += [f"Final val loss of the curve runs, gram222s - record by seed ({', '.join(cs)}): {' / '.join(f'{x:+.6f}' for x in fin)}; "
+              f"mean {mean(fin):+.6f}, se {sd(fin) / math.sqrt(len(fin)):.6f}, n = {len(fin)}.", ""]
+        pt = {(a, s): dict(per_token(cr[(a, s)], stage_last)) for a in ("base", "gram222s") for s in cs}
+        tsteps = sorted(pt[("base", cs[0])]); stage = lambda s: next(k for k in sorted(stage_last) if s <= stage_last[k])
+        tab = []
+        for st in tsteps:
+            b = [pt[("base", s)][st] for s in cs]; g = [pt[("gram222s", s)][st] for s in cs]; d = [y - x for x, y in zip(b, g)]
+            tab.append([st, stage(st), TOKENS_PER_RANK[stage(st)], pm(b, 4), pm(g, 4), f"{mean(d):+.4f} ± {sd(d):.4f}"])
+        o += ["Training objective per token by step (same seeds, mean ± sd). `METRIC train loss=` is rank 0's training objective summed over",
+              "its tokens of that step (`step_graphs.py`: the per-token loss `.sum()`); it is divided here by the tokens per rank of the step's",
+              "stage (`config.py` batch_size / 8 ranks). The per-token objective is the weighted sum of the next-token CE, the multi-token",
+              "CE terms and the prefix-token CE, over a sampled candidate set of 10240 / 14336 / 24576 classes until step 1106 and the full",
+              "vocabulary after. Its weights and candidate count change with the schedule, so it is not a plain next-token cross-entropy and",
+              "is not comparable with the validation loss.", "",
+              md_table(["step", "stage", "tokens per rank", "record", "gram222s", "gram222s - record"], tab)]
+    return o
+
+def section_sweep():
+    rel = rglob("jobs/qlabs-*/sweep.log")
+    if not rel: return []
+    k = parse_kbench(rel[0]); R = {r["name"]: r for r in k["rows"]}
+    shapes = list(dict.fromkeys(r["shape"] for r in k["rows"] if r["name"].startswith("matrix.")))
+    ratio = lambda sh: int(sh.split("x")[1]) / int(sh.split("x")[2])
+    sp = lambda kind, sh, kern: R.get(f"{kind}.sweep_{sh}.{kern}")
+    kerns = ["gram222s", "gram33s", "gram42s"]
+    o = [f"### C2. Size sweep of the microbenchmark (third session, one H100, raw/{rel[0]})", "", f"`{k['info']}`", "",
+         "Speedup = record's time / kernel's time on the same shape (above 1: the Gram-space order is faster). Shapes are N x rows x cols.", ""]
+    tab = []
+    for sh in shapes:
+        m = sp("matrix", sh, "gram222s")
+        tab.append([sh, f"{ratio(sh):.2f}", m["base_ms"], m["alt_ms"]] + [sp("matrix", sh, kn)["speedup"] for kn in kerns] +
+                   [sp("update", sh, kn)["speedup"] if sp("update", sh, kn) else "failed" for kn in kerns] +
+                   [f"{100 * float(m['base_exact_err']):.2f}%"] + [f"{100 * float(sp('matrix', sh, kn)['alt_exact_err']):.2f}%" for kn in kerns])
+    o += [md_table(["shape", "rows / cols", "matrix seq.: record ms", "gram222s ms"] + [f"matrix seq. speedup, {kn}" for kn in kerns] +
+                   [f"full update speedup, {kn}" for kn in kerns] + ["record err vs exact"] + [f"{kn} err vs exact" for kn in kerns], tab)]
+    c768 = sorted([sh for sh in shapes if sh.endswith("x768")], key=ratio)
+    for kind, label in (("matrix", "matrix sequence"), ("update", "full update")):
+        for kn in ("gram222s", "gram33s"):
+            pts = [(ratio(sh), float(sp(kind, sh, kn)["speedup"])) for sh in c768 if sp(kind, sh, kn)]
+            lo = max((p for p in pts if p[1] < 1), default=None); hi = next((p for p in pts if p[1] >= 1), None)
+            if lo and hi and lo[0] < hi[0]:
+                x = lo[0] + (1 - lo[1]) * (hi[0] - lo[0]) / (hi[1] - lo[1])
+                o += [f"- 768 columns, {label}, {kn}: {lo[1]:.3f}x at rows/cols = {lo[0]:.2f}, {hi[1]:.3f}x at {hi[0]:.2f}; "
+                      f"break-even near rows/cols = {x:.1f} (linear interpolation between those two shapes)."]
+    o += [""]
+    if k["errors"]:
+        by = defaultdict(list)
+        for name, err in k["errors"]: by[err].append(name)
+        o += [f"`{k['done'].split(' failed_names=')[0]}`: {len(k['rows'])} rows were measured and {len(k['errors'])} cases raised an error and have no row "
+              f"(so {len(k['rows']) + len(k['errors'])} cases were attempted). Every failure is a `full update` or `ablate` case of the last "
+              f"{len({n.split('sweep_')[1].split('.')[0] for n, _ in k['errors']})} shapes:", ""]
+        o += [f"- `{err}` ({len(ns)} cases): {', '.join(ns)}" for err, ns in by.items()] + [""]
+        if k["limit"]:
+            n, fn, path, reason = k["limit"]
+            o += [f"Cause, from the log: torch.compile's recompile limit ({n}). The full-update cases call the trainer's compiled function `{fn}` ({path}),",
+                  f"which is compiled with fullgraph=True and is recompiled for every new matrix shape; after {n} shapes the next compilation raises",
+                  f"(first such message: \"{reason.strip()}\"). It is a limit of the benchmark harness, not a numerical failure;",
+                  "the `matrix` cases do not go through that function and have rows for all shapes. No measured row is dropped.", ""]
+    b = rglob("jobs/qlabs-*/bench.log")
+    if b:
+        kb = parse_kbench(b[0]); B = {r["name"]: r for r in kb["rows"]}
+        tab = [[kind, bank, kn, B[f"{kind}.{bank}.{kn}"]["shape"], B[f"{kind}.{bank}.{kn}"]["base_ms"], B[f"{kind}.{bank}.{kn}"]["alt_ms"], B[f"{kind}.{bank}.{kn}"]["speedup"],
+                f"{100 * float(B[f'{kind}.{bank}.{kn}']['alt_exact_err']):.2f}%" if "alt_exact_err" in B[f"{kind}.{bank}.{kn}"] else "-"]
+               for kind in ("matrix", "update") for bank in ("qk_bank", "vo_bank", "mlp_bank") for kn in kerns if f"{kind}.{bank}.{kn}" in B]
+        o += [f"### C3. The standard microbenchmark on the third session's node (raw/{b[0]})", "", f"`{kb['info']}`", "",
+              md_table(["what", "bank", "kernel", "shape", "record ms", "alt ms", "speedup", "alt err vs exact"], tab)]
+        share = next((t for t in kb["totals"] if t.get("kind") == "matrix_share"), None)
+        if share:
+            o += [f"All three banks on this node: update {share['update_ms_per_step']} ms/step, without the matrix work {share['skip_matrix_ms_per_step']} ms/step, "
+                  f"matrix work {share['matrix_ms_per_step']} ms/step (section C, first node: see above).", ""]
+    return o
 
 def build_tables(rows):
     o = ["# Summary tables", "",
@@ -333,7 +639,7 @@ def build_tables(rows):
 
     # --- B. kernel A/B
     k = [r for r in ok if r["experiment"] == "kernel_ab"]
-    arm_of = lambda r: {"": "base", "ANVIL_KERNEL=gram222s": "gram222s", "ANVIL_ABLATE=skip_matrix": "skip_matrix"}[r["flags"]]
+    arm_of = lambda r: ARM[r["flags"]]
     o += ["## B. Optimizer kernel A/B on the root record (1194 steps)", "", "### B1. Every run, in the order it ran", ""]
     o += [md_table(["job", "order", "start (UTC)", "arm", "seed", "train time (s)", "val loss", "mean step (ms)", "p95 step (ms)", "peak alloc (MiB)", "peak reserved (MiB)"],
                    [[r["job"], r["order_in_job"], r["start_utc"][5:], arm_of(r), r["seed"], r["train_time_s"], r["val_loss"], r["mean_step_ms"],
@@ -363,6 +669,7 @@ def build_tables(rows):
                         f(m_ * 1.193, 3)])
         o += ["Paired difference in mean step time (ms), same seed, both sessions:", "",
               md_table(["difference", "pairs", "by seed", "mean (ms)", "sd", "se", "t", "s per run (x 1193 steps)"], tab), ""]
+    o += section_b2c(rows)
     o += ["### B3. Paired by seed (arm - base)", ""]
     bys = {(arm_of(r), r["seed"]): r for r in k}
     tab = []
@@ -409,11 +716,19 @@ def build_tables(rows):
            for b in btot if b.get("kernel") and b["banks"] == "mlp_bank"]
     o += [md_table(["what", "kernel", "banks switched", "record ms/step (3 banks)", "alt ms/step", "saved ms/step", "saved s/run if fully exposed"], tab)]
 
+    o += section_sweep()
     # --- D. profile
     head, cats, nccl = parse_profile()
     o += ["## D. Where the time goes (torch.profiler on the root record, raw/jobs/fastest-1-*/out/session/profile/root/analysis.txt)", "",
           head, "", md_table(["category", "ms/step", "% of step"], [[c, f(ms), f"{pc:.1f}%"] for c, ms, pc in cats]), nccl, "",
           "Categories overlap across CUDA streams, so they can sum past 100%.", ""]
+    late = rglob("jobs/qlabs-*/profile-late/analysis.txt")
+    if late:
+        head2, cats2, nccl2 = parse_profile(late[0])
+        meta = json.load(open(os.path.join(RAW, os.path.dirname(late[0]), "meta_rank0.json")))
+        o += [f"### D2. Late window: {meta['count']} steps from step {meta['start']} (stage 2), third session (raw/{late[0]})", "",
+              head2, "", md_table(["category", "ms/step", "% of step"], [[c, f(ms), f"{pc:.1f}%"] for c, ms, pc in cats2]), nccl2, "",
+              "Same analysis script and categories as D; a different node and a different run from D, so compare shares, not absolute times.", ""]
 
     # --- E. TABLE_VOTE
     tv = [r for r in ok if r["experiment"] == "table_vote_ab"]
@@ -480,7 +795,7 @@ def build_tables(rows):
     lp675 = [float(a["loop_ms_per_step"]) for _, _, a, b in pairs]; lp668 = [float(b["loop_ms_per_step"]) for _, _, a, b in pairs]
     o += [f"In the pairs: 675 mean {mean(a675):.3f} s (sd {sd(a675):.3f}), 668 mean {mean(b668):.3f} s (sd {sd(b668):.3f}); "
           f"loop ms/step {mean(lp675):.3f} vs {mean(lp668):.3f}.", ""]
-    inv = [r for r in rows if not r["valid"]]
+    inv = [r for r in rows if not r["valid"] and r["experiment"] != "curve3"]   # the curve3 failures are listed in B2c
     if inv:
         o += ["Invalid / failed runs (kept in runs.csv with valid=0):", ""] + [f"- `{r['job']}` {r['log']}: {r['note']}" for r in inv] + [""]
 
@@ -500,9 +815,14 @@ def build_tables(rows):
 
     # --- J. jobs
     jobs = parse_jobs()
-    o += ["## J. Lor jobs (raw/jobs/*/job.json)", "",
-          md_table(["job", "state", "created (UTC)", "last observed (UTC)", "GPU-hours", "cost (USD)"], [list(j) for j in jobs]),
-          f"Total: {sum(float(j[4]) for j in jobs):.2f} GPU-hours, ${sum(float(j[5]) for j in jobs):.2f} (the interactive bring-up node is not in this list).", ""]
+    paid = [j for j in jobs if j[6] is not None]; free = [j for j in jobs if j[6] is None]
+    o += ["## J. Jobs (raw/jobs/*/job.json)", "",
+          md_table(["job", "provider", "state", "created (UTC)", "last observed (UTC)", "GPU-hours", "cost (USD)"],
+                   [[*j[:5], j[5] if j[5] is not None else "-", j[6] if j[6] is not None else "- (not billed in money)"] for j in jobs]),
+          f"Total: {sum(float(j[5]) for j in paid):.2f} GPU-hours, ${sum(float(j[6]) for j in paid):.2f} (the interactive bring-up node is not in this list).", ""]
+    if free:
+        o += [f"Jobs without a monetary spend ({', '.join(j[0] for j in free)}): {sum(float(j[5]) for j in free if j[5] is not None):.2f} GPU-hours, "
+              "computed from the job's own start and end lines (see the job.json note); they are not in the total above.", ""]
     return "\n".join(o), pairs
 
 # ---------------------------------------------------------------- figures

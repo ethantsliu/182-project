@@ -1,0 +1,43 @@
+node report: /mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/node_report.txt
+Downloading cpython-3.12.16-linux-x86_64-gnu (download) (33.1MiB)
+ Downloaded cpython-3.12.16-linux-x86_64-gnu (download)
+Using CPython 3.12.16
+Creating virtual environment with seed packages at: /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv
+ + pip==26.3
+Activate with: source /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/activate
+Fetching 15 files:   0%|          | 0/15 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Fetching 15 files:   7%|▋         | 1/15 [00:00<00:04,  3.06it/s]Fetching 15 files:  13%|█▎        | 2/15 [00:00<00:02,  4.91it/s]Fetching 15 files:  33%|███▎      | 5/15 [00:00<00:00, 11.94it/s]Fetching 15 files:  47%|████▋     | 7/15 [00:00<00:00, 10.06it/s]Fetching 15 files:  67%|██████▋   | 10/15 [00:00<00:00, 13.95it/s]Fetching 15 files:  80%|████████  | 12/15 [00:01<00:00, 10.50it/s]Fetching 15 files:  87%|████████▋ | 13/15 [00:20<00:00, 10.50it/s]'[Errno -3] Temporary failure in name resolution' thrown while requesting HEAD https://huggingface.co/devenpzak/flash-attn3-12864/resolve/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/flash_attn3/__init__.py
+Retrying in 1s [Retry 1/5].
+Fetching 15 files:  93%|█████████▎| 14/15 [00:38<00:05,  5.76s/it]Fetching 15 files: 100%|██████████| 15/15 [00:50<00:00,  6.89s/it]Fetching 15 files: 100%|██████████| 15/15 [00:50<00:00,  3.38s/it]
+FA3 snapshot /mnt/vast/qlabs/users/ethantsliu/nanogpt/hf/hub/models--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9
+seeded /mnt/vast/qlabs/users/ethantsliu/nanogpt/hf/hub/kernels--devenpzak--flash-attn3-12864
+FA3 binary /mnt/vast/qlabs/users/ethantsliu/nanogpt/hf/hub/models--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so 9beee90dbef9c9c221e677dad9f932108b70c46aa35841fc0862281d5b84c09b
+torch 2.10.0+cu128 cuda 12.8 devices 8
+triton 3.6.0
+kernels 0.16.1 huggingface_hub 1.29.0
+FA3 loads: /mnt/vast/qlabs/users/ethantsliu/nanogpt/hf/hub/kernels--devenpzak--flash-attn3-12864/snapshots/64c1e6d1f2780e7931839f41426ddcdb564a7cb9/build/torch-stable-abi29-cu128-x86_64-linux/_flash_attn3_cuda_8a730d9.abi3.so sha256 ok
+'[Errno 104] Connection reset by peer' thrown while requesting HEAD https://huggingface.co/datasets/kjj0/fineweb10B-gpt2/resolve/main/fineweb_val_000000.bin
+Retrying in 1s [Retry 1/5].
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+'[Errno 104] Connection reset by peer' thrown while requesting HEAD https://huggingface.co/datasets/kjj0/fineweb10B-gpt2/resolve/main/fineweb_train_000009.bin
+Retrying in 1s [Retry 1/5].
+'[Errno 104] Connection reset by peer' thrown while requesting HEAD https://huggingface.co/datasets/kjj0/fineweb10B-gpt2/resolve/main/fineweb_train_000009.bin
+Retrying in 2s [Retry 2/5].
+W1122 05:21:30.006000 4000681 torch/distributed/run.py:852] 
+W1122 05:21:30.006000 4000681 torch/distributed/run.py:852] *****************************************
+W1122 05:21:30.006000 4000681 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1122 05:21:30.006000 4000681 torch/distributed/run.py:852] *****************************************
+gpu 0 NVIDIA H100 80GB HBM3: bf16 GEMM 763 TFLOP/s  (sm clock MHz, temp C: 1965, 38)
+gpu 1 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 2 NVIDIA H100 80GB HBM3: bf16 GEMM 788 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 3 NVIDIA H100 80GB HBM3: bf16 GEMM 794 TFLOP/s  (sm clock MHz, temp C: 1965, 39)
+gpu 4 NVIDIA H100 80GB HBM3: bf16 GEMM 765 TFLOP/s  (sm clock MHz, temp C: 1965, 37)
+gpu 5 NVIDIA H100 80GB HBM3: bf16 GEMM 799 TFLOP/s  (sm clock MHz, temp C: 1965, 33)
+gpu 6 NVIDIA H100 80GB HBM3: bf16 GEMM 781 TFLOP/s  (sm clock MHz, temp C: 1965, 34)
+gpu 7 NVIDIA H100 80GB HBM3: bf16 GEMM 790 TFLOP/s  (sm clock MHz, temp C: 1965, 39)
+all_reduce bus bandwidth (8 ranks, 256 MiB bf16): 432 GB/s
+torch 2.10.0+cu128, NCCL 2.27.5
+
+activate with: source /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/activate   (torchrun must be this venv's: /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/torchrun)
+
+node report: /mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/node_report.txt (0 failure(s))

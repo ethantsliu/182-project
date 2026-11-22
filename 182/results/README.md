@@ -208,6 +208,37 @@ hand from the `METRIC` lines; `182/paper/make_figs.py` reads these logs for `fig
   1050: 3.355637 / 3.356091; 1194: 3.273281 / 3.274384.
 - Cost of this job: $10.63. Total Lor spend: $98.10 of $100.
 
+**Third session (2026-11-22 05:12 to 07:33 UTC, Q Labs Slurm job 13354, one node `odin5-gpu-018`, 8x H100; logs in
+`raw/jobs/qlabs-13354/`).** Everything below is generated: `runs.csv` rows with experiment `kernel_ab3` (timing runs and
+the warm-up) and `curve3` (curve runs), and sections B2c, C2, C3 and D2 of `tables.md`. `182/paper/make_figs.py` imports
+`make_tables.py` for `fig_paired.png`, `fig_curve.png`, `fig_sweep.png` and `fig_profile_late.png`.
+
+- Software: torch 2.10.0+cu128 (CUDA 12.8 build), triton 3.6.0, NCCL 2.27.5, as before, and the same system
+  CUDA 13.1 toolkit. The NVIDIA driver differs: 580.126.09 here, 580.178.04 on the Lor nodes (`node_report.txt`, `setup.log`).
+- What ran, in order (`slurm.out`): the size sweep of the microbenchmark (`sweep.log`, `sweep.json`), the standard
+  microbenchmark (`bench.log`, `kbench.json`), six curve runs (`root-curve-{base,gram222s}-s{5,6,7}.log`, `VAL_CURVE=150
+  TRAIN_LOSS_EVERY=25`), one discarded warm-up (`root-time-warmup-s99.log`), 18 timing runs
+  (`root-time-{base,gram222s,skipmatrix}-s{8..13}.log`, arm order rotated through all six permutations), curve runs of
+  `gram33s` (seeds 5, 6, 7) and `gram42s` (seeds 5, 6), and a profile of 20 steps from step 900 (`profile-late/`).
+- Timing, seeds 8-13, savings against the record at the same seed: gram222s 0.047 ms per step (se 0.009, n = 6),
+  skip_matrix 0.204 ms (se 0.005); whole-run train time 0.046 s (se 0.021) and 0.264 s (se 0.021).
+- All sessions, the same ten seeds for both arms (1, 2, 3, 6, 8-13): gram222s 0.054 ms per step (se 0.006, t = 8.6),
+  0.065 s per run; skip_matrix 0.209 ms (se 0.005), 0.250 s per run. Whole-run train time: 0.047 s (se 0.021, p = 0.049)
+  and 0.265 s (se 0.022). Seed 7's kernel pair is not in this set because seed 7 has no ablation run.
+- Val loss over the 12 timing seeds (1-4, 6-13): base 3.276963 (sd 0.001102), gram222s 3.276310 (sd 0.001159).
+- `gram33s` (three maps per restart): seed 5 diverged (training loss NaN at the step-400 read, last finite read at step
+  375; validation NaN from step 450); seeds 6 and 7 finished at 3.276379 and 3.277907. `gram42s` (four maps chained):
+  both runs failed the step-graph self-check in the warm-up, before training (`replay loss nan != eager nan`).
+  These three runs are in `runs.csv` with valid=0.
+- The curve runs' clocks carry the extra validations and loss reads; they are never used for timing.
+- `METRIC train loss=` is rank 0's training objective summed over its tokens of that step. Tables and figures divide it
+  by the tokens per rank of the step's stage (16384 / 32768 / 49152 / 40960 / 16384). It is the weighted training
+  objective (sampled softmax plus auxiliary terms), not a next-token cross-entropy.
+- Size sweep: 116 rows measured; 16 further cases (the full-update and ablate cases of the four largest shapes) raised
+  torch.compile's recompile limit in the benchmark harness and have no row. See C2.
+- `job.json` of this job was written by hand (there is no Lor record); it has GPU-hours from the job's own timestamps
+  and no price. `raw/MANIFEST.txt` and `collect_raw.py` cover the Lor jobs only; this folder was copied in as it is.
+
 ### 3.2 Do the fast upstream trees reproduce on our node?
 
 **Question.** Upstream has open pull requests that are much faster than the record. Do they reach the target on our node, and in what time?
@@ -429,11 +460,11 @@ python3 182/results/make_tables.py     # rewrites runs.csv, tables.md and figure
 
 ## 7. What the logs do not contain
 
-- No mid-run validation losses (see section 5).
+- No mid-run validation losses in the first session (see section 5); the second and third sessions have curve runs (3.1).
 - No full-precision val loss for t1-cpu-ngram (4 decimals). The root tree, t1-gpu-stack and Track 2 log 6 decimals.
 - No per-step latency lines or all-GPU peak memory for the variant trees. They log the clock every 25 steps and GPU 0's peak memory.
 - No nsys trace. The profile is torch.profiler.
-- No end-to-end run of `gram222`, `gram33` or `gram33s`. Only `gram222s` was trained.
+- No end-to-end run of `gram222` or `gram33`. `gram222s` was trained in every session; `gram33s` and `gram42s` only in the third session's curve runs (3.1).
 - No baseline root run inside the `fastest-1` job, so seed 4 of the kernel A/B has no same-session base.
 - The exact shell command of the 10 bring-up runs is not in the logs. Each log does record its seed, `RUN_METRICS=1` and the kernel flag in effect.
 - The full trainer logs (about 700 kB each, mostly a copy of the trainer source) are not in `raw/`. The console files next to them have every result line. The commit of each job is in `raw/jobs/<job>/out/sha`.

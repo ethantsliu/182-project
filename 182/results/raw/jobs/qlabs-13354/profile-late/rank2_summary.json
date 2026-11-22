@@ -1,0 +1,609 @@
+{
+ "steps_profiled": 20,
+ "device": 2,
+ "mean_window_ms": 46.04964975585938,
+ "mean_busy_ms": 45.38602216796875,
+ "mean_idle_ms": 0.663627587890625,
+ "mean_cpu_ms": 35.11252045898438,
+ "nccl_ms": 3.79375908203125,
+ "nccl_exposed_ms": 0.31252646484374996,
+ "categories": [
+  {
+   "key": "nccl",
+   "label": "NCCL communication",
+   "ms_per_step": 3.7937591500000005,
+   "pct": 8.23841043333295
+  },
+  {
+   "key": "attn_bwd",
+   "label": "attention backward",
+   "ms_per_step": 5.623738049999999,
+   "pct": 12.212336206280119
+  },
+  {
+   "key": "attn_fwd",
+   "label": "attention forward",
+   "ms_per_step": 1.772893700000001,
+   "pct": 3.849961312190908
+  },
+  {
+   "key": "optim",
+   "label": "optimizer (polar/Newton-Schulz, Adam)",
+   "ms_per_step": 0.5468976499999998,
+   "pct": 1.1876260794587523
+  },
+  {
+   "key": "gemm_moe",
+   "label": "MoE GEMMs (grouped)",
+   "ms_per_step": 0.0,
+   "pct": 0.0
+  },
+  {
+   "key": "gemm",
+   "label": "dense GEMMs (MLP, projections, head)",
+   "ms_per_step": 23.096203100000118,
+   "pct": 50.15500274692392
+  },
+  {
+   "key": "fp8_quant",
+   "label": "fp8 quantize / scales",
+   "ms_per_step": 2.180199950000001,
+   "pct": 4.734455010100466
+  },
+  {
+   "key": "loss_head",
+   "label": "loss / head (CE, sampled softmax, CPLM)",
+   "ms_per_step": 0.7595289000000001,
+   "pct": 1.6493695479265988
+  },
+  {
+   "key": "rows",
+   "label": "row gather/scatter (n-gram, value-embed, MoE dispatch)",
+   "ms_per_step": 1.5239663999999997,
+   "pct": 3.3093984603131306
+  },
+  {
+   "key": "memcpy",
+   "label": "memcpy / memset",
+   "ms_per_step": 0.39953524999999857,
+   "pct": 0.8676184338387102
+  },
+  {
+   "key": "other",
+   "label": "elementwise / other",
+   "ms_per_step": 7.637060500000041,
+   "pct": 16.584405181123657
+  }
+ ],
+ "top_kernels": [
+  {
+   "name": "linear_relu_square_kernel",
+   "cat": "gemm",
+   "n": 440,
+   "us": 140978.79799999992,
+   "ms_per_step": 7.048939899999996,
+   "calls_per_step": 22.0,
+   "avg_us": 320.4063590909089,
+   "pct": 15.307260614079015
+  },
+  {
+   "name": "nvjet_qqtst_192x192_128x4_1x2_h_bz_coopB_TNN",
+   "cat": "gemm",
+   "n": 420,
+   "us": 49309.552,
+   "ms_per_step": 2.4654776000000003,
+   "calls_per_step": 21.0,
+   "avg_us": 117.40369523809525,
+   "pct": 5.353955161594452
+  },
+  {
+   "name": "nvjet_qrtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT",
+   "cat": "gemm",
+   "n": 240,
+   "us": 48420.217000000026,
+   "ms_per_step": 2.4210108500000014,
+   "calls_per_step": 12.0,
+   "avg_us": 201.75090416666677,
+   "pct": 5.257392537913822
+  },
+  {
+   "name": "_qkv_norm_rope_pack_fp8_backward_kernel",
+   "cat": "attn_bwd",
+   "n": 140,
+   "us": 32018.373999999993,
+   "ms_per_step": 1.6009186999999998,
+   "calls_per_step": 7.0,
+   "avg_us": 228.70267142857136,
+   "pct": 3.4765057030565103
+  },
+  {
+   "name": "nvjet_rqtst_128x128_128x6_2x1_v_bz_coopA_algo2_TNT",
+   "cat": "gemm",
+   "n": 220,
+   "us": 31696.02599999999,
+   "ms_per_step": 1.5848012999999994,
+   "calls_per_step": 11.0,
+   "avg_us": 144.07284545454542,
+   "pct": 3.441505654010645
+  },
+  {
+   "name": "ncclDevKernel_SendRecv(ncclDevKernelArgsStorage<4096ul>)",
+   "cat": "nccl",
+   "n": 30,
+   "us": 29602.354000000003,
+   "ms_per_step": 1.4801177,
+   "calls_per_step": 1.5,
+   "avg_us": 986.7451333333335,
+   "pct": 3.214177974962056
+  },
+  {
+   "name": "nvjet_qrtst_128x128_128x6_1x2_h_bz_coopA_algo2_TNT",
+   "cat": "gemm",
+   "n": 220,
+   "us": 28772.79000000001,
+   "ms_per_step": 1.4386395000000005,
+   "calls_per_step": 11.0,
+   "avg_us": 130.78540909090916,
+   "pct": 3.124105194343954
+  },
+  {
+   "name": "void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<64>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 1, false, 128>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<64>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 128>, flash::SingleTileScheduler<true, false, false, 128> > > >(flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<64>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 1, false, 128>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<64>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 128>, flash::SingleTileScheduler<true, false, false, 128> > >::Params)",
+   "cat": "attn_bwd",
+   "n": 60,
+   "us": 26511.184,
+   "ms_per_step": 1.3255592,
+   "calls_per_step": 3.0,
+   "avg_us": 441.8530666666667,
+   "pct": 2.8785435003907605
+  },
+  {
+   "name": "_transpose_copy_kernel",
+   "cat": "other",
+   "n": 590,
+   "us": 23995.651999999995,
+   "ms_per_step": 1.1997825999999998,
+   "calls_per_step": 29.5,
+   "avg_us": 40.67059661016948,
+   "pct": 2.605410912701543
+  },
+  {
+   "name": "ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+   "cat": "nccl",
+   "n": 70,
+   "us": 21290.12100000001,
+   "ms_per_step": 1.0645060500000005,
+   "calls_per_step": 3.5,
+   "avg_us": 304.1445857142859,
+   "pct": 2.311648526413715
+  },
+  {
+   "name": "void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<64>, cute::C<128>, cute::C<128> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 1, false, 0>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<64>, cute::C<128>, cute::C<128> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 0>, flash::SingleTileScheduler<true, false, false, 128> > > >(flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<64>, cute::C<128>, cute::C<128> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 1, false, 0>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<64>, cute::C<128>, cute::C<128> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 0>, flash::SingleTileScheduler<true, false, false, 128> > >::Params)",
+   "cat": "attn_bwd",
+   "n": 40,
+   "us": 21268.757999999994,
+   "ms_per_step": 1.0634378999999998,
+   "calls_per_step": 2.0,
+   "avg_us": 531.7189499999998,
+   "pct": 2.3093289647977993
+  },
+  {
+   "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+   "cat": "nccl",
+   "n": 70,
+   "us": 19455.702,
+   "ms_per_step": 0.9727851000000001,
+   "calls_per_step": 3.5,
+   "avg_us": 277.9386,
+   "pct": 2.11247013855132
+  },
+  {
+   "name": "nvjet_qqhsq_192x192_128x4_1x2_h_bz_coopB_TNN",
+   "cat": "gemm",
+   "n": 20,
+   "us": 16818.87,
+   "ms_per_step": 0.8409435000000001,
+   "calls_per_step": 1.0,
+   "avg_us": 840.9435,
+   "pct": 1.826166983806425
+  },
+  {
+   "name": "nvjet_rqtst_144x128_128x6_1x2_h_bz_coopA_algo2_TNN",
+   "cat": "gemm",
+   "n": 20,
+   "us": 15298.375,
+   "ms_per_step": 0.76491875,
+   "calls_per_step": 1.0,
+   "avg_us": 764.91875,
+   "pct": 1.6610739800527397
+  },
+  {
+   "name": "ce_fwd_bwd_kernel",
+   "cat": "loss_head",
+   "n": 20,
+   "us": 15190.578000000001,
+   "ms_per_step": 0.7595289000000001,
+   "calls_per_step": 1.0,
+   "avg_us": 759.5289,
+   "pct": 1.6493695479265988
+  },
+  {
+   "name": "nvjet_qqtst_128x160_128x5_2x1_v_bz_coopA_algo2_TNT",
+   "cat": "gemm",
+   "n": 140,
+   "us": 14643.019000000006,
+   "ms_per_step": 0.7321509500000003,
+   "calls_per_step": 7.0,
+   "avg_us": 104.5929928571429,
+   "pct": 1.589916435589917
+  },
+  {
+   "name": "void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 2, false, 0>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 0>, flash::SingleTileScheduler<true, false, false, 128> > > >(flash::enable_sm90<flash::FlashAttnBwdSm90<flash::CollectiveMainloopBwdSm90<2, 2, 2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, true, false, false, 2, 1, 2, 2, false, 0>, flash::CollectiveEpilogueBwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, 1, 0>, flash::SingleTileScheduler<true, false, false, 128> > >::Params)",
+   "cat": "attn_bwd",
+   "n": 40,
+   "us": 13362.608000000006,
+   "ms_per_step": 0.6681304000000002,
+   "calls_per_step": 2.0,
+   "avg_us": 334.0652000000001,
+   "pct": 1.450891382545178
+  },
+  {
+   "name": "nvjet_tst_192x192_64x3_2x1_v_bz_coopB_NNN",
+   "cat": "gemm",
+   "n": 180,
+   "us": 12644.738000000012,
+   "ms_per_step": 0.6322369000000007,
+   "calls_per_step": 9.0,
+   "avg_us": 70.2485444444445,
+   "pct": 1.3729461643072638
+  },
+  {
+   "name": "nvjet_tst_192x192_64x4_2x1_v_bz_coopB_TNN",
+   "cat": "gemm",
+   "n": 140,
+   "us": 11205.131,
+   "ms_per_step": 0.56025655,
+   "calls_per_step": 7.0,
+   "avg_us": 80.03665,
+   "pct": 1.21663585493115
+  },
+  {
+   "name": "triton_red_fused__fused_rms_norm__fused_rms_norm_backward__to_copy__unsafe_view_add_bmm_clamp_div_expand_glue_fp8_t_mean_mul_permute_pow_reciprocal_rsqrt_select_select_backward_sigmoid_slice_slice_backward_split_squeeze_sum_unbind_unsqueeze_view_115",
+   "cat": "fp8_quant",
+   "n": 20,
+   "us": 11198.880999999998,
+   "ms_per_step": 0.5599440499999999,
+   "calls_per_step": 1.0,
+   "avg_us": 559.9440499999998,
+   "pct": 1.2159572395634832
+  },
+  {
+   "name": "void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, 128, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, false, false, true, true, false, false, false>, flash::CollectiveEpilogueFwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, false, false>, flash::VarlenDynamicPersistentTileScheduler<128, 128, 256, 32, false, false, true, true, false, true> > > >(flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<64> >, 128, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, false, false, true, true, false, false, false>, flash::CollectiveEpilogueFwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, false, false>, flash::VarlenDynamicPersistentTileScheduler<128, 128, 256, 32, false, false, true, true, false, true> > >::Params)",
+   "cat": "attn_fwd",
+   "n": 60,
+   "us": 10740.008000000003,
+   "ms_per_step": 0.5370004000000002,
+   "calls_per_step": 3.0,
+   "avg_us": 179.0001333333334,
+   "pct": 1.1661335164263047
+  },
+  {
+   "name": "_qk_norm_rope_forward_kernel",
+   "cat": "attn_fwd",
+   "n": 140,
+   "us": 10327.084,
+   "ms_per_step": 0.5163542000000001,
+   "calls_per_step": 7.0,
+   "avg_us": 73.76488571428573,
+   "pct": 1.1212988648937527
+  },
+  {
+   "name": "triton_red_fused__fused_rms_norm__scaled_mm__to_copy__unsafe_view_add_bmm_div_index_lift_fresh_mean_mul_permute_pow_rsqrt_select_slice_split_unbind_unsqueeze_view_72",
+   "cat": "gemm",
+   "n": 20,
+   "us": 9209.152,
+   "ms_per_step": 0.46045759999999997,
+   "calls_per_step": 1.0,
+   "avg_us": 460.4576,
+   "pct": 0.9999155312607152
+  },
+  {
+   "name": "nvjet_tst_192x128_64x5_4x2_h_bz_coopB_splitK_NTT",
+   "cat": "gemm",
+   "n": 100,
+   "us": 8347.295000000002,
+   "ms_per_step": 0.4173647500000001,
+   "calls_per_step": 5.0,
+   "avg_us": 83.47295000000003,
+   "pct": 0.9063364264717224
+  },
+  {
+   "name": "void cutlass::device_kernel<flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, 128, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, false, false, true, true, false, false, false>, flash::CollectiveEpilogueFwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, false, false>, flash::VarlenDynamicPersistentTileScheduler<128, 128, 256, 32, false, false, true, true, false, true> > > >(flash::enable_sm90<flash::FlashAttnFwdSm90<flash::CollectiveMainloopFwdSm90<2, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, 128, cutlass::bfloat16_t, float, cutlass::arch::Sm90, false, true, false, true, false, false, false, true, true, false, false, false>, flash::CollectiveEpilogueFwd<cute::tuple<cute::C<128>, cute::C<128>, cute::C<128> >, cute::tuple<cute::C<1>, cute::C<1>, cute::C<1> >, cutlass::bfloat16_t, cutlass::arch::Sm90, 256, true, false, false, false>, flash::VarlenDynamicPersistentTileScheduler<128, 128, 256, 32, false, false, true, true, false, true> > >::Params)",
+   "cat": "attn_fwd",
+   "n": 40,
+   "us": 8326.005,
+   "ms_per_step": 0.4163002499999999,
+   "calls_per_step": 2.0,
+   "avg_us": 208.15012499999997,
+   "pct": 0.9040247910833019
+  }
+ ],
+ "gaps": [
+  {
+   "us": 176.158203125,
+   "step": 900,
+   "after": "Memcpy DtoD (Device -> Device)",
+   "before": "triton_poi_fused__to_copy_select_0"
+  },
+  {
+   "us": 146.654296875,
+   "step": 900,
+   "after": "_scatter_copy_rows_kernel",
+   "before": "void at::native::reduce_kernel<512, 1, at::native::ReduceOp<"
+  },
+  {
+   "us": 45.216796875,
+   "step": 900,
+   "after": "void at::native::index_elementwise_kernel<128, 4, at::native",
+   "before": "Memcpy DtoD (Device -> Device)"
+  },
+  {
+   "us": 26.783203125,
+   "step": 900,
+   "after": "_quantize_dual_layout_packed_batched_kernel",
+   "before": "_scatter_copy_rows_kernel"
+  },
+  {
+   "us": 15.3916015625,
+   "step": 900,
+   "after": "void at::native::vectorized_elementwise_kernel<4, at::native",
+   "before": "void at::native::index_elementwise_kernel<128, 4, at::native"
+  },
+  {
+   "us": 11.19921875,
+   "step": 908,
+   "after": "Memcpy HtoD (Pinned -> Device)",
+   "before": "Memcpy HtoD (Pinned -> Device)"
+  },
+  {
+   "us": 10.8798828125,
+   "step": 900,
+   "after": "Memcpy DtoD (Device -> Device)",
+   "before": "Memcpy DtoD (Device -> Device)"
+  },
+  {
+   "us": 9.50390625,
+   "step": 900,
+   "after": "Memcpy DtoD (Device -> Device)",
+   "before": "Memcpy DtoD (Device -> Device)"
+  },
+  {
+   "us": 9.439453125,
+   "step": 900,
+   "after": "Memcpy DtoD (Device -> Device)",
+   "before": "Memcpy DtoD (Device -> Device)"
+  },
+  {
+   "us": 9.3125,
+   "step": 903,
+   "after": "triton_poi_fused___lshift_____rshift____to_copy_bitwise_or_c",
+   "before": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<409"
+  }
+ ],
+ "graph_launches": 140,
+ "graph_kernels": 16981,
+ "kernels": 18185,
+ "steps": [
+  {
+   "step": 900,
+   "cpu_ms": 10.54455859375,
+   "window_ms": 41.864462890625,
+   "busy_ms": 40.820552734375,
+   "idle_ms": 1.04391015625,
+   "nccl_ms": 3.51512890625,
+   "nccl_exposed_ms": 0.0020478515625,
+   "kernels": 875
+  },
+  {
+   "step": 901,
+   "cpu_ms": 4.8848388671875,
+   "window_ms": 45.2743779296875,
+   "busy_ms": 44.6358515625,
+   "idle_ms": 0.6385263671875,
+   "nccl_ms": 1.790029296875,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 903
+  },
+  {
+   "step": 902,
+   "cpu_ms": 3.15008203125,
+   "window_ms": 43.6867783203125,
+   "busy_ms": 43.0456220703125,
+   "idle_ms": 0.64115625,
+   "nccl_ms": 1.17368359375,
+   "nccl_exposed_ms": 0.0005439453125,
+   "kernels": 887
+  },
+  {
+   "step": 903,
+   "cpu_ms": 38.3325087890625,
+   "window_ms": 43.28684765625,
+   "busy_ms": 42.646271484375,
+   "idle_ms": 0.640576171875,
+   "nccl_ms": 8.863837890625,
+   "nccl_exposed_ms": 0.005888671875,
+   "kernels": 962
+  },
+  {
+   "step": 904,
+   "cpu_ms": 3.3303017578125,
+   "window_ms": 51.7680654296875,
+   "busy_ms": 51.091380859375,
+   "idle_ms": 0.6766845703125,
+   "nccl_ms": 1.67101953125,
+   "nccl_exposed_ms": 0.0016962890625,
+   "kernels": 888
+  },
+  {
+   "step": 905,
+   "cpu_ms": 4.124154296875,
+   "window_ms": 43.3288955078125,
+   "busy_ms": 42.6968525390625,
+   "idle_ms": 0.63204296875,
+   "nccl_ms": 2.096455078125,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 903
+  },
+  {
+   "step": 906,
+   "cpu_ms": 28.2174931640625,
+   "window_ms": 43.8695595703125,
+   "busy_ms": 43.2242900390625,
+   "idle_ms": 0.64526953125,
+   "nccl_ms": 1.4343515625,
+   "nccl_exposed_ms": 0.0016962890625,
+   "kernels": 887
+  },
+  {
+   "step": 907,
+   "cpu_ms": 59.64399609375,
+   "window_ms": 43.4894052734375,
+   "busy_ms": 42.8735849609375,
+   "idle_ms": 0.6158203125,
+   "nccl_ms": 9.85742578125,
+   "nccl_exposed_ms": 0.02243359375,
+   "kernels": 962
+  },
+  {
+   "step": 908,
+   "cpu_ms": 27.309794921875,
+   "window_ms": 52.259259765625,
+   "busy_ms": 51.5531005859375,
+   "idle_ms": 0.7061591796875,
+   "nccl_ms": 2.03210546875,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 888
+  },
+  {
+   "step": 909,
+   "cpu_ms": 52.59469140625,
+   "window_ms": 43.5601884765625,
+   "busy_ms": 42.9305029296875,
+   "idle_ms": 0.629685546875,
+   "nccl_ms": 2.2784716796875,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 903
+  },
+  {
+   "step": 910,
+   "cpu_ms": 42.017783203125,
+   "window_ms": 44.116341796875,
+   "busy_ms": 43.47817578125,
+   "idle_ms": 0.638166015625,
+   "nccl_ms": 1.93821875,
+   "nccl_exposed_ms": 0.001888671875,
+   "kernels": 887
+  },
+  {
+   "step": 911,
+   "cpu_ms": 58.5535947265625,
+   "window_ms": 44.4420029296875,
+   "busy_ms": 43.8318291015625,
+   "idle_ms": 0.610173828125,
+   "nccl_ms": 9.5445966796875,
+   "nccl_exposed_ms": 0.02666015625,
+   "kernels": 962
+  },
+  {
+   "step": 912,
+   "cpu_ms": 28.777529296875,
+   "window_ms": 52.6147109375,
+   "busy_ms": 51.9206748046875,
+   "idle_ms": 0.6940361328125,
+   "nccl_ms": 1.1174609375,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 888
+  },
+  {
+   "step": 913,
+   "cpu_ms": 53.1173720703125,
+   "window_ms": 43.4120302734375,
+   "busy_ms": 42.783650390625,
+   "idle_ms": 0.6283798828125,
+   "nccl_ms": 1.8112451171875,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 903
+  },
+  {
+   "step": 914,
+   "cpu_ms": 42.2240341796875,
+   "window_ms": 44.05288671875,
+   "busy_ms": 43.4092998046875,
+   "idle_ms": 0.6435869140625,
+   "nccl_ms": 1.24408203125,
+   "nccl_exposed_ms": 0.00048046875,
+   "kernels": 887
+  },
+  {
+   "step": 915,
+   "cpu_ms": 58.2977412109375,
+   "window_ms": 43.670357421875,
+   "busy_ms": 43.0631904296875,
+   "idle_ms": 0.6071669921875,
+   "nccl_ms": 9.4158271484375,
+   "nccl_exposed_ms": 0.025947265625,
+   "kernels": 962
+  },
+  {
+   "step": 916,
+   "cpu_ms": 30.281283203125,
+   "window_ms": 52.602845703125,
+   "busy_ms": 51.905369140625,
+   "idle_ms": 0.6974765625,
+   "nccl_ms": 1.4871728515625,
+   "nccl_exposed_ms": 0.000958984375,
+   "kernels": 888
+  },
+  {
+   "step": 917,
+   "cpu_ms": 53.476478515625,
+   "window_ms": 43.22112109375,
+   "busy_ms": 42.5930224609375,
+   "idle_ms": 0.6280986328125,
+   "nccl_ms": 2.1668955078125,
+   "nccl_exposed_ms": 0.0,
+   "kernels": 903
+  },
+  {
+   "step": 918,
+   "cpu_ms": 44.072203125,
+   "window_ms": 44.6136064453125,
+   "busy_ms": 43.9763603515625,
+   "idle_ms": 0.63724609375,
+   "nccl_ms": 1.1978583984375,
+   "nccl_exposed_ms": 0.0008955078125,
+   "kernels": 887
+  },
+  {
+   "step": 919,
+   "cpu_ms": 59.2999697265625,
+   "window_ms": 55.8592509765625,
+   "busy_ms": 55.240861328125,
+   "idle_ms": 0.6183896484375,
+   "nccl_ms": 11.2393154296875,
+   "nccl_exposed_ms": 6.1593916015625,
+   "kernels": 960
+  }
+ ],
+ "warnings": [],
+ "meta": {
+  "script": "train_gpt.py",
+  "cwd": "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7",
+  "rank": 2,
+  "start": 900,
+  "count": 20,
+  "torch": "2.10.0+cu128",
+  "cupti_init": "done",
+  "status": "ok",
+  "window_ms": 924.2378398776054
+ }
+}

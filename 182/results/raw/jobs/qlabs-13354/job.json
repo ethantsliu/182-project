@@ -1,0 +1,27 @@
+{
+ "name": "qlabs-13354",
+ "provider": "Q Labs Slurm",
+ "state": "FINISHED",
+ "release_state": null,
+ "created_at": "2026-11-22T05:12:10Z",
+ "observed_at": "2026-11-22T07:33:44Z",
+ "max_runtime_seconds": null,
+ "preemption_count": null,
+ "resources": {
+  "workers": 1,
+  "node": "SF-Compute-odin5-gpu-018",
+  "accelerator": {
+   "kind": "GPU",
+   "model": "H100",
+   "count_per_worker": 8
+  },
+  "tier": null
+ },
+ "spend": {
+  "currency": null,
+  "amount": null,
+  "gpu_hours": "18.876",
+  "price_per_gpu_hour": null
+ },
+ "note": "Written by hand: Slurm job 13354 has no Lor job record. created_at / observed_at are the first and last 'QL hh:mm:ss' lines of slurm.out (job start and 'all done'), not submission or billing times. state is read from slurm.out ('all done'; the sweep step and the two gram42s runs returned rc=1 inside the job). gpu_hours = 8 GPUs x 2 h 21 min 34 s between those two lines. The job was not billed in money, so amount and price are null. max_runtime_seconds, preemption_count, release_state and tier are not known from the logs."
+}

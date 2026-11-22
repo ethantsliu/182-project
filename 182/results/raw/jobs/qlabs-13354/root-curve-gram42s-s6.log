@@ -1,0 +1,236 @@
+W1122 07:28:28.859000 4106684 torch/distributed/run.py:852] 
+W1122 07:28:28.859000 4106684 torch/distributed/run.py:852] *****************************************
+W1122 07:28:28.859000 4106684 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1122 07:28:28.859000 4106684 torch/distributed/run.py:852] *****************************************
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 3 is connected to 47 is connected to  peer ranks. 7Expected number of connected peer ranks is :  peer ranks. 7Expected number of connected peer ranks is : 
+7
+[Gloo] Rank 5 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 67 is connected to 
+7 peer ranks. Expected number of connected peer ranks is : 7
+/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/curve-gram42s-s6/23bd16ba-9350-4c7b-9b68-feb88c6ba256.txt
+TRAIN_LOG_PATH=/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/curve-gram42s-s6/23bd16ba-9350-4c7b-9b68-feb88c6ba256.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+METRIC run_config timing=curve_run RUN_METRICS=1 VAL_CURVE=150 seed=6 world_size=8 total_steps=1194
+[anvil-kernel] ANVIL_KERNEL=gram42s banks=['mlp_bank'] (same update rule, Gram-space evaluation)
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank0]:     main()
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank0]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank0]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank0]:     self._self_check(cs)
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank0]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank1]:     main()
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank1]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank1]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank1]:     self._self_check(cs)
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank1]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank6]: Traceback (most recent call last):
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank6]:     main()
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank6]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank6]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank6]:     self._self_check(cs)
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank6]:     return func(*args, **kwargs)
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank6]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank6]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank6]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank6]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank7]: Traceback (most recent call last):
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank7]:     main()
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank7]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank7]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank7]:     self._self_check(cs)
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank7]:     return func(*args, **kwargs)
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank7]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank7]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank7]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank7]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank4]: Traceback (most recent call last):
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank4]:     main()
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank4]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank4]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank4]:     self._self_check(cs)
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank4]:     return func(*args, **kwargs)
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank4]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank4]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank4]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank4]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank2]:     main()
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank2]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank2]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank2]:     self._self_check(cs)
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank2]:     return func(*args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank2]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank5]: Traceback (most recent call last):
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank5]:     main()
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank5]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank5]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank5]:     self._self_check(cs)
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank5]:     return func(*args, **kwargs)
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank5]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank5]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank5]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank5]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 523, in <module>
+[rank3]:     main()
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 300, in main
+[rank3]:     train_step(training_manager, step_graphs, warmup_prefetch, sampled_softmax, warmup_batches, deferred_gathers,
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/train_gpt.py", line 132, in train_step
+[rank3]:     step_graphs.forward(step, batch, ngram_slots, training_manager.get_forward_args(sampled_loss))
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 170, in forward
+[rank3]:     self._self_check(cs)
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank3]:     return func(*args, **kwargs)
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/src/ad3f1756d5b7/track_1_short/perf/cuda_graphs/step_graphs.py", line 246, in _self_check
+[rank3]:     assert abs(replay - eager) <= max(SELF_CHECK_ABS, abs(eager) * SELF_CHECK_REL), \
+[rank3]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: AssertionError: step graph StepGraphKey(tokens=49152, cu_seqlens_rows=128, mtp_targets=1, candidates=14336, ws_short=640, ws_long=1408, max_seq_len=2560): replay loss nan != eager nan
+[rank0]:[W1122 07:30:03.171835032 ProcessGroupNCCL.cpp:1553] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W1122 07:30:05.355000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106797 closing signal SIGTERM
+W1122 07:30:05.356000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106798 closing signal SIGTERM
+W1122 07:30:05.357000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106799 closing signal SIGTERM
+W1122 07:30:05.357000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106800 closing signal SIGTERM
+W1122 07:30:05.357000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106801 closing signal SIGTERM
+W1122 07:30:05.358000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106802 closing signal SIGTERM
+W1122 07:30:05.358000 4106684 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 4106804 closing signal SIGTERM
+E1122 07:30:07.338000 4106684 torch/distributed/elastic/multiprocessing/api.py:984] failed (exitcode: 1) local_rank: 6 (pid: 4106803) of binary: /mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/python
+Traceback (most recent call last):
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/bin/torchrun", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 991, in main
+    run(args)
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/distributed/run.py", line 982, in run
+    elastic_launch(
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/vast/qlabs/users/ethantsliu/nanogpt/venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train_gpt.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 4106797)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 4106798)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[3]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 4106799)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 4106799
+[4]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 3 (local_rank: 3)
+  exitcode  : -15 (pid: 4106800)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 4106800
+[5]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 4 (local_rank: 4)
+  exitcode  : -15 (pid: 4106801)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 4106801
+[6]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 5 (local_rank: 5)
+  exitcode  : -15 (pid: 4106802)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 4106802
+[7]:
+  time      : 2026-11-22_07:30:07
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 7 (local_rank: 7)
+  exitcode  : -15 (pid: 4106804)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 4106804
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-22_07:30:05
+  host      : SF-Compute-odin5-gpu-018.example.com
+  rank      : 6 (local_rank: 6)
+  exitcode  : 1 (pid: 4106803)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

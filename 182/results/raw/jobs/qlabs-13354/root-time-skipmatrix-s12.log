@@ -1,0 +1,89 @@
+W1122 06:58:14.066000 4082337 torch/distributed/run.py:852] 
+W1122 06:58:14.066000 4082337 torch/distributed/run.py:852] *****************************************
+W1122 06:58:14.066000 4082337 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W1122 06:58:14.066000 4082337 torch/distributed/run.py:852] *****************************************
+[Gloo] Rank 1 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 6 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 3 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank [Gloo] Rank 4 is connected to 57 is connected to  peer ranks. 7Expected number of connected peer ranks is :  peer ranks. 7Expected number of connected peer ranks is : 
+7
+[Gloo] Rank 0 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 2 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+[Gloo] Rank 7 is connected to 7 peer ranks. Expected number of connected peer ranks is : 7
+/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/time-skipmatrix-s12/9b13130b-0639-4557-a8c4-c42370e7bcec.txt
+TRAIN_LOG_PATH=/mnt/vast/qlabs/users/ethantsliu/nanogpt/runs/13354/root/time-skipmatrix-s12/9b13130b-0639-4557-a8c4-c42370e7bcec.txt
+fp8 experiment: FP8_OFF=none HADAMARD_FP8=0 FP8_DUMP_DIR=off HADAMARD_SAT_STATS=0
+METRIC run_config timing=timing_run RUN_METRICS=1 VAL_CURVE=0 seed=12 world_size=8 total_steps=1194
+[anvil-kernel] ANVIL_ABLATE=skip_matrix banks=['mlp_bank', 'qk_bank', 'vo_bank'] -- MEASUREMENT ONLY, NOT A VALID TRAINING RUN: the whitening cascade is skipped
+Compiling model, warming up kernels and capturing CUDA graphs (~7 minutes on first execution)
+Sampling steps [0, 1, 318, 319, 320, 321, 679, 680, 681, 682, 963, 964, 965, 966, 1105, 1106, 1107, 1108, 1172, 1173, 1174, 1175, 1176, 1177, 1178] for warmup; 6 step-graph configurations (warmup visits [4, 4, 4, 4, 4, 5]); optimizer graphs captured at step 1, fp8 refresh graphs at step 1106
+Resetting Model
+CUDA graphs sealed: 12 step, 3 optimizer, 3 fp8 refresh; addresses unchanged across the reset
+step:25/1194 train_time:468ms step_avg:18.73ms
+step:50/1194 train_time:896ms step_avg:17.92ms
+step:75/1194 train_time:1313ms step_avg:17.50ms
+step:100/1194 train_time:1740ms step_avg:17.40ms
+step:125/1194 train_time:2157ms step_avg:17.25ms
+step:150/1194 train_time:2584ms step_avg:17.23ms
+step:175/1194 train_time:3001ms step_avg:17.15ms
+step:200/1194 train_time:3429ms step_avg:17.14ms
+step:225/1194 train_time:3846ms step_avg:17.09ms
+step:250/1194 train_time:4273ms step_avg:17.09ms
+step:275/1194 train_time:4690ms step_avg:17.06ms
+step:300/1194 train_time:5118ms step_avg:17.06ms
+step:325/1194 train_time:5535ms step_avg:17.03ms
+step:350/1194 train_time:6299ms step_avg:18.00ms
+step:375/1194 train_time:7058ms step_avg:18.82ms
+step:400/1194 train_time:7829ms step_avg:19.57ms
+step:425/1194 train_time:8583ms step_avg:20.20ms
+step:450/1194 train_time:9348ms step_avg:20.77ms
+step:475/1194 train_time:10108ms step_avg:21.28ms
+step:500/1194 train_time:10878ms step_avg:21.76ms
+step:525/1194 train_time:11630ms step_avg:22.15ms
+step:550/1194 train_time:12397ms step_avg:22.54ms
+step:575/1194 train_time:13155ms step_avg:22.88ms
+step:600/1194 train_time:13922ms step_avg:23.20ms
+step:625/1194 train_time:14674ms step_avg:23.48ms
+step:650/1194 train_time:15441ms step_avg:23.75ms
+step:675/1194 train_time:16200ms step_avg:24.00ms
+step:700/1194 train_time:17179ms step_avg:24.54ms
+step:725/1194 train_time:18302ms step_avg:25.24ms
+step:750/1194 train_time:19445ms step_avg:25.93ms
+step:775/1194 train_time:20575ms step_avg:26.55ms
+step:800/1194 train_time:21719ms step_avg:27.15ms
+step:825/1194 train_time:22841ms step_avg:27.69ms
+step:850/1194 train_time:23980ms step_avg:28.21ms
+step:875/1194 train_time:25110ms step_avg:28.70ms
+step:900/1194 train_time:26257ms step_avg:29.17ms
+step:925/1194 train_time:27380ms step_avg:29.60ms
+step:950/1194 train_time:28523ms step_avg:30.02ms
+step:975/1194 train_time:29668ms step_avg:30.43ms
+step:1000/1194 train_time:30882ms step_avg:30.88ms
+step:1025/1194 train_time:32076ms step_avg:31.29ms
+step:1050/1194 train_time:33290ms step_avg:31.71ms
+step:1075/1194 train_time:34495ms step_avg:32.09ms
+step:1100/1194 train_time:35712ms step_avg:32.47ms
+step:1125/1194 train_time:36842ms step_avg:32.75ms
+step:1150/1194 train_time:38012ms step_avg:33.05ms
+step:1175/1194 train_time:39189ms step_avg:33.35ms
+step:1193/1194 train_time:39691ms step_avg:33.27ms
+step:1194/1194 train_time:39713ms step_avg:33.26ms
+step:1194/1194 val_loss:3.4535 train_time:40120ms step_avg:33.60ms INVALID_FOR_RECORD(anvil_ablate)
+METRIC val step=1194 total=1194 train_time_s=40.1205 val_loss=3.453524 final=1
+METRIC step_latency scope=all steps=1-1193 n=1193 mean_ms=33.172 median_ms=33.635 p95_ms=55.946 max_ms=66.820 clock=host_nosync
+METRIC step_latency scope=stage0 steps=1-319 n=319 mean_ms=16.672 median_ms=13.774 p95_ms=22.407 max_ms=23.838 clock=host_nosync
+METRIC step_latency scope=stage1 steps=320-680 n=361 mean_ms=30.258 median_ms=28.577 p95_ms=37.976 max_ms=45.829 clock=host_nosync
+METRIC step_latency scope=stage2 steps=681-1106 n=426 mean_ms=46.155 median_ms=45.058 p95_ms=57.052 max_ms=66.820 clock=host_nosync
+METRIC step_latency scope=stage3 steps=1107-1173 n=67 mean_ms=46.185 median_ms=45.238 p95_ms=63.249 max_ms=63.844 clock=host_nosync
+METRIC step_latency scope=stage4 steps=1174-1193 n=20 mean_ms=28.801 median_ms=22.150 p95_ms=50.630 max_ms=52.021 clock=host_nosync
+METRIC clock_split step0_ms=138.936 loop_end_ms=39712.817 tail_ms=407.665 total_ms=40120.483 clock=host_nosync
+METRIC peak_mem rank=0 allocated_mib=48379 reserved_mib=62636 warmup_allocated_mib=33985 warmup_reserved_mib=45210
+METRIC peak_mem rank=1 allocated_mib=48378 reserved_mib=62376 warmup_allocated_mib=33985 warmup_reserved_mib=45170
+METRIC peak_mem rank=2 allocated_mib=48379 reserved_mib=62656 warmup_allocated_mib=33986 warmup_reserved_mib=45170
+METRIC peak_mem rank=3 allocated_mib=48378 reserved_mib=62736 warmup_allocated_mib=33985 warmup_reserved_mib=45168
+METRIC peak_mem rank=4 allocated_mib=48381 reserved_mib=62534 warmup_allocated_mib=33986 warmup_reserved_mib=45150
+METRIC peak_mem rank=5 allocated_mib=48381 reserved_mib=62374 warmup_allocated_mib=33985 warmup_reserved_mib=45170
+METRIC peak_mem rank=6 allocated_mib=48381 reserved_mib=62534 warmup_allocated_mib=33986 warmup_reserved_mib=45150
+METRIC peak_mem rank=7 allocated_mib=48380 reserved_mib=62734 warmup_allocated_mib=33985 warmup_reserved_mib=45170
+METRIC peak_mem rank=max allocated_mib=48381 reserved_mib=62736 warmup_allocated_mib=33986 warmup_reserved_mib=45210
+peak memory allocated: 48379 MiB reserved: 62636 MiB
