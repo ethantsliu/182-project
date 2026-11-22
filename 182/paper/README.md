@@ -1,6 +1,6 @@
 # Report
 
-`main.tex` is the report and `main.pdf` the built copy. `overleaf.zip` holds `main.tex` and the figures for upload to Overleaf.
+`main.tex` is the report and `main.pdf` the built copy. The report uses the NeurIPS 2015 style (`nips15submit_e.sty`, from https://neurips.cc/Conferences/2015/PaperInformation/StyleFiles). `overleaf.zip` holds `main.tex`, the style file and the figures: in Overleaf choose New Project, Upload Project, and select the zip.
 
 ## Reproducing the figures and tables
 
