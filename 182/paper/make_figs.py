@@ -67,7 +67,7 @@ def fig_bench():
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=True)
     for ax, kind, title in ((axes[0], "matrix", "matrix sequence"), (axes[1], "update", "full update")):
         x = np.arange(3); w = 0.38
-        for off, key, col, lab in ((-w / 2, "base", C_RECORD, "record"), (w / 2, "alt", C_OURS, "Gram-space (ours)")):
+        for off, key, col, lab in ((-w / 2, "base", C_RECORD, "record"), (w / 2, "alt", C_OURS, "Gram-space")):
             v = [rows[(kind, g)][f"{key}_ms"] for g, _ in groups]
             lo = [rows[(kind, g)][f"{key}_ms"] - rows[(kind, g)][f"{key}_p10"] for g, _ in groups]
             hi = [rows[(kind, g)][f"{key}_p90"] - rows[(kind, g)][f"{key}_ms"] for g, _ in groups]
@@ -84,7 +84,7 @@ def fig_bench():
 
 # ---------------------------------------------------------------- 3. end to end: step loop and remainder
 ARMS = [("record", ["base.log", "base-s2.log", "base-s3.log"], C_RECORD),
-        ("Gram-space (ours)", ["gram222s-s1.log", "gram222s-s2.log", "gram222s-s3.log"], C_OURS),
+        ("Gram-space", ["gram222s-s1.log", "gram222s-s2.log", "gram222s-s3.log"], C_OURS),
         ("no matrix work (ceiling)", ["skipmatrix.log", "skipmatrix-s2.log", "skipmatrix-s3.log"], C_CEIL)]
 
 def read_run(f):
@@ -156,7 +156,7 @@ def fig_paired():
     dg = {s: step_ms(g) - step_ms(b) for s, (b, g, k) in PAIRS.items()}
     dk = {s: step_ms(k) - step_ms(b) for s, (b, g, k) in PAIRS.items() if k is not None}
     fig, ax = plt.subplots(figsize=(6.2, 4.4))
-    for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space (ours)"), (dk, C_CEIL, "no matrix work (ceiling)"))):
+    for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space"), (dk, C_CEIL, "no matrix work (ceiling)"))):
         v = list(d.values()); mu = st.mean(v); sd = st.stdev(v)
         ax.bar(i, mu, 0.6, yerr=sd, color=col, edgecolor="black", linewidth=1.5, capsize=8, error_kw=ERR, label=lab)
         ax.scatter(np.linspace(i - 0.2, i + 0.2, len(v)), v, color="black", s=24, zorder=4)
@@ -176,7 +176,7 @@ def fig_paired():
 # ---------------------------------------------------------------- 6. validation loss during training
 def fig_curve():
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    for f, col, lab, ls in ((RAW2 / "root-curve-base-s5.log", C_RECORD_DARK, "record", "-"), (RAW2 / "root-curve-gram222s-s5.log", C_OURS, "Gram-space (ours)", "--")):
+    for f, col, lab, ls in ((RAW2 / "root-curve-base-s5.log", C_RECORD_DARK, "record", "-"), (RAW2 / "root-curve-gram222s-s5.log", C_OURS, "Gram-space", "--")):
         pts = [(int(a), float(b), float(c)) for a, b, c in re.findall(r"METRIC val step=(\d+) total=\d+ train_time_s=([\d.]+) val_loss=([\d.]+)", open(f, errors="ignore").read())]
         # the clock of a curve run carries the validations' own overhead and, for the first run on the node, a cold
         # first step: plot time relative to the first validation
