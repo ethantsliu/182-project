@@ -44,6 +44,7 @@ from track_1_short.config import (
     LR_COOLDOWN_FRAC,
     RUN_METRICS,
     SPLIT_EMBED_STAGE,
+    TRAIN_LOSS_EVERY,
     TRAINING_STAGES,
     VAL_CURVE,
     WS_POST_YARN_EXT,
@@ -97,6 +98,7 @@ TIMING_TAG = ((" INVALID_FOR_RECORD(fp8_dump)" if FP8_DUMP_DIR else "")
               + (" INVALID_FOR_RECORD(sat_stats)" if HADAMARD_SAT_STATS else "")
               # VAL_CURVE=N (config.py): intermediate validations leave their reads, pulls and gathers on the clock.
               + (" INVALID_FOR_RECORD(val_curve)" if VAL_CURVE else "")
+              + (" INVALID_FOR_RECORD(train_loss)" if TRAIN_LOSS_EVERY else "")
               + (" INVALID_FOR_RECORD(anvil_ablate)" if ANVIL_ABLATE else ""))
 
 
@@ -475,6 +477,10 @@ def main():
                    step, uncompiled_model.lm_head_f8_col, prefetch_next=step + 1 < training_schedule.total_steps,
                    before_forward=fp8_dump_hook if FP8_DUMP_DIR and step in FP8_DUMP_STEPS else None)
         tail_averages.tick(step)
+        if TRAIN_LOSS_EVERY and step % TRAIN_LOSS_EVERY == 0:
+            # The forward graph's loss output still holds this step's value (no later replay yet). A host sync.
+            print0(f"METRIC train step={step} total={training_schedule.total_steps} "
+                   f"loss={step_graphs.current.loss.item():.6f} rank=0", console=True)
         if step_clock is not None:  # RUN_METRICS=1: a host clock reading, no synchronize
             step_clock[step] = training_time_ms + 1000 * (time.perf_counter() - t0)
 
