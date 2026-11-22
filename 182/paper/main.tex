@@ -14,7 +14,7 @@ ANVIL2, the record submission to the modded-nanoGPT speedrun, trains a GPT-style
 \end{abstract}
 
 \section{Introduction and background}
-Matrix-aware optimizers change the geometry of a weight update as well as its size. Shampoo~\cite{shampoo} preconditions each weight tensor with per-dimension statistics, and Anil et al.~\cite{anil} make this practical at scale. SOAP~\cite{soap} runs Adam in Shampoo's eigenbasis. Muon, studied at scale by Liu et al.~\cite{muon}, replaces the momentum matrix $X=U\Sigma V^\top$ with an approximation of $UV^\top$, which it computes with a Newton--Schulz polynomial iteration. Polar Express~\cite{polar} tunes a separate polynomial for each round of that iteration. Wen et al.~\cite{fantastic} show that claimed optimizer gains shrink under fair, well-tuned comparisons. For that reason we compare at fixed validation quality and report variance.
+Matrix-aware optimizers change the geometry of a weight update as well as its size. Shampoo~\cite{shampoo} preconditions each weight tensor with per-dimension statistics, and Anil et al.~\cite{anil} make this practical at scale. SOAP~\cite{soap} runs Adam in Shampoo's eigenbasis. Muon, studied at scale by Liu et al.~\cite{muon}, replaces the momentum matrix $X=U\Sigma V^\top$ with an approximation of $UV^\top$, which it computes with a Newton--Schulz polynomial iteration. Polar Express~\cite{polar} tunes a separate polynomial for each round of that iteration. Other work reduces the cost of the orthogonalization by reusing results from earlier optimizer steps. CacheMuon~\cite{cachemuon} reuses information from previous steps to approximate the polar factor at the current step, and Transport Muon~\cite{transportmuon} keeps the previous polar factor, recomputes it in full every several steps and applies a small correction in between. We did not test these methods. Wen et al.~\cite{fantastic} show that claimed optimizer gains shrink under fair, well-tuned comparisons. For that reason we compare at fixed validation quality and report variance.
 
 These optimizers use more computation per step in order to train in fewer steps. Whether the added computation affects wall-clock time depends on the rest of the training system. In ANVIL2~\cite{anvil2}, which we refer to as the record, the forward and backward passes already use FP8 arithmetic~\cite{fp8}, custom Triton kernels~\cite{triton}, FlashAttention-3~\cite{fa3} and CUDA graphs. The optimizer could therefore be a visible share of the remaining time.
 
@@ -132,13 +132,15 @@ The end-to-end runs are few (five paired seeds for the kernel and four for the a
 \section{Reproducibility}
 Code, job scripts, raw logs and the scripts that regenerate every table and figure are in \url{https://github.com/ethantsliu/182-project} (\texttt{182/results/}, \texttt{182/optim-kernel/}, \texttt{182/paper/}). The kernel is enabled with \texttt{ANVIL\_KERNEL=gram222s} and the ablation with \texttt{ANVIL\_ABLATE=skip\_matrix}. With no flag set, the trainer is the record. Checkpoints will be added with V2. Figure styling follows the conventions of the \texttt{figures4papers} repository by Chen Liu (\url{https://github.com/ChenLiu-1996/figures4papers}).
 
-\begin{thebibliography}{11}\small
+\begin{thebibliography}{13}\small
 \bibitem{shampoo} Gupta, Koren, Singer. Shampoo: Preconditioned Stochastic Tensor Optimization. 2018.
 \bibitem{anil} Anil et al. Scalable Second Order Optimization for Deep Learning. 2020.
 \bibitem{soap} Vyas et al. SOAP: Improving and Stabilizing Shampoo Using Adam. 2025.
 \bibitem{muon} Liu et al. Muon is Scalable for LLM Training. 2025.
 \bibitem{polar} Amsel et al. The Polar Express: Optimal Matrix Sign Methods and Their Application to the Muon Algorithm. arXiv:2505.16932, 2025.
 \bibitem{gramns} Zhang, Amsel, Chen, Dao. Gram Newton--Schulz: A Fast, Hardware-Aware Newton--Schulz Algorithm for Muon. Blog post and code, 2026. \url{https://tridao.me/blog/2026/gram-newton-schulz/}
+\bibitem{cachemuon} Dev, Bohara, Tak\'a\v{c}, Horv\'ath. CacheMuon: Using Temporal Preconditioning To Approximate Polar Factor. arXiv:2606.16371, 2026.
+\bibitem{transportmuon} Smith. Transport Muon: Beating Muon in Speed and Performance in 1 Newton Step. Blog post and code, 2026. \url{https://ethansmith2000.substack.com/p/transport-muon-beating-muon-in-speed}
 \bibitem{fantastic} Wen et al. Fantastic Pretraining Optimizers and Where to Find Them. 2025.
 \bibitem{fp8} Micikevicius et al. FP8 Formats for Deep Learning. 2022.
 \bibitem{triton} Tillet, Kung, Cox. Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations. 2019.
