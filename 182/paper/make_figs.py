@@ -85,7 +85,7 @@ def fig_bench():
 # ---------------------------------------------------------------- 3. end to end: step loop and remainder
 ARMS = [("record", ["base.log", "base-s2.log", "base-s3.log"], C_RECORD),
         ("Gram-space", ["gram222s-s1.log", "gram222s-s2.log", "gram222s-s3.log"], C_OURS),
-        ("no matrix work (ceiling)", ["skipmatrix.log", "skipmatrix-s2.log", "skipmatrix-s3.log"], C_CEIL)]
+        ("no matrix work (ablation)", ["skipmatrix.log", "skipmatrix-s2.log", "skipmatrix-s3.log"], C_CEIL)]
 
 def read_run(f):
     t = ms = n = None
@@ -156,7 +156,7 @@ def fig_paired():
     dg = {s: step_ms(g) - step_ms(b) for s, (b, g, k) in PAIRS.items()}
     dk = {s: step_ms(k) - step_ms(b) for s, (b, g, k) in PAIRS.items() if k is not None}
     fig, ax = plt.subplots(figsize=(6.2, 4.4))
-    for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space"), (dk, C_CEIL, "no matrix work (ceiling)"))):
+    for i, (d, col, lab) in enumerate(((dg, C_OURS, "Gram-space"), (dk, C_CEIL, "no matrix work (ablation)"))):
         v = list(d.values()); mu = st.mean(v); sd = st.stdev(v)
         ax.bar(i, mu, 0.6, yerr=sd, color=col, edgecolor="black", linewidth=1.5, capsize=8, error_kw=ERR, label=lab)
         ax.scatter(np.linspace(i - 0.2, i + 0.2, len(v)), v, color="black", s=24, zorder=4)
