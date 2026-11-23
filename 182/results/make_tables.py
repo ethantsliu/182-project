@@ -88,7 +88,7 @@ def read(rel):
         return f.read()
 
 def rglob(pattern):
-    return sorted(os.path.relpath(p, RAW) for p in glob.glob(os.path.join(RAW, pattern), recursive=True))
+    return sorted(os.path.relpath(p, RAW).replace("\\", "/") for p in glob.glob(os.path.join(RAW, pattern), recursive=True))
 
 def parse_log(rel):
     """Fields every trainer log has in some form. Losses are kept as the string the log printed."""
