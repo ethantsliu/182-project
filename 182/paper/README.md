@@ -12,11 +12,11 @@ This needs no GPU. It reads the archived training results in `182/results/raw/` 
 
 | Output | Made by | From |
 |---|---|---|
-| `fig_maps.png` (Figure 1) | `make_figs.py` | the six map coefficients (no data) |
-| `fig_sweep.png` (Figure 3) | `make_figs.py`; `tables.md` section C2 | `raw/jobs/qlabs-13354/sweep.log` |
+| `fig_maps.png` (Figure 4, Appendix C) | `make_figs.py` | the six map coefficients (no data) |
+| `fig_sweep.png` (Figure 2) | `make_figs.py`; `tables.md` section C2 | `raw/jobs/qlabs-13354/sweep.log` |
 | Table 3 | `tables.md` section B2c | `raw/jobs/qlabs-13354/root-time-*.log` |
-| `fig_paired.png` (Figure 4), Table 6 | `make_figs.py` (pairs from `make_tables.py`); `tables.md` sections B2b, B2c and B4 | `raw/bringup-1119/*.log`, `raw/jobs/fastest-1-*/out/root-*.log`, `raw/jobs/kernel-ab2-*/out/root-*.log` and `raw/jobs/qlabs-13354/root-time-*.log` |
-| `fig_curve.png` (Figure 5) | `make_figs.py`; `tables.md` section B2c | `raw/jobs/qlabs-13354/root-curve-{base,gram222s}-s{5,6,7}.log` |
+| `fig_paired.png` (Figure 5, Appendix G), Tables 3 and 6 | `make_figs.py` (pairs from `make_tables.py`); `tables.md` sections B2b, B2c and B4 | `raw/bringup-1119/*.log`, `raw/jobs/fastest-1-*/out/root-*.log`, `raw/jobs/kernel-ab2-*/out/root-*.log` and `raw/jobs/qlabs-13354/root-time-*.log` |
+| `fig_curve.png` (Figure 3) | `make_figs.py`; `tables.md` section B2c | `raw/jobs/qlabs-13354/root-curve-{base,gram222s}-s{5,6,7}.log` |
 | `fig_bench.png` (Figure 6), Table 2 | `make_figs.py`; `182/results/tables.md` section C | `raw/bringup-1119/bench.log` |
 | `fig_profile.png` (Figure 7) | `make_figs.py` | the profile table in `182/results/README.md` section 3.6 (source: `raw/jobs/fastest-1-*/out/session/profile/root/analysis.txt`) |
 | `fig_profile_late.png` (Figure 8) | `make_figs.py`; `tables.md` section D2 | `raw/jobs/qlabs-13354/profile-late/analysis.txt` |
@@ -43,4 +43,4 @@ Add `VAL_CURVE=150` for validation curves, `TRAIN_LOSS_EVERY=25` for training lo
 
 ## Not in the repository yet
 
-Training-loss curves and model checkpoints. The runs that produce them were submitted and had not finished when this was written.
+Model checkpoints of the record and the Gram-space update at seed 5 were saved (898 MB each) and are not linked yet. Table 8 (compiled baseline) comes from `182/optim-kernel/compile_bench.py`; its log is `raw/flowmatic-compile-1124/compile_bench.log`.

@@ -206,7 +206,7 @@ def fig_curve():
                 for b in STAGE_STARTS: a.axvline(b, color=PALETTE["neutral"], lw=1.2, zorder=0)
         else:
             top.axhline(3.28, color="black", lw=1.5, ls=":", alpha=0.7)
-    axes[1, 0].set_ylabel("difference"); axes[0, 0].legend(loc="upper right", fontsize=FS_S)
+    axes[1, 0].set_ylabel("difference (nats/token)"); axes[1, 1].set_ylabel("difference (nats/token)"); axes[0, 0].legend(loc="upper right", fontsize=FS_S)
     fig.align_ylabels(axes[:, 0])
     save(fig, "fig_curve.png")
 
@@ -220,7 +220,7 @@ def fig_sweep():
     thin = sorted((sh for sh in shapes if dims(sh)[2] == 768), key=lambda sh: dims(sh)[1])
     wide = [sh for sh in shapes if dims(sh)[2] != 768]
     styles = (("matrix", "gram222s", C_OURS, "o", "-", "Gram-space, two maps per restart"),
-              ("matrix", "gram33s", PALETTE["teal"], "s", "-", "Gram-space, three maps per restart"))
+              ("matrix", "gram33s", PALETTE["teal"], "s", "--", "three maps per restart (diverged in 1 of 3 training runs)"))
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.9), sharey=True, gridspec_kw={"width_ratios": [1.45, 1]})
     ax = axes[0]
     for kind, kern, col, m, ls, lab in styles:
