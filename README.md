@@ -3,6 +3,7 @@
 > This repository is a fork of modded-nanogpt used for an EECS 182 course project:
 > "Do Faster Optimizer Kernels Reduce End-to-End Training Time?"
 > The project map is in [`182/README.md`](182/README.md). It says where the code, the tests, the GPU job scripts and the results are.
+> **Review the results:** open the [executed notebook](182/reproduce/review.ipynb), or follow the [CPU-only reproduction guide](182/reproduce/README.md) to regenerate the figures and result tables in one command.
 > Everything below this box is the upstream README, unchanged.
 
 # Modded-NanoGPT

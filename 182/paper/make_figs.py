@@ -126,10 +126,11 @@ def fig_steploop():
 
 # ---------------------------------------------------------------- 4. where a step's GPU time goes (profile)
 def fig_profile():
-    txt = (RES / "README.md").read_text()
-    sec = txt[txt.index("### 3.6"):]
-    rows = re.findall(r"^\| ([^|]+?) \| ([\d.]+) \| ([\d.]+)% \|$", sec, flags=re.M)
-    rows = sorted(((n.split(" (")[0], float(ms), float(p)) for n, ms, p in rows), key=lambda r: r[1])
+    # Read the archived profiler analysis directly, as the late-profile figure does.
+    _, cats, _ = MT.parse_profile()
+    if not cats:
+        raise FileNotFoundError("No early profile categories found in results/raw/jobs/fastest-1-*/out/session/profile/root/analysis.txt")
+    rows = sorted(((n.split(" (")[0], ms, p) for n, ms, p in cats), key=lambda r: r[1])
     fig, ax = plt.subplots(figsize=(9, 4.8))
     cols = [C_OURS if n.startswith("optimizer") else PALETTE["neutral"] for n, _, _ in rows]
     ax.barh(range(len(rows)), [r[1] for r in rows], color=cols, edgecolor="black", linewidth=1.5)
